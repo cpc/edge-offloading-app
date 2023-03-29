@@ -4,7 +4,9 @@
 # Sets the minimum version of CMake required to build the native library.
 
 cmake_minimum_required(VERSION 3.22.1)
+include(ExternalProject)
 
+set(EXTERNAL_PATH ${CMAKE_CURRENT_LIST_DIR}/../../../../../external/)
 # Declares and names the project.
 
 project("poclaisademo")
@@ -21,7 +23,12 @@ add_library( # Sets the name of the library.
         SHARED
 
         # Provides a relative path to your source file(s).
-        native-lib.cpp)
+        native-lib.cpp
+        vectorAddExample.cpp
+        vectorAddExample.h)
+
+target_include_directories(poclaisademo PRIVATE
+                            ${EXTERNAL_PATH}/libopencl-stub/include )
 
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because CMake includes system libraries in the search path by
@@ -36,6 +43,8 @@ find_library( # Sets the name of the path variable.
         # you want CMake to locate.
         log)
 
+add_subdirectory(${EXTERNAL_PATH}/libopencl-stub libopencl-stub-dir)
+
 # Specifies libraries CMake should link to your target library. You
 # can link multiple libraries, such as libraries you define in this
 # build script, prebuilt third-party libraries, or system libraries.
@@ -45,4 +54,8 @@ target_link_libraries( # Specifies the target library.
 
         # Links the target library to the log library
         # included in the NDK.
-        ${log-lib})
+        ${log-lib}
+
+        # this library comes from libopencl-stub
+        OpenCL
+        )

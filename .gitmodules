@@ -1,0 +1,7 @@
+[submodule "external/pocl"]
+	path = external/pocl
+	url = git@gitlab.tuni.fi:cs/cpc/pocl.git
+	branch = remote-devel
+[submodule "external/libopencl-stub"]
+	path = external/libopencl-stub
+	url = git@github.com:krrishnarraj/libopencl-stub.git
