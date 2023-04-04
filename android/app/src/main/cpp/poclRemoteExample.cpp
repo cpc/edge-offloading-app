@@ -1,7 +1,10 @@
-//
-// Created by rabijl on 29.3.2023.
-//
-#include "vectorAddExample.h"
+
+#include "poclRemoteExample.h"
+#include <rename_opencl.h>
+
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+
 #include <CL/cl.h>
 #include <android/log.h>
 #include <string.h>
@@ -11,13 +14,11 @@
 extern "C" {
 #endif
 
-
-#define LOCAL_SIZE  64
-
+//#define LOCAL_SIZE  64
 
 #define CHECK_AND_RETURN(ret, msg)                                          \
     if(ret != CL_SUCCESS) {                                                 \
-        __android_log_print(ANDROID_LOG_ERROR, "openCL vector add",         \
+        __android_log_print(ANDROID_LOG_ERROR, "opencl vector add",         \
 				"ERROR: %s at line %d in %s returned with %d\n",            \
 					msg, __LINE__, __FILE__, ret);                          \
         return ret;                                                         \
@@ -37,16 +38,18 @@ static const char *vector_add_str="											\
 		";
 
 
+
+
 static cl_context clContext = NULL;
 static cl_command_queue clCommandQueue = NULL;
 static cl_program clProgram = NULL;
 static cl_kernel clKernel = NULL;
 
-JNIEXPORT jint JNICALL
-Java_org_portablecl_poclaisademo_MainActivity_initCL(JNIEnv *env, jobject thiz)
-{
 
-    __android_log_print(ANDROID_LOG_ERROR, "openCL vector add", "If you see this, logging from native code is working.");
+
+JNIEXPORT jint JNICALL
+Java_org_portablecl_poclaisademo_MainActivity_initPoCL(JNIEnv *env, jobject thiz) {
+    __android_log_print(ANDROID_LOG_ERROR, "opencl vector add", "If you see this, logging from native code is working.");
 
     cl_platform_id clPlatform;
     cl_device_id clDevice;
@@ -61,17 +64,16 @@ Java_org_portablecl_poclaisademo_MainActivity_initCL(JNIEnv *env, jobject thiz)
     // some info
     char result_array[256];
     clGetDeviceInfo(clDevice, CL_DEVICE_NAME, 256* sizeof (char), result_array,NULL);
-    __android_log_print(ANDROID_LOG_INFO, "openCL vector add", "CL_DEVICE_NAME: %s", result_array);
+    __android_log_print(ANDROID_LOG_INFO, "PoCL vector add", "CL_DEVICE_NAME: %s", result_array);
 
     clGetDeviceInfo(clDevice, CL_DEVICE_VERSION, 256* sizeof (char), result_array,NULL);
-    __android_log_print(ANDROID_LOG_INFO, "openCL vector add", "CL_DEVICE_VERSION: %s", result_array);
+    __android_log_print(ANDROID_LOG_INFO, "PoCL vector add", "CL_DEVICE_VERSION: %s", result_array);
 
     clGetDeviceInfo(clDevice, CL_DRIVER_VERSION, 256* sizeof (char), result_array,NULL);
-    __android_log_print(ANDROID_LOG_INFO, "openCL vector add", "CL_DRIVER_VERSION: %s", result_array);
+    __android_log_print(ANDROID_LOG_INFO, "PoCL vector add", "CL_DRIVER_VERSION: %s", result_array);
 
     clGetDeviceInfo(clDevice, CL_DEVICE_NAME, 256* sizeof (char), result_array,NULL);
-    __android_log_print(ANDROID_LOG_INFO, "openCL vector add", "CL_DEVICE_NAME: %s", result_array);
-
+    __android_log_print(ANDROID_LOG_INFO, "PoCL vector add", "CL_DEVICE_NAME: %s", result_array);
 
     cl_context_properties cps[] = { CL_CONTEXT_PLATFORM, (cl_context_properties) clPlatform,
                                     0 };
@@ -92,27 +94,15 @@ Java_org_portablecl_poclaisademo_MainActivity_initCL(JNIEnv *env, jobject thiz)
     clKernel = clCreateKernel(clProgram, "vec_add", &status);
     CHECK_AND_RETURN(status, "creating kernel failed");
 
-
-
     return 0;
 }
 
 JNIEXPORT jint JNICALL
-Java_org_portablecl_poclaisademo_MainActivity_destroyCL(JNIEnv *env, jobject thiz)
+Java_org_portablecl_poclaisademo_MainActivity_poclRemoteVectorAdd(JNIEnv *env, jobject thiz, jint n,
+                                                                  jfloatArray a, jfloatArray b,
+                                                                  jfloatArray c)
 {
-    if(clKernel)		clReleaseKernel(clKernel);
-    if(clProgram)		clReleaseProgram(clProgram);
-    if(clCommandQueue) 	clReleaseCommandQueue(clCommandQueue);
-    if(clContext)	    clReleaseContext(clContext);
 
-    return 0;
-}
-
-JNIEXPORT jint JNICALL
-Java_org_portablecl_poclaisademo_MainActivity_vectorAddCL(JNIEnv *env, jobject thiz, jint n,
-                                                          jfloatArray a, jfloatArray b,
-                                                          jfloatArray c)
-{
     cl_int	status;
     int byteSize = n * sizeof(float);
 
@@ -140,9 +130,11 @@ Java_org_portablecl_poclaisademo_MainActivity_vectorAddCL(JNIEnv *env, jobject t
     status |= clSetKernelArg(clKernel, 3, sizeof(cl_mem), (void *)&C_obj);
     CHECK_AND_RETURN(status, "clSetKernelArg failed");
 
-    size_t localSize = LOCAL_SIZE;
-    size_t wgs = (n + localSize - 1) / localSize;
-    size_t globalSize = wgs * localSize;
+//    size_t localSize = LOCAL_SIZE;
+//    size_t wgs = (n + localSize - 1) / localSize;
+//    size_t globalSize = wgs * localSize;
+    size_t localSize = 1;
+    size_t globalSize = n;
 
     status = clEnqueueNDRangeKernel(clCommandQueue, clKernel, 1, NULL,
                                     &globalSize, &localSize, 0, NULL, NULL);
@@ -159,18 +151,33 @@ Java_org_portablecl_poclaisademo_MainActivity_vectorAddCL(JNIEnv *env, jobject t
     env->ReleaseFloatArrayElements(c, C, 0);
 
     return 0;
+
 }
 
 
+JNIEXPORT jint JNICALL
+Java_org_portablecl_poclaisademo_MainActivity_destroyPoCL(JNIEnv *env, jobject thiz)
+{
+    if(clKernel)		clReleaseKernel(clKernel);
+    if(clProgram)		clReleaseProgram(clProgram);
+    if(clCommandQueue) 	clReleaseCommandQueue(clCommandQueue);
+    if(clContext)	    clReleaseContext(clContext);
+
+    return 0;
+}
 
 JNIEXPORT void JNICALL
-Java_org_portablecl_poclaisademo_MainActivity_setenv(JNIEnv *env, jobject thiz, jstring key,
-jstring value)
+Java_org_portablecl_poclaisademo_MainActivity_setPoCLEnv(JNIEnv *env, jobject thiz, jstring key,
+                                                         jstring value)
 {
-    setenv((char*) env->GetStringUTFChars(key, 0),
-           (char*) env->GetStringUTFChars(value, 0), 1);
+    char * c_key = (char*) env->GetStringUTFChars(key, 0);
+    char * c_value = (char*) env->GetStringUTFChars(value, 0);
+    __android_log_print(ANDROID_LOG_INFO, "Pocl vector add", "setting env variable: %s : %s", c_key, c_value);
+
+    setenv(c_key, c_value, 1);
 }
 
 #ifdef __cplusplus
 }
 #endif
+

@@ -51,6 +51,10 @@ Android constantly updates packages and libraries that can break with newer vers
 
 ### TO BE ADDED
 
+## Development notes
+
+* Use CPP files with `extern "C"` as the JNIEnv is different between C and CPP and the editer will have an issue with it otherwise.
+
 ## License
 
 ### TO BE ADDED

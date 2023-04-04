@@ -25,10 +25,15 @@ add_library( # Sets the name of the library.
         # Provides a relative path to your source file(s).
         native-lib.cpp
         vectorAddExample.cpp
-        vectorAddExample.h)
+        vectorAddExample.h
+
+        )
 
 target_include_directories(poclaisademo PRIVATE
-                            ${EXTERNAL_PATH}/libopencl-stub/include )
+                            ${EXTERNAL_PATH}/libopencl-stub/include
+
+                            )
+
 
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because CMake includes system libraries in the search path by
@@ -43,7 +48,65 @@ find_library( # Sets the name of the path variable.
         # you want CMake to locate.
         log)
 
+# add the libopencl-stub subdirectory with cmakelists.txt to link the opencl stubs to
 add_subdirectory(${EXTERNAL_PATH}/libopencl-stub libopencl-stub-dir)
+
+# build pocl project
+set(POCL_CMAKE_ARGS
+        -DENABLE_LLVM=0
+        -DENABLE_LOADABLE_DRIVERS=0
+        -DENABLE_ICD=0
+        -DENABLE_PROXY_DEVICE=1
+        -DENABLE_REMOTE_CLIENT=1
+        -DENABLE_REMOTE_SERVER=0
+        -DENABLE_HOST_CPU_DEVICES=0
+        -DENABLE_POCLCC=0
+        -DENABLE_TESTS=0
+        -DENABLE_EXAMPLES=0
+        -DENABLE_LOCAL_INTEROP=0
+        -DENABLE_EGL_LOCAL_INTEROP=0
+        -DBUILD_SHARED_LIBS=0
+        -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/pocl
+        -DCMAKE_MAKE_PROGRAM=${ANDROID_NDK}/prebuilt/linux-x86_64/bin/make
+        -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK}/build/cmake/android.toolchain.cmake
+        -DANDROID_NDK=${ANDROID_NDK}
+        -DCMAKE_BUILD_TYPE=Debug
+        -DANDROID_ABI=${ANDROID_ABI}
+        -DANDROID_NATIVE_API_LEVEL=${ANDROID_PLATFORM_LEVEL}
+        -DVISIBILITY_HIDDEN=0
+        )
+
+ExternalProject_Add(pocl
+        SOURCE_DIR ${EXTERNAL_PATH}/pocl
+        CMAKE_GENERATOR "Unix Makefiles"
+        CMAKE_ARGS ${POCL_CMAKE_ARGS}
+        BUILD_ALWAYS True
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libpocl.a
+        )
+
+
+
+
+add_library(poclremoteexample
+        SHARED
+        poclRemoteExample.cpp
+        poclRemoteExample.h
+        )
+
+target_include_directories(poclremoteexample
+        PRIVATE
+        ${EXTERNAL_PATH}/pocl/include
+        )
+
+target_link_libraries(
+        poclremoteexample
+        ${log-lib}
+        ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libpocl.a
+        OpenCL
+        )
+
+add_dependencies(poclremoteexample pocl)
+add_dependencies(poclaisademo poclremoteexample)
 
 # Specifies libraries CMake should link to your target library. You
 # can link multiple libraries, such as libraries you define in this
@@ -58,4 +121,6 @@ target_link_libraries( # Specifies the target library.
 
         # this library comes from libopencl-stub
         OpenCL
+
+        poclremoteexample
         )
