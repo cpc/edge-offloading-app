@@ -6,42 +6,33 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-    <TextView
-        android:id="@+id/sample_text"
+    <TextureView
+        android:id="@+id/cameraFeed"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Hello World!"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
+
+    <TextureView
+        android:id="@+id/segmentationOverlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        app:layout_constraintStart_toStartOf="@+id/cameraFeed"
+        app:layout_constraintTop_toTopOf="@+id/cameraFeed" />
 
     <TextView
         android:id="@+id/cl_output"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="70dp"
-        android:layout_marginTop="143dp"
-        android:layout_marginEnd="266dp"
-        android:layout_marginBottom="569dp"
-        android:text="from opencl"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <TextView
-        android:id="@+id/pocl_output"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="85dp"
-        android:layout_marginTop="569dp"
-        android:layout_marginEnd="266dp"
-        android:layout_marginBottom="143dp"
-        android:text="from pocl"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        android:fontFamily="monospace"
+        android:includeFontPadding="false"
+        android:shadowColor="#000000"
+        android:shadowRadius="3"
+        android:textColor="#FFFFFF"
+        app:layout_constraintStart_toStartOf="@+id/cameraFeed"
+        app:layout_constraintTop_toTopOf="@+id/cameraFeed"
+        tools:text="from OpenCL" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
