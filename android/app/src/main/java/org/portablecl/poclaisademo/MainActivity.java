@@ -6,7 +6,11 @@ import static android.hardware.camera2.CameraMetadata.LENS_FACING_BACK;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.ImageFormat;
+import android.graphics.Matrix;
+import android.graphics.Point;
+import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -32,8 +36,10 @@ import androidx.core.content.ContextCompat;
 
 import org.portablecl.poclaisademo.databinding.ActivityMainBinding;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -77,6 +83,11 @@ public class MainActivity extends AppCompatActivity {
     private Size captureSize;
 
     /**
+     * the image format to save captures in
+     */
+    private int captureFormat;
+
+    /**
      * a semaphore to prevent the camera from being closed at the wrong time
      */
     private final Semaphore cameraLock = new Semaphore(1);
@@ -89,7 +100,15 @@ public class MainActivity extends AppCompatActivity {
     /**
      * the view where to show previews on
      */
-    private TextureView previewView;
+    private AutoFitTextureView previewView;
+
+    /**
+     * the size of the preview, this is NOT the size of the previewView,
+     * but rather the maximum largest camera capture size that has the right aspect ratio
+     */
+    private Size previewSize;
+
+    private float transformScale;
 
     /**
      * a thread to run things in background and not block the UI thread
@@ -137,8 +156,10 @@ public class MainActivity extends AppCompatActivity {
      * what the purpose of this function is.
      *
      * @param savedInstanceState If the activity is being re-initialized after
-     *                           previously being shut down then this Bundle contains the data it most
-     *                           recently supplied in {@link #onSaveInstanceState}.  <b><i>Note: Otherwise it is null.</i></b>
+     *                           previously being shut down then this Bundle contains the data it
+     *                           most
+     *                           recently supplied in {@link #onSaveInstanceState}.  <b><i>Note:
+     *                           Otherwise it is null.</i></b>
      */
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -150,8 +171,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // todo: make these configurable
-        verbose = 1;
+        verbose = 2;
         captureSize = new Size(640, 480);
+
+        // this should be an image format we can work with on the native side.
+        captureFormat = ImageFormat.YUV_420_888;
 
         // get camera permission
         // (if not yet gotten, the screen will show a popup to grant permissions)
@@ -165,6 +189,13 @@ public class MainActivity extends AppCompatActivity {
 
         ocl_text = binding.clOutput;
         previewView = binding.cameraFeed;
+
+        previewView.setSurfaceTextureListener(surfaceTextureListener);
+
+        // todo: switch height and width back again once we align the camera orientation to the
+        //  screen
+//        previewView.setLayoutParams(new FrameLayout.LayoutParams(captureSize.getHeight(),
+//        captureSize.getWidth()));
 
         // Running in separate thread to avoid UI hangs
         Thread td = new Thread() {
@@ -186,6 +217,51 @@ public class MainActivity extends AppCompatActivity {
 //        setPoCLEnv("POCL_CACHE_DIR", cache_dir);
 
     }
+
+    /**
+     * a listener to do things when the previewview changes
+     */
+    private final TextureView.SurfaceTextureListener surfaceTextureListener
+            = new TextureView.SurfaceTextureListener() {
+        @Override
+        public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width,
+                                              int height) {
+
+        }
+
+        @Override
+        public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surface, int width,
+                                                int height) {
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "surfaceTextureListener " +
+                        "onSurfaceTextureSizeChanged callback called");
+            }
+            if (verbose >= 2) {
+                Log.println(Log.INFO, "previewfeed",
+                        "callback with these params:" + width + "x" + height);
+            }
+            configureTransform(width, height);
+            // it is possible that the preview is created before the resize takes effect,
+            // making the feed warped, therefore, create preview again.
+            try {
+                cameraLock.acquire();
+                createPreview();
+                cameraLock.release();
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        @Override
+        public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) {
+            return false;
+        }
+
+        @Override
+        public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface) {
+
+        }
+    };
 
     /**
      * this is the last function is called before things are actually running.
@@ -212,6 +288,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             Log.println(Log.INFO, "MA flow", "preview not available, not setting up camera");
         }
+
     }
 
     /**
@@ -310,7 +387,8 @@ public class MainActivity extends AppCompatActivity {
 
         List<Key<?>> available_keys = currentCharacteristics.getKeys();
         for (Key key : available_keys) {
-            chars = chars + key.toString() + " " + currentCharacteristics.get(key).toString() + " \n";
+            chars = chars + key.toString() + " " + currentCharacteristics.get(key).toString() +
+                    " \n";
         }
         Log.println(Log.INFO, "Camera", chars + "\n ");
 
@@ -326,10 +404,13 @@ public class MainActivity extends AppCompatActivity {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started setupCamera method");
         }
 
-        // android want you to check permissions before calling openCamera, might as well request permissions again if not granted
+        // android want you to check permissions before calling openCamera, might as well request
+        // permissions again if not granted
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            Log.println(Log.WARN, "MainActivity.java:setupCamera", "no camera permission, requesting permission and exiting function");
-            requestPermissions(new String[]{Manifest.permission.CAMERA}, PackageManager.PERMISSION_GRANTED);
+            Log.println(Log.WARN, "MainActivity.java:setupCamera", "no camera permission, " +
+                    "requesting permission and exiting function");
+            requestPermissions(new String[]{Manifest.permission.CAMERA},
+                    PackageManager.PERMISSION_GRANTED);
             return;
         }
 
@@ -345,7 +426,8 @@ public class MainActivity extends AppCompatActivity {
 
             // find a suitable camera
             for (String cameraId : cameraManager.getCameraIdList()) {
-                CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
+                CameraCharacteristics characteristics =
+                        cameraManager.getCameraCharacteristics(cameraId);
 
                 // skip if the camera is not back facing
                 if (!(characteristics.get(CameraCharacteristics.LENS_FACING) == LENS_FACING_BACK)) {
@@ -359,26 +441,33 @@ public class MainActivity extends AppCompatActivity {
                     continue;
                 }
 
-                Size[] sizes = map.getOutputSizes(ImageFormat.YUV_420_888);
+                Size[] sizes = map.getOutputSizes(captureFormat);
 
                 if (verbose >= 3) {
                     for (Size size : sizes) {
-                        Log.println(Log.INFO, "MainActivity.java:setupCamera", "available size of camera " + cameraId + ": " + size.toString());
+                        Log.println(Log.INFO, "MainActivity.java:setupCamera", "available size of" +
+                                " camera " + cameraId + ": " + size.toString());
                     }
                 }
 
                 if (!Arrays.asList(sizes).contains(captureSize)) {
                     if (verbose >= 2) {
-                        Log.println(Log.INFO, "MainActivity.java:setupCamera", "camera " + cameraId + "does not have requested size of " + captureSize.toString());
+                        Log.println(Log.INFO, "MainActivity.java:setupCamera",
+                                "camera " + cameraId + " does not have requested size of " +
+                                        captureSize.toString());
                     }
                     continue;
                 }
 
                 if (!cameraLock.tryAcquire(2500, TimeUnit.MILLISECONDS)) {
-                    Log.println(Log.WARN, "MainActivity.java:setupcamera", "could not acquire camera lock ");
+                    Log.println(Log.WARN, "MainActivity.java:setupcamera", "could not acquire " +
+                            "camera lock ");
                 } else {
+
+                    setupCameraOutput(cameraId, previewView.getWidth(), previewView.getHeight());
                     // finally get the camera
-                    cameraManager.openCamera(cameraId, cameraStateCallback, backgroundThreadHandler);
+                    cameraManager.openCamera(cameraId, cameraStateCallback,
+                            backgroundThreadHandler);
                 }
                 break;
             }
@@ -391,40 +480,281 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * figure out the orientations of the camera and display and use that to setup the right
+     * transformations
+     * in order to make the preview not be warped.
+     *
+     * @param cameraId the camera id
+     */
+    private void setupCameraOutput(String cameraId, int width, int height) throws CameraAccessException {
+
+        if (DEBUGEXECUTION) {
+            Log.println(Log.INFO, "EXECUTIONFLOW", "started setupCameraOutput method");
+        }
+
+        CameraManager cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+        CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
+
+        int displayOrientation = getWindowManager().getDefaultDisplay().getRotation();
+        int sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+
+        boolean orientationsSwapped = false;
+
+        switch (displayOrientation) {
+            case Surface.ROTATION_0:
+            case Surface.ROTATION_180: {
+                if (sensorOrientation == 90 || sensorOrientation == 270) {
+                    orientationsSwapped = true;
+                }
+                break;
+            }
+            case Surface.ROTATION_90:
+            case Surface.ROTATION_270: {
+                if (sensorOrientation == 0 || sensorOrientation == 180) {
+                    orientationsSwapped = true;
+                }
+                break;
+            }
+            default: {
+                Log.println(Log.ERROR, "MainActivity.java:setupCameraOutput", "unknown display " +
+                        "orientation");
+            }
+        }
+
+        Point displaySize = new Point();
+        getWindowManager().getDefaultDisplay().getSize(displaySize);
+
+        int rotatedPreviewWidth = width;
+        int rotatedPreviewHeight = height;
+        int maxPreviewWidth = displaySize.x;
+        int maxPreviewHeight = displaySize.y;
+
+        if (orientationsSwapped) {
+            rotatedPreviewWidth = height;
+            rotatedPreviewHeight = width;
+            maxPreviewWidth = displaySize.y;
+            maxPreviewHeight = displaySize.x;
+
+        }
+
+        // clip to the max width and height guaranteed by Camera2
+        if (maxPreviewWidth > 1920) {
+            maxPreviewWidth = 1920;
+        }
+
+        if (maxPreviewHeight > 1080) {
+            maxPreviewHeight = 1080;
+        }
+
+        previewSize = chooseOptimalPreviewSize(cameraId, rotatedPreviewWidth,
+                rotatedPreviewHeight, maxPreviewHeight, maxPreviewWidth);
+
+        if (verbose >= 2) {
+            Log.println(Log.INFO, "previewfeed",
+                    "optimal camera preview size is: " + previewSize.toString());
+        }
+
+        // change the previewView size to fit our chosen aspect ratio from the chosen capture size
+        int currentOrientation = getResources().getConfiguration().orientation;
+        if (currentOrientation == Configuration.ORIENTATION_LANDSCAPE) {
+            if (verbose >= 2) {
+                Log.println(Log.INFO, "previewfeed", "set aspect ratio normal ");
+            }
+            previewView.setAspectRatio(previewSize.getWidth(), previewSize.getHeight());
+        } else {
+
+            if (verbose >= 2) {
+                Log.println(Log.INFO, "previewfeed", "set aspect ratio rotated ");
+            }
+            previewView.setAspectRatio(previewSize.getHeight(), previewSize.getWidth());
+        }
+        configureTransform(width, height);
+
+        return;
+    }
+
+    /**
+     * set up a transformation for when the device is rotated.
+     *
+     * @param width  width of surface
+     * @param height height of surface
+     */
+    private void configureTransform(int width, int height) {
+        if (DEBUGEXECUTION) {
+            Log.println(Log.INFO, "EXECUTIONFLOW", "started configureTransform method");
+        }
+
+        assert previewView != null;
+        assert previewSize != null;
+
+        int rotation = getWindowManager().getDefaultDisplay().getRotation();
+
+        Matrix transformMatrix = new Matrix();
+        RectF viewRect = new RectF(0, 0, width, height);
+        RectF bufferRect = new RectF(0, 0, previewSize.getHeight(), previewSize.getWidth());
+
+        float centerX = viewRect.centerX();
+        float centerY = viewRect.centerY();
+
+        if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+
+            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY());
+            // todo: check that src and dst should not be switched around
+            transformMatrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.CENTER);
+
+            transformScale = Math.max(
+                    (float) height / previewSize.getHeight(),
+                    (float) width / previewSize.getWidth()
+            );
+            transformMatrix.postScale(transformScale, transformScale, centerX, centerY);
+            transformMatrix.postRotate(90 * (rotation - 2), centerX, centerY);
+
+            if (verbose >= 2) {
+                Log.println(Log.INFO, "MainActivity.java:configureTransform", "in rotated surface" +
+                        " with scale: " + transformScale);
+            }
+
+            previewView.setTransform(transformMatrix);
+
+        } else if (rotation == Surface.ROTATION_180) {
+            transformMatrix.postRotate(180, centerX, centerY);
+
+            if (verbose >= 2) {
+                Log.println(Log.INFO, "MainActivity.java:configureTransform", "in rotated 180 " +
+                        "with scale: ");
+            }
+
+            previewView.setTransform(transformMatrix);
+        }
+
+        if (DEBUGEXECUTION) {
+            Log.println(Log.INFO, "EXECUTIONFLOW", "setting transform now");
+        }
+
+        previewView.setTransform(transformMatrix);
+    }
+
+    /**
+     * figure out the largest stream configuration that has the right aspect ratio,
+     * but also isn't too large to start causing slowdowns
+     *
+     * @param cameraId
+     * @param previewWidth
+     * @param previewHeight
+     * @param maxPreviewWidth
+     * @param maxPreviewHeight
+     * @return
+     * @throws CameraAccessException
+     */
+    private Size chooseOptimalPreviewSize(String cameraId, int previewWidth, int previewHeight,
+                                          int maxPreviewWidth, int maxPreviewHeight) throws CameraAccessException {
+
+        if (DEBUGEXECUTION) {
+            Log.println(Log.INFO, "EXECUTIONFLOW", "started chooseOptimalPreviewSize method");
+        }
+
+        CameraManager cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+        CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
+
+        StreamConfigurationMap map = characteristics.get(
+                CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+
+        // its okey that the outputsizes we are getting here do not necessarily belong
+        // to the chosen capture format, as long as they have the same capture size aspect ratio
+        Size[] availableSizes = map.getOutputSizes(SurfaceTexture.class);
+
+        List<Size> bigEnough = new ArrayList<>();
+        List<Size> notBigEnough = new ArrayList<>();
+
+
+        // sort the sizes into collections where items are greater than/equal and smaller
+        for (Size size : availableSizes) {
+            int sizeWidth = size.getWidth();
+            int sizeHeight = size.getHeight();
+
+            // continue if it is too big
+            if (sizeWidth >= maxPreviewWidth || sizeHeight >= maxPreviewHeight) {
+                continue;
+            }
+
+            // continue if not the right aspect ratio
+            // order of math here is important so that we don't get rounding errors
+            if (sizeHeight != (sizeWidth * captureSize.getHeight()) / captureSize.getWidth()) {
+                continue;
+            }
+
+            if (sizeWidth >= previewWidth && sizeHeight >= previewHeight) {
+                bigEnough.add(size);
+            } else {
+                notBigEnough.add(size);
+            }
+
+        }
+
+        Comparator<Size> comparator = new CompareSizesByArea();
+        if (bigEnough.size() > 0) {
+            return Collections.min(bigEnough, comparator);
+        } else if (notBigEnough.size() > 0) {
+            return Collections.max(notBigEnough, comparator);
+        } else {
+            Log.println(Log.WARN, "MainActivity.java:chooseOptimalPreviewSize", "could not find " +
+                    "optimal preview size");
+            return availableSizes[0];
+        }
+    }
+
+    static class CompareSizesByArea implements Comparator<Size> {
+
+        @Override
+        public int compare(Size o1, Size o2) {
+
+            return Integer.signum(o1.getWidth() * o1.getHeight() - o2.getWidth() * o2.getHeight());
+        }
+    }
+
+    /**
      * this callback object is attached to the camera and handles different scenarios
      */
-    private final CameraDevice.StateCallback cameraStateCallback = new CameraDevice.StateCallback() {
-        @Override
-        public void onOpened(@NonNull CameraDevice camera) {
-            if (DEBUGEXECUTION) {
-                Log.println(Log.INFO, "EXECUTIONFLOW", "CameraDevice onOpened callback called");
-            }
-            cameraLock.release();
-            chosenCamera = camera;
-            createPreview();
-        }
+    private final CameraDevice.StateCallback cameraStateCallback =
+            new CameraDevice.StateCallback() {
+                @Override
+                public void onOpened(@NonNull CameraDevice camera) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "CameraDevice onOpened callback " +
+                                "called");
+                    }
 
-        @Override
-        public void onDisconnected(@NonNull CameraDevice camera) {
-            if (DEBUGEXECUTION) {
-                Log.println(Log.INFO, "EXECUTIONFLOW", "CameraDevice onDisconnected callback called");
-            }
-            cameraLock.release();
-            camera.close();
-            chosenCamera = null;
-        }
+                    chosenCamera = camera;
+                    createPreview();
+                    cameraLock.release();
+                }
 
-        @Override
-        public void onError(@NonNull CameraDevice camera, int error) {
-            cameraLock.release();
-            camera.close();
-            chosenCamera = null;
-            Log.println(Log.ERROR, "MainActivity.java:cameraStateCallback", "camera device got into error state");
-        }
-    };
+                @Override
+                public void onDisconnected(@NonNull CameraDevice camera) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "CameraDevice onDisconnected " +
+                                "callback called");
+                    }
+                    cameraLock.release();
+                    camera.close();
+                    chosenCamera = null;
+                }
+
+                @Override
+                public void onError(@NonNull CameraDevice camera, int error) {
+                    cameraLock.release();
+                    camera.close();
+                    chosenCamera = null;
+                    Log.println(Log.ERROR, "MainActivity.java:cameraStateCallback", "camera " +
+                            "device got " +
+                            "into error state");
+                }
+            };
 
     /**
      * link the camera to the texture can start capturing camera images
+     *
+     * @note: you need the camera lock before calling this.
      */
     private void createPreview() {
 
@@ -432,17 +762,30 @@ public class MainActivity extends AppCompatActivity {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started createPreview method");
         }
 
+        if (chosenCamera == null) {
+            return;
+        }
+
         try {
+
+            // this function needs to be called if the preview changes in size,
+            // so it is possible there already is one open
+            if (captureSession != null) {
+                captureSession.close();
+            }
 
             SurfaceTexture previewTexture = previewView.getSurfaceTexture();
             assert previewTexture != null;
 
-            // todo: maybe set size to scale with camera size
-            previewTexture.setDefaultBufferSize(captureSize.getWidth(), captureSize.getHeight());
-
+            previewTexture.setDefaultBufferSize(previewSize.getWidth(), previewSize.getHeight());
             Surface previewSurface = new Surface(previewTexture);
 
-            assert chosenCamera != null;
+            if (verbose >= 2) {
+                Log.println(Log.ERROR, "previewfeed", "previewsizes: " + previewSize.toString());
+                Log.println(Log.ERROR, "previewfeed",
+                        "previewviewsizes: " + previewView.getWidth() + "x" + previewView.getHeight());
+            }
+
             requestBuilder = chosenCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
 
             requestBuilder.addTarget(previewSurface);
@@ -450,7 +793,8 @@ public class MainActivity extends AppCompatActivity {
             // todo: add the imagereader to output surfaces
             // todo: use the new proper method for creating a capture session
             // https://stackoverflow.com/questions/67077568/how-to-correctly-use-the-new-createcapturesession-in-camera2-in-android
-            chosenCamera.createCaptureSession(Collections.singletonList(previewSurface), previewStateCallback, null);
+            chosenCamera.createCaptureSession(Collections.singletonList(previewSurface),
+                    previewStateCallback, null);
 
         } catch (CameraAccessException e) {
             Log.println(Log.ERROR, "MainActivity.java:createPreview", "could not access camera");
@@ -461,37 +805,54 @@ public class MainActivity extends AppCompatActivity {
     /**
      * a callback used to make a capture request once the camera is configured
      */
-    private final CameraCaptureSession.StateCallback previewStateCallback = new CameraCaptureSession.StateCallback() {
-        @Override
-        public void onConfigured(@NonNull CameraCaptureSession session) {
-            if (DEBUGEXECUTION) {
-                Log.println(Log.INFO, "EXECUTIONFLOW", "CameraCaptureSession onConfigured callback called");
-            }
-            assert chosenCamera != null;
-            assert requestBuilder != null;
+    private final CameraCaptureSession.StateCallback previewStateCallback =
+            new CameraCaptureSession.StateCallback() {
+                @Override
+                public void onConfigured(@NonNull CameraCaptureSession session) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "CameraCaptureSession onConfigured" +
+                                " " +
+                                "callback called");
+                    }
 
-            captureSession = session;
+                    if (chosenCamera == null || requestBuilder == null) {
+                        return;
+                    }
 
-            try {
-                requestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                    captureSession = session;
 
-                CaptureRequest captureRequest = requestBuilder.build();
+                    try {
+                        requestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
+                                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
 
-                // todo: possibly add listener to request
-                captureSession.setRepeatingRequest(captureRequest, null, backgroundThreadHandler);
+                        CaptureRequest captureRequest = requestBuilder.build();
 
-            } catch (CameraAccessException e) {
-                Log.println(Log.ERROR, "MainActivity.java:previewStateCallback", "failed to set repeated request");
-                e.printStackTrace();
-            }
+                        // todo: possibly add listener to request
+                        captureSession.setRepeatingRequest(captureRequest, null,
+                                backgroundThreadHandler);
 
-        }
+                    } catch (CameraAccessException e) {
+                        Log.println(Log.ERROR, "MainActivity.java:previewStateCallback", "failed " +
+                                "to set repeated request");
+                        e.printStackTrace();
+                    } catch (IllegalStateException e) {
+                        // this exception can occur if a new preview is being made before the
+                        // first one is done
+                        if (verbose >= 3) {
+                            Log.println(Log.ERROR, "MainActivity.java:previewStateCallback",
+                                    "session no longer available");
+                        }
+                    }
 
-        @Override
-        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-            Log.println(Log.ERROR, "MainActivity.java:previewStateCallback", "failed to configure camera");
-        }
-    };
+                    return;
+                }
+
+                @Override
+                public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+                    Log.println(Log.ERROR, "MainActivity.java:previewStateCallback", "failed to " +
+                            "configure camera");
+                }
+            };
 
 
     /**

@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-    <TextureView
+    <org.portablecl.poclaisademo.AutoFitTextureView
         android:id="@+id/cameraFeed"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -31,8 +31,8 @@
         android:shadowColor="#000000"
         android:shadowRadius="3"
         android:textColor="#FFFFFF"
-        app:layout_constraintStart_toStartOf="@+id/cameraFeed"
-        app:layout_constraintTop_toTopOf="@+id/cameraFeed"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
         tools:text="from OpenCL" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
