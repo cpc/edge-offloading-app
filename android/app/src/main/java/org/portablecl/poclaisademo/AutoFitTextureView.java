@@ -6,6 +6,9 @@ import android.view.TextureView;
 
 import androidx.annotation.NonNull;
 
+/**
+ *  a TextureView that keeps the aspect ratio set to it, even after resizing
+ */
 public class AutoFitTextureView extends TextureView {
 
     private int ratioWidth = 0;

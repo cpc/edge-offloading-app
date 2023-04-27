@@ -23,10 +23,9 @@ add_library( # Sets the name of the library.
         SHARED
 
         # Provides a relative path to your source file(s).
-        native-lib.cpp
         vectorAddExample.cpp
         vectorAddExample.h
-
+        utils.cpp
         )
 
 target_include_directories(poclaisademo PRIVATE
@@ -87,26 +86,28 @@ ExternalProject_Add(pocl
 
 
 
-add_library(poclremoteexample
+add_library(poclnative
         SHARED
         poclRemoteExample.cpp
         poclRemoteExample.h
+        sharedUtils.h
+        poclImageProcessor.cpp
         )
 
-target_include_directories(poclremoteexample
+target_include_directories(poclnative
         PRIVATE
         ${EXTERNAL_PATH}/pocl/include
         )
 
 target_link_libraries(
-        poclremoteexample
+        poclnative
         ${log-lib}
         ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libpocl.a
         OpenCL
         )
 
-add_dependencies(poclremoteexample pocl)
-add_dependencies(poclaisademo poclremoteexample)
+add_dependencies(poclnative pocl)
+add_dependencies(poclaisademo poclnative)
 
 # Specifies libraries CMake should link to your target library. You
 # can link multiple libraries, such as libraries you define in this
@@ -122,5 +123,5 @@ target_link_libraries( # Specifies the target library.
         # this library comes from libopencl-stub
         OpenCL
 
-        poclremoteexample
+        poclnative
         )

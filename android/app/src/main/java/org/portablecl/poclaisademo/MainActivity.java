@@ -3,10 +3,16 @@ package org.portablecl.poclaisademo;
 
 import static android.hardware.camera2.CameraMetadata.LENS_FACING_BACK;
 
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessYUVImage;
+import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
+
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.Point;
@@ -20,6 +26,7 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.media.Image;
 import android.media.ImageReader;
 import android.os.Bundle;
 import android.os.Handler;
@@ -27,6 +34,7 @@ import android.os.HandlerThread;
 import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
+import android.view.SurfaceView;
 import android.view.TextureView;
 import android.widget.TextView;
 
@@ -36,6 +44,8 @@ import androidx.core.content.ContextCompat;
 
 import org.portablecl.poclaisademo.databinding.ActivityMainBinding;
 
+import java.io.FileOutputStream;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -43,6 +53,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+
 
 public class MainActivity extends AppCompatActivity {
 
@@ -53,8 +64,6 @@ public class MainActivity extends AppCompatActivity {
     public native int vectorAddCL(int N, float[] A, float[] B, float[] C);
 
     public native int destroyCL();
-
-    public native void setPoCLEnv(String key, String value);
 
     /**
      * NOTE: many of these variables are declared in this scope
@@ -80,7 +89,7 @@ public class MainActivity extends AppCompatActivity {
     /**
      * the dimensions that the camera will be capturing images in
      */
-    private Size captureSize;
+    private static Size captureSize;
 
     /**
      * the image format to save captures in
@@ -98,6 +107,11 @@ public class MainActivity extends AppCompatActivity {
     private ImageReader imageReader;
 
     /**
+     * the number of images to buffer for the device
+     */
+    private int imageBufferSize;
+
+    /**
      * the view where to show previews on
      */
     private AutoFitTextureView previewView;
@@ -108,7 +122,14 @@ public class MainActivity extends AppCompatActivity {
      */
     private Size previewSize;
 
-    private float transformScale;
+    /**
+     * the bitmap to save the result of processing in
+     */
+    private static Bitmap resultBitmap;
+
+    private static OverlayVisualizer overlayVisualizer;
+
+    private static SurfaceView overlayView;
 
     /**
      * a thread to run things in background and not block the UI thread
@@ -119,6 +140,16 @@ public class MainActivity extends AppCompatActivity {
      * a Handler that is used to schedule work on the backgroundThread
      */
     private Handler backgroundThreadHandler;
+
+    /**
+     * a thread to run pocl on
+     */
+    private HandlerThread poclBackgroundThread;
+
+    /**
+     * used to enqueue work on the pocl thread
+     */
+    private Handler poclBackgroundThreadHandler;
 
     /**
      * set how verbose the program should be
@@ -143,7 +174,7 @@ public class MainActivity extends AppCompatActivity {
     static {
         System.loadLibrary("poclaisademo");
 //        todo: check that this load is actually needed
-        System.loadLibrary("poclremoteexample");
+//        System.loadLibrary("poclremoteexample");
     }
 
     TextView ocl_text;
@@ -171,11 +202,17 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // todo: make these configurable
-        verbose = 2;
+        verbose = 3;
         captureSize = new Size(640, 480);
+        imageBufferSize = 1;
+        String server_address = "192.168.50.112";
 
         // this should be an image format we can work with on the native side.
         captureFormat = ImageFormat.YUV_420_888;
+
+        // todo: check whether these args need to be updated.
+        resultBitmap = Bitmap.createBitmap(captureSize.getWidth(), captureSize.getHeight(),
+                Bitmap.Config.RGB_565);
 
         // get camera permission
         // (if not yet gotten, the screen will show a popup to grant permissions)
@@ -192,6 +229,11 @@ public class MainActivity extends AppCompatActivity {
 
         previewView.setSurfaceTextureListener(surfaceTextureListener);
 
+        // setup overlay
+        overlayVisualizer = new OverlayVisualizer();
+        overlayView = binding.overlayView;
+        overlayView.setZOrderOnTop(true);
+
         // todo: switch height and width back again once we align the camera orientation to the
         //  screen
 //        previewView.setLayoutParams(new FrameLayout.LayoutParams(captureSize.getHeight(),
@@ -205,16 +247,13 @@ public class MainActivity extends AppCompatActivity {
         };
         td.start();
 
-        // todo: have this be a parameter set by the user
-        String server_address = "192.168.50.112";
-
         String cache_dir = getCacheDir().getAbsolutePath();
 
-        //configure environment variables pocl needs to run
-//        setPoCLEnv("POCL_DEBUG", "all");
-//        setPoCLEnv("POCL_DEVICES", "remote");
-//        setPoCLEnv("POCL_REMOTE0_PARAMETERS", server_address);
-//        setPoCLEnv("POCL_CACHE_DIR", cache_dir);
+        // used to configure pocl
+        setNativeEnv("POCL_DEBUG", "all");
+        setNativeEnv("POCL_DEVICES", "remote");
+        setNativeEnv("POCL_REMOTE0_PARAMETERS", server_address);
+        setNativeEnv("POCL_CACHE_DIR", cache_dir);
 
     }
 
@@ -277,7 +316,9 @@ public class MainActivity extends AppCompatActivity {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started onResume method");
         }
 
-        startBackgroundThread();
+        startBackgroundThreads();
+
+        poclBackgroundThreadHandler.post(() -> initPoclImageProcessor());
 
         // when the app starts, the previewView might not be available yet,
         // in that case, do nothing and wait for on resume to be called again
@@ -304,8 +345,10 @@ public class MainActivity extends AppCompatActivity {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started onPause method");
         }
 
+        poclBackgroundThreadHandler.post(() -> destroyPoclImageProcessor());
+
         closeCamera();
-        stopBackgroundThread();
+        stopBackgroundThreads();
         super.onPause();
     }
 
@@ -464,6 +507,7 @@ public class MainActivity extends AppCompatActivity {
                             "camera lock ");
                 } else {
 
+                    setupImageReader();
                     setupCameraOutput(cameraId, previewView.getWidth(), previewView.getHeight());
                     // finally get the camera
                     cameraManager.openCamera(cameraId, cameraStateCallback,
@@ -478,6 +522,84 @@ public class MainActivity extends AppCompatActivity {
             e.printStackTrace();
         }
     }
+
+    private void setupImageReader(){
+        if (DEBUGEXECUTION) {
+            Log.println(Log.INFO, "EXECUTIONFLOW", "started setupImageReader method");
+        }
+
+        imageReader = ImageReader.newInstance(captureSize.getWidth(), captureSize.getHeight(),
+                captureFormat, imageBufferSize);
+
+        imageReader.setOnImageAvailableListener(imageReaderListener, poclBackgroundThreadHandler);
+    }
+
+    private final ImageReader.OnImageAvailableListener imageReaderListener
+            = new ImageReader.OnImageAvailableListener() {
+        @Override
+        public void onImageAvailable(ImageReader reader) {
+            poclBackgroundThreadHandler.post(new ImageProcessRunnable( reader.acquireNextImage()));
+        }
+    };
+
+    private static  class ImageProcessRunnable implements Runnable {
+
+
+        private Image image;
+        private static int count = 0;
+
+        public ImageProcessRunnable (Image inputImage){
+            image = inputImage;
+        }
+        @Override
+        public void run() {
+
+            Image.Plane planes[] = image.getPlanes();
+
+            ByteBuffer Y = planes[0].getBuffer();
+            int YPixelStride = planes[0].getPixelStride();
+            int YRowStride = planes[0].getRowStride();
+
+            ByteBuffer U = planes[1].getBuffer();
+            ByteBuffer V = planes[2].getBuffer();
+            int UVPixelStride = planes[1].getPixelStride();
+            int UVRowStride = planes[1].getRowStride();
+
+            int VPixelStride = planes[2].getPixelStride();
+            int VRowStride = planes[2].getRowStride();
+
+            if(verbose >=3){
+                if(count % 10 == 0){
+
+                    Log.println(Log.WARN, "imagereader",  "plane count: " + planes.length);
+                    Log.println(Log.WARN, "imagereader",
+                            "Y pixel stride: " + YPixelStride);
+                    Log.println(Log.WARN, "imagereader",
+                            "Y row stride: " + YRowStride);
+                    Log.println(Log.WARN, "imagereader",
+                            "UV pixel stride: " + UVPixelStride);
+                    Log.println(Log.WARN, "imagereader",
+                            "UV row stride: " + UVRowStride);
+
+                    Log.println(Log.WARN, "imagereader",
+                            "V pixel stride: " + VPixelStride);
+                    Log.println(Log.WARN, "imagereader",
+                            "V row stride: " + VRowStride);
+                }
+            }
+
+            int[] results = new int[1 + 10* 6];
+            poclProcessYUVImage(image.getWidth(), image.getHeight(), Y, YRowStride, YPixelStride,
+                    U, V, UVRowStride, UVPixelStride, results);
+
+            overlayVisualizer.DrawOverlay(results, overlayView);
+
+            // don't forget to close the image when done
+            image.close();
+            count +=1;
+        }
+    }
+
 
     /**
      * figure out the orientations of the camera and display and use that to setup the right
@@ -602,7 +724,7 @@ public class MainActivity extends AppCompatActivity {
             // todo: check that src and dst should not be switched around
             transformMatrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.CENTER);
 
-            transformScale = Math.max(
+            float transformScale = Math.max(
                     (float) height / previewSize.getHeight(),
                     (float) width / previewSize.getWidth()
             );
@@ -786,14 +908,15 @@ public class MainActivity extends AppCompatActivity {
                         "previewviewsizes: " + previewView.getWidth() + "x" + previewView.getHeight());
             }
 
+            
             requestBuilder = chosenCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
 
             requestBuilder.addTarget(previewSurface);
+            requestBuilder.addTarget(imageReader.getSurface());
 
-            // todo: add the imagereader to output surfaces
             // todo: use the new proper method for creating a capture session
             // https://stackoverflow.com/questions/67077568/how-to-correctly-use-the-new-createcapturesession-in-camera2-in-android
-            chosenCamera.createCaptureSession(Collections.singletonList(previewSurface),
+            chosenCamera.createCaptureSession(Arrays.asList(previewSurface, imageReader.getSurface()),
                     previewStateCallback, null);
 
         } catch (CameraAccessException e) {
@@ -887,27 +1010,36 @@ public class MainActivity extends AppCompatActivity {
     /**
      * function to start the backgroundThread + handler
      */
-    private void startBackgroundThread() {
+    private void startBackgroundThreads() {
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started startBackgroundThread method");
         }
         backgroundThread = new HandlerThread("CameraBackground");
         backgroundThread.start();
         backgroundThreadHandler = new Handler(backgroundThread.getLooper());
+
+        poclBackgroundThread = new HandlerThread("PoclBackground");
+        poclBackgroundThread.start();
+        poclBackgroundThreadHandler = new Handler(poclBackgroundThread.getLooper());
     }
 
     /**
      * function to safely stop backgroundThread + handler
      */
-    private void stopBackgroundThread() {
+    private void stopBackgroundThreads() {
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started stopBackgroundThread method");
         }
         backgroundThread.quitSafely();
+        poclBackgroundThread.quitSafely();
         try {
             backgroundThread.join();
             backgroundThread = null;
             backgroundThreadHandler = null;
+
+            poclBackgroundThread.join();
+            poclBackgroundThread = null;
+            poclBackgroundThreadHandler = null;
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
