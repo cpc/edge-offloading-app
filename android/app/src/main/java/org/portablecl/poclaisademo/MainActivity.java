@@ -643,7 +643,9 @@ public class MainActivity extends AppCompatActivity {
                 poclProcessYUVImage(image.getWidth(), image.getHeight(), Y, YRowStride, YPixelStride,
                         U, V, UVRowStride, UVPixelStride, results);
 
-                overlayVisualizer.DrawOverlay(results, overlayView);
+                overlayVisualizer.DrawOverlay(results, captureSize, orientationsSwapped,
+                        overlayView);
+
 
                 // used to calculate the (avg) FPS
                 counter.TickFrame();
