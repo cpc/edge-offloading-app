@@ -2,7 +2,6 @@ package org.portablecl.poclaisademo;
 
 
 import static android.hardware.camera2.CameraMetadata.LENS_FACING_BACK;
-
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessYUVImage;
@@ -44,13 +43,16 @@ import androidx.core.content.ContextCompat;
 
 import org.portablecl.poclaisademo.databinding.ActivityMainBinding;
 
-import java.io.FileOutputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -95,6 +97,11 @@ public class MainActivity extends AppCompatActivity {
      * the image format to save captures in
      */
     private int captureFormat;
+
+    /**
+     * used to indicate if the camera rotation is different from the display
+     */
+    private static boolean orientationsSwapped = false;
 
     /**
      * a semaphore to prevent the camera from being closed at the wrong time
@@ -170,6 +177,15 @@ public class MainActivity extends AppCompatActivity {
             Manifest.permission.WRITE_EXTERNAL_STORAGE
     };
 
+    /**
+     * a counter to keep track of FPS metrics for our image processing.
+     */
+    private static FPSCounter counter;
+
+    private ScheduledExecutorService statUpdateScheduler;
+
+    private ScheduledFuture statUpdateFuture;
+
     // Used to load the 'poclaisademo' library on application startup.
     static {
         System.loadLibrary("poclaisademo");
@@ -177,7 +193,7 @@ public class MainActivity extends AppCompatActivity {
 //        System.loadLibrary("poclremoteexample");
     }
 
-    TextView ocl_text;
+    static TextView ocl_text;
     TextView pocl_text;
 
     private ActivityMainBinding binding;
@@ -202,9 +218,9 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // todo: make these configurable
-        verbose = 3;
+        verbose = 1;
         captureSize = new Size(640, 480);
-        imageBufferSize = 1;
+        imageBufferSize = 2;
         String server_address = "192.168.50.112";
 
         // this should be an image format we can work with on the native side.
@@ -234,10 +250,8 @@ public class MainActivity extends AppCompatActivity {
         overlayView = binding.overlayView;
         overlayView.setZOrderOnTop(true);
 
-        // todo: switch height and width back again once we align the camera orientation to the
-        //  screen
-//        previewView.setLayoutParams(new FrameLayout.LayoutParams(captureSize.getHeight(),
-//        captureSize.getWidth()));
+        counter = new FPSCounter();
+        statUpdateScheduler = Executors.newScheduledThreadPool(1);
 
         // Running in separate thread to avoid UI hangs
         Thread td = new Thread() {
@@ -320,6 +334,11 @@ public class MainActivity extends AppCompatActivity {
 
         poclBackgroundThreadHandler.post(() -> initPoclImageProcessor());
 
+        counter.Reset();
+        // schedule the metrics to update every second
+        statUpdateFuture = statUpdateScheduler.scheduleAtFixedRate(statUpdater, 1, 1,
+                TimeUnit.SECONDS);
+
         // when the app starts, the previewView might not be available yet,
         // in that case, do nothing and wait for on resume to be called again
         // once the preview is available
@@ -331,6 +350,33 @@ public class MainActivity extends AppCompatActivity {
         }
 
     }
+
+    private final Runnable statUpdater = new Runnable() {
+        @Override
+        public void run() {
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "updating stats");
+            }
+            try {
+                String statString = String.format(Locale.US, "FPS: %.2f  AVG FPS: %.2f " +
+                                "12345678901234567890",
+                        counter.getFPS(),
+                        counter.getAverageFPS());
+
+                // needed since only the uithread is allowed to make changes to the textview
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        ocl_text.setText(statString);
+                    }
+                });
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+        }
+    };
 
     /**
      * this is the first function is called when stopping an activity
@@ -346,6 +392,9 @@ public class MainActivity extends AppCompatActivity {
         }
 
         poclBackgroundThreadHandler.post(() -> destroyPoclImageProcessor());
+
+        // used to stop the stat update scheduler.
+        statUpdateFuture.cancel(false);
 
         closeCamera();
         stopBackgroundThreads();
@@ -523,7 +572,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void setupImageReader(){
+    private void setupImageReader() {
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started setupImageReader method");
         }
@@ -538,40 +587,42 @@ public class MainActivity extends AppCompatActivity {
             = new ImageReader.OnImageAvailableListener() {
         @Override
         public void onImageAvailable(ImageReader reader) {
-            poclBackgroundThreadHandler.post(new ImageProcessRunnable( reader.acquireNextImage()));
+            poclBackgroundThreadHandler.post(new ImageProcessRunnable(reader));
         }
     };
 
-    private static  class ImageProcessRunnable implements Runnable {
+    private class ImageProcessRunnable implements Runnable {
 
 
-        private Image image;
-        private static int count = 0;
+        private final ImageReader reader;
 
-        public ImageProcessRunnable (Image inputImage){
-            image = inputImage;
+        public ImageProcessRunnable(ImageReader inputReader) {
+
+            reader = inputReader;
         }
+
         @Override
         public void run() {
 
-            Image.Plane planes[] = image.getPlanes();
+            try {
+                Image image = reader.acquireNextImage();
+                Image.Plane[] planes = image.getPlanes();
 
-            ByteBuffer Y = planes[0].getBuffer();
-            int YPixelStride = planes[0].getPixelStride();
-            int YRowStride = planes[0].getRowStride();
+                ByteBuffer Y = planes[0].getBuffer();
+                int YPixelStride = planes[0].getPixelStride();
+                int YRowStride = planes[0].getRowStride();
 
-            ByteBuffer U = planes[1].getBuffer();
-            ByteBuffer V = planes[2].getBuffer();
-            int UVPixelStride = planes[1].getPixelStride();
-            int UVRowStride = planes[1].getRowStride();
+                ByteBuffer U = planes[1].getBuffer();
+                ByteBuffer V = planes[2].getBuffer();
+                int UVPixelStride = planes[1].getPixelStride();
+                int UVRowStride = planes[1].getRowStride();
 
-            int VPixelStride = planes[2].getPixelStride();
-            int VRowStride = planes[2].getRowStride();
+                int VPixelStride = planes[2].getPixelStride();
+                int VRowStride = planes[2].getRowStride();
 
-            if(verbose >=3){
-                if(count % 10 == 0){
+                if (verbose >= 3) {
 
-                    Log.println(Log.WARN, "imagereader",  "plane count: " + planes.length);
+                    Log.println(Log.WARN, "imagereader", "plane count: " + planes.length);
                     Log.println(Log.WARN, "imagereader",
                             "Y pixel stride: " + YPixelStride);
                     Log.println(Log.WARN, "imagereader",
@@ -586,17 +637,25 @@ public class MainActivity extends AppCompatActivity {
                     Log.println(Log.WARN, "imagereader",
                             "V row stride: " + VRowStride);
                 }
+
+                int[] results = new int[1 + 10 * 6];
+                int rotation = orientationsSwapped ? 90 : 0;
+                poclProcessYUVImage(image.getWidth(), image.getHeight(), Y, YRowStride, YPixelStride,
+                        U, V, UVRowStride, UVPixelStride, results);
+
+                overlayVisualizer.DrawOverlay(results, overlayView);
+
+                // used to calculate the (avg) FPS
+                counter.TickFrame();
+
+                // don't forget to close the image when done
+                image.close();
+            } catch (Exception e) {
+                Log.println(Log.INFO, "MainActivity.java:ImageProcessRunnable", "error while " +
+                        "processing image");
+
             }
 
-            int[] results = new int[1 + 10* 6];
-            poclProcessYUVImage(image.getWidth(), image.getHeight(), Y, YRowStride, YPixelStride,
-                    U, V, UVRowStride, UVPixelStride, results);
-
-            overlayVisualizer.DrawOverlay(results, overlayView);
-
-            // don't forget to close the image when done
-            image.close();
-            count +=1;
         }
     }
 
@@ -619,8 +678,6 @@ public class MainActivity extends AppCompatActivity {
 
         int displayOrientation = getWindowManager().getDefaultDisplay().getRotation();
         int sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
-
-        boolean orientationsSwapped = false;
 
         switch (displayOrientation) {
             case Surface.ROTATION_0:
@@ -908,7 +965,7 @@ public class MainActivity extends AppCompatActivity {
                         "previewviewsizes: " + previewView.getWidth() + "x" + previewView.getHeight());
             }
 
-            
+
             requestBuilder = chosenCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
 
             requestBuilder.addTarget(previewSurface);
@@ -916,7 +973,8 @@ public class MainActivity extends AppCompatActivity {
 
             // todo: use the new proper method for creating a capture session
             // https://stackoverflow.com/questions/67077568/how-to-correctly-use-the-new-createcapturesession-in-camera2-in-android
-            chosenCamera.createCaptureSession(Arrays.asList(previewSurface, imageReader.getSurface()),
+            chosenCamera.createCaptureSession(Arrays.asList(previewSurface,
+                            imageReader.getSurface()),
                     previewStateCallback, null);
 
         } catch (CameraAccessException e) {
