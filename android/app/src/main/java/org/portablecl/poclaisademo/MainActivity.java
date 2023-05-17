@@ -183,15 +183,24 @@ public class MainActivity extends AppCompatActivity {
      */
     private static FPSCounter counter;
 
+    /**
+     * an object used to keep track of the battery.
+     */
+    private static EnergyMonitor energyMonitor;
+
+    /**
+     * used to schedule a thread to periodically update stats
+     */
     private ScheduledExecutorService statUpdateScheduler;
 
+    /**
+     * needed to stop the stat update thread
+     */
     private ScheduledFuture statUpdateFuture;
 
     // Used to load the 'poclaisademo' library on application startup.
     static {
         System.loadLibrary("poclaisademo");
-//        todo: check that this load is actually needed
-//        System.loadLibrary("poclremoteexample");
     }
 
     static TextView ocl_text;
@@ -250,6 +259,9 @@ public class MainActivity extends AppCompatActivity {
         overlayVisualizer = new OverlayVisualizer();
         overlayView = binding.overlayView;
         overlayView.setZOrderOnTop(true);
+
+        Context context = getApplicationContext();
+        energyMonitor = new EnergyMonitor(context);
 
         counter = new FPSCounter();
         statUpdateScheduler = Executors.newScheduledThreadPool(1);
@@ -335,6 +347,7 @@ public class MainActivity extends AppCompatActivity {
         poclBackgroundThreadHandler.post(() -> initPoclImageProcessor(getAssets()));
 
         counter.Reset();
+        energyMonitor.reset();
         // schedule the metrics to update every second
         statUpdateFuture = statUpdateScheduler.scheduleAtFixedRate(statUpdater, 1, 1,
                 TimeUnit.SECONDS);
@@ -358,10 +371,23 @@ public class MainActivity extends AppCompatActivity {
                 Log.println(Log.INFO, "EXECUTIONFLOW", "updating stats");
             }
             try {
-                String statString = String.format(Locale.US, "FPS: %.2f  AVG FPS: %.2f " +
-                                "12345678901234567890",
+
+                energyMonitor.tick();
+                String formatString = "FPS: %.2f  AVG FPS: %.2f \n" +
+                        "EPS: %.3f J/s  AVG EPS: %.3f J/s \n" +
+                        "charge: %d μAh\n" +
+                        "voltage: %d mV \n" +
+                        "current: %d mA\n";
+
+                String statString = String.format(Locale.US, formatString,
                         counter.getFPS(),
-                        counter.getAverageFPS());
+                        counter.getAverageFPS(),
+                        energyMonitor.getEPS(),
+                        energyMonitor.getAverageEPS(),
+                        energyMonitor.getCharge(),
+                        energyMonitor.getVoltage(),
+                        energyMonitor.getcurrent()
+                );
 
                 // needed since only the uithread is allowed to make changes to the textview
                 runOnUiThread(new Runnable() {
