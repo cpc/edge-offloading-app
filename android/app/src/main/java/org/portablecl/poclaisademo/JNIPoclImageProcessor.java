@@ -3,11 +3,13 @@
  *  poclImageProcessor.cpp
  */
 package org.portablecl.poclaisademo;
+import android.content.res.AssetManager;
+
 import java.nio.ByteBuffer;
 
 public class JNIPoclImageProcessor {
 
-    public static native int initPoclImageProcessor();
+    public static native int initPoclImageProcessor(AssetManager jAssetManager);
 
     public static native int destroyPoclImageProcessor();
 

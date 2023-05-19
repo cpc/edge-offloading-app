@@ -10,6 +10,7 @@ import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.content.res.AssetManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.ImageFormat;
@@ -61,7 +62,7 @@ public class MainActivity extends AppCompatActivity {
 
     // These native functions are defined in src/main/cpp/vectorAddExample.cpp
     // todo: move these headers to their own file
-    public native int initCL();
+    public native int initCL(AssetManager am);
 
     public native int vectorAddCL(int N, float[] A, float[] B, float[] C);
 
@@ -265,10 +266,9 @@ public class MainActivity extends AppCompatActivity {
 
         // used to configure pocl
         setNativeEnv("POCL_DEBUG", "all");
-        setNativeEnv("POCL_DEVICES", "remote,basic");
+        setNativeEnv("POCL_DEVICES", "basic");
         setNativeEnv("POCL_REMOTE0_PARAMETERS", server_address);
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
-
     }
 
     /**
@@ -332,7 +332,7 @@ public class MainActivity extends AppCompatActivity {
 
         startBackgroundThreads();
 
-        poclBackgroundThreadHandler.post(() -> initPoclImageProcessor());
+        poclBackgroundThreadHandler.post(() -> initPoclImageProcessor(getAssets()));
 
         counter.Reset();
         // schedule the metrics to update every second
@@ -411,7 +411,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         printLog(ocl_text, "\ncalling opencl init functions... ");
-        initCL();
+        initCL(getAssets());
 
         // Create 2 vectors A & B
         // And yes, this array size is embarrassingly huge for demo!

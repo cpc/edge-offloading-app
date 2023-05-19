@@ -47,9 +47,10 @@ find_library( # Sets the name of the path variable.
         # you want CMake to locate.
         log)
 
+find_library(android-lib android)
+
 # add the libopencl-stub subdirectory with cmakelists.txt to link the opencl stubs to
 add_subdirectory(${EXTERNAL_PATH}/libopencl-stub libopencl-stub-dir)
-
 
 # build opencv.
 set (OPENCV_CMAKE_ARGS
@@ -146,6 +147,7 @@ target_include_directories(poclnative
 
 target_link_libraries(
         poclnative
+        ${android-lib}
         ${log-lib}
         ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libpocl.a
         OpenCL
@@ -168,9 +170,6 @@ target_link_libraries( # Specifies the target library.
         # Links the target library to the log library
         # included in the NDK.
         ${log-lib}
-
-        # this library comes from libopencl-stub
-        OpenCL
 
         poclnative
         )

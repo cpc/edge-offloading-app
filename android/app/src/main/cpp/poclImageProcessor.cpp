@@ -5,7 +5,10 @@
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
 
+#include <rename_opencl.h>
 #include <CL/cl.h>
+#include <android/asset_manager.h>
+#include <android/asset_manager_jni.h>
 #include <android/log.h>
 #include <string.h>
 #include <stdlib.h>
@@ -28,6 +31,9 @@ static cl_command_queue commandQueue = NULL;
 static cl_program program = NULL;
 static cl_kernel kernel = NULL;
 
+const char *pocl_onnx_blob = NULL;
+size_t pocl_onnx_blob_size = 0;
+
 /**
  * setup and create the objects needed for repeated PoCL calls.
  * PoCL can be configured by setting environment variables.
@@ -37,7 +43,32 @@ static cl_kernel kernel = NULL;
  */
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JNIEnv *env,
-                                                                              jclass clazz) {
+                                                                              jclass clazz, jobject jAssetManager) {
+
+    // TODO: this is racy
+    if (pocl_onnx_blob == nullptr) {
+        AAssetManager *assetManager = AAssetManager_fromJava(env, jAssetManager);
+        if (assetManager == nullptr) {
+            __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager", "Failed to get asset manager");
+            return -1;
+        }
+
+        AAsset *a = AAssetManager_open(assetManager, "yolov8n-seg.onnx", AASSET_MODE_STREAMING);
+        auto num_bytes = AAsset_getLength(a);
+        char * tmp = new char[num_bytes+1];
+        tmp[num_bytes] = 0;
+        int read_bytes = AAsset_read(a, tmp, num_bytes);
+        AAsset_close(a);
+        if (read_bytes != num_bytes) {
+            delete[] tmp;
+            __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager", "Failed to read asset contents");
+            return -1;
+        }
+        pocl_onnx_blob = tmp;
+        pocl_onnx_blob_size = num_bytes;
+        __android_log_print(ANDROID_LOG_DEBUG, "NDK_Asset_Manager", "ONNX blob read successfully");
+    }
+
     cl_platform_id platform;
     cl_device_id device;
     cl_int status;
@@ -111,6 +142,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
 
     if (program != NULL) {
         clReleaseProgram(program);
+    }
+
+    if (pocl_onnx_blob != nullptr) {
+        delete[] pocl_onnx_blob;
+        pocl_onnx_blob = nullptr;
+        pocl_onnx_blob_size = 0;
     }
 
     return 0;
