@@ -66,7 +66,9 @@ set (OPENCV_CMAKE_ARGS
         -DBUILD_TESTS=0
         -DBUILD_EXAMPLES=0
         -DOPENCV_DNN_OPENCL=1
-        -DBUILD_LIST=core,dnn,imgproc,imgcodecs
+        -DOPENCL_INCLUDE_DIR=${EXTERNAL_PATH}/libopencl-stub/include
+        -DOPENCL_LIBRARY=${CMAKE_CURRENT_BINARY_DIR}/libopencl-stub-dir/libOpenCL.a
+        -DBUILD_LIST=core,dnn,imgproc
         -DBUILD_ANDROID_EXAMPLES=0
         -DBUILD_ANDROID_PROJECTS=0
         -DWITH_QUIRC=0

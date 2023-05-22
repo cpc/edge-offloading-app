@@ -7,6 +7,7 @@
 
 #include <rename_opencl.h>
 #include <CL/cl.h>
+#include <CL/cl_ext_pocl.h>
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
 #include <android/log.h>
@@ -30,9 +31,39 @@ static cl_context context = NULL;
 static cl_command_queue commandQueue = NULL;
 static cl_program program = NULL;
 static cl_kernel kernel = NULL;
+static clCreateProgramWithBuiltInOnnxKernelsPOCL_fn ext_clCreateProgramWithBuiltInOnnxKernelsPOCL = nullptr;
 
-const char *pocl_onnx_blob = NULL;
-size_t pocl_onnx_blob_size = 0;
+cl_program createClProgramFromOnnxAsset(JNIEnv *env, jobject jAssetManager, const char *filename, cl_int num_devices, cl_device_id *devices, const char *kernel_names, cl_int *status)
+{
+
+    AAssetManager *assetManager = AAssetManager_fromJava(env, jAssetManager);
+    if (assetManager == nullptr) {
+        __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager", "Failed to get asset manager");
+        return nullptr;
+    }
+
+    AAsset *a = AAssetManager_open(assetManager, "yolov8n-seg.onnx", AASSET_MODE_STREAMING);
+    auto num_bytes = AAsset_getLength(a);
+    char * tmp = new char[num_bytes+1];
+    tmp[num_bytes] = 0;
+    int read_bytes = AAsset_read(a, tmp, num_bytes);
+    AAsset_close(a);
+    if (read_bytes != num_bytes) {
+        delete[] tmp;
+        __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager", "Failed to read asset contents");
+        return nullptr;
+    }
+
+    __android_log_print(ANDROID_LOG_DEBUG, "NDK_Asset_Manager", "ONNX blob read successfully");
+
+    size_t blob_size = num_bytes;
+    cl_program p = ext_clCreateProgramWithBuiltInOnnxKernelsPOCL(context, num_devices, devices, kernel_names, (const char **)&tmp, &blob_size, status);
+
+    delete[] tmp;
+
+    return p;
+}
+
 
 /**
  * setup and create the objects needed for repeated PoCL calls.
@@ -44,37 +75,17 @@ size_t pocl_onnx_blob_size = 0;
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JNIEnv *env,
                                                                               jclass clazz, jobject jAssetManager) {
-
-    // TODO: this is racy
-    if (pocl_onnx_blob == nullptr) {
-        AAssetManager *assetManager = AAssetManager_fromJava(env, jAssetManager);
-        if (assetManager == nullptr) {
-            __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager", "Failed to get asset manager");
-            return -1;
-        }
-
-        AAsset *a = AAssetManager_open(assetManager, "yolov8n-seg.onnx", AASSET_MODE_STREAMING);
-        auto num_bytes = AAsset_getLength(a);
-        char * tmp = new char[num_bytes+1];
-        tmp[num_bytes] = 0;
-        int read_bytes = AAsset_read(a, tmp, num_bytes);
-        AAsset_close(a);
-        if (read_bytes != num_bytes) {
-            delete[] tmp;
-            __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager", "Failed to read asset contents");
-            return -1;
-        }
-        pocl_onnx_blob = tmp;
-        pocl_onnx_blob_size = num_bytes;
-        __android_log_print(ANDROID_LOG_DEBUG, "NDK_Asset_Manager", "ONNX blob read successfully");
-    }
-
     cl_platform_id platform;
     cl_device_id device;
     cl_int status;
 
     status = clGetPlatformIDs(1, &platform, NULL);
     CHECK_AND_RETURN(status, "getting platform id failed");
+
+    ext_clCreateProgramWithBuiltInOnnxKernelsPOCL =
+            reinterpret_cast<clCreateProgramWithBuiltInOnnxKernelsPOCL_fn>(
+                    clGetExtensionFunctionAddressForPlatform(platform, "clCreateProgramWithBuiltInOnnxKernelsPOCL"));
+
 
     status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_DEFAULT, 1, &device, NULL);
     CHECK_AND_RETURN(status, "getting device id failed");
@@ -103,8 +114,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     CHECK_AND_RETURN(status, "creating command queue failed");
 
     char* kernel_name =  "pocl.dnn.detection.u8";
-    program = clCreateProgramWithBuiltInKernels(context, 1, &device, kernel_name ,
-                                                &status);
+    program = createClProgramFromOnnxAsset(env, jAssetManager, "yolov8n-seg.onnx", 1, &device, kernel_name, &status);
     CHECK_AND_RETURN(status, "creation of program failed");
 
     status = clBuildProgram(program, 1, &device, NULL, NULL, NULL);
@@ -128,26 +138,24 @@ JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor(JNIEnv *env,
                                                                                  jclass clazz) {
 
-    if (commandQueue != NULL) {
+    if (commandQueue != nullptr) {
         clReleaseCommandQueue(commandQueue);
+        commandQueue = nullptr;
     }
 
-    if (context != NULL) {
+    if (context != nullptr) {
         clReleaseContext(context);
+        context = nullptr;
     }
 
-    if (kernel != NULL) {
+    if (kernel != nullptr) {
         clReleaseKernel(kernel);
+        kernel = nullptr;
     }
 
-    if (program != NULL) {
+    if (program != nullptr) {
         clReleaseProgram(program);
-    }
-
-    if (pocl_onnx_blob != nullptr) {
-        delete[] pocl_onnx_blob;
-        pocl_onnx_blob = nullptr;
-        pocl_onnx_blob_size = 0;
+        program = nullptr;
     }
 
     return 0;
@@ -181,9 +189,15 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                                                            jint uvpixel_stride,
                                                                            jintArray result) {
 
+    if (!kernel) {
+        __android_log_print(ANDROID_LOG_ERROR, LOGTAG, "poclProcessYUVImage called but OpenCL kernel does not exist!");
+        return 1;
+    }
+
+
     cl_int	status;
     // todo: look into if iscopy=true works on android
-    cl_int * result_array = env->GetIntArrayElements(result, 0);
+    cl_int * result_array = env->GetIntArrayElements(result, JNI_FALSE);
 
     int tot_pixels = width * height;
 
@@ -221,7 +235,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     for(int i = 0; i < height; i++){
         // row_stride is in bytes
         for(int j = 0; j < yrow_stride ; j++){
-            host_img_ptr[i*j] = y_ptr[i*j];
+            host_img_ptr[i*yrow_stride + j] = y_ptr[(i*yrow_stride + j)*ypixel_stride];
         }
     }
 
@@ -230,16 +244,16 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     // divided by 4 since u and v are subsampled by 2
     for(int i = 0; i < (height * width)/4; i++){
 
-        host_img_ptr[uv_start_index + i] = v_ptr[i*uvpixel_stride];
+        host_img_ptr[uv_start_index + 2*i] = v_ptr[i*uvpixel_stride];
 
-        host_img_ptr[uv_start_index + 1 + i] = u_ptr[i*uvpixel_stride];
+        host_img_ptr[uv_start_index + 1 + 2*i] = u_ptr[i*uvpixel_stride];
     }
 
     status = clEnqueueUnmapMemObject(commandQueue, img_buf, host_img_ptr, 0, NULL, NULL);
     CHECK_AND_RETURN(status, "failed to unmap the image buffer");
 
     int rotate_cw_degrees = 0;
-    int inp_format = 2; // 0 - RGB
+    int inp_format = 1; // 0 - RGB
     // 1 - YUV420 NV21 Android (interleaved U/V)
     // 2 - YUV420 (U/V separate)
     int inp_w = width;
@@ -268,10 +282,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     CHECK_AND_RETURN(status, "failed to read result buffer");
 
     // commit the results back
-    env->ReleaseIntArrayElements(result,result_array, 0);
+    env->ReleaseIntArrayElements(result,result_array, JNI_FALSE);
+    __android_log_print(ANDROID_LOG_DEBUG, "DETECTION", "%d %d %d %d %d %d %d", result_array[0],result_array[1],result_array[2],result_array[3],result_array[4],result_array[5],result_array[6]);
 
     clReleaseMemObject(img_buf);
     clReleaseMemObject(out_buf);
+    clReleaseMemObject(out_mask_buf);
 
     return 0;
 }
