@@ -277,7 +277,7 @@ public class MainActivity extends AppCompatActivity {
         String cache_dir = getCacheDir().getAbsolutePath();
 
         // used to configure pocl
-        setNativeEnv("POCL_DEBUG", "all");
+        setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
         setNativeEnv("POCL_DEVICES", "basic");
         setNativeEnv("POCL_REMOTE0_PARAMETERS", server_address);
         setNativeEnv("POCL_CACHE_DIR", cache_dir);

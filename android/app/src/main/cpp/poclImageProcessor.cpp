@@ -205,6 +205,10 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                     NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the output buffer");
 
+    cl_mem out_mask_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * sizeof(cl_char) / 4,
+                                    NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
+
     cl_char * host_img_ptr = (cl_char *) clEnqueueMapBuffer(commandQueue, img_buf, CL_TRUE,
                                                             CL_MAP_WRITE, 0,
                                                             img_buf_size,
@@ -234,32 +238,34 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     status = clEnqueueUnmapMemObject(commandQueue, img_buf, host_img_ptr, 0, NULL, NULL);
     CHECK_AND_RETURN(status, "failed to unmap the image buffer");
 
-    // todo: call clsetkernelarg for each of the variables
-//
-//    status = clSetKernelArg(clKernel, 0, sizeof(cl_int), (void *)&n);
-//    status |= clSetKernelArg(clKernel, 1, sizeof(cl_mem), (void *)&A_obj);
+    int rotate_cw_degrees = 0;
+    int inp_format = 2; // 0 - RGB
+    // 1 - YUV420 NV21 Android (interleaved U/V)
+    // 2 - YUV420 (U/V separate)
+    int inp_w = width;
+    int inp_h = height;
 
+    int arg_idx = 0;
+    status = clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem), &img_buf);
+    status |= clSetKernelArg(kernel, arg_idx++, sizeof(int), &inp_w);
+    status |= clSetKernelArg(kernel, arg_idx++, sizeof(int), &inp_h);
+    status |=
+        clSetKernelArg(kernel, arg_idx++, sizeof(int), &rotate_cw_degrees);
+    status |= clSetKernelArg(kernel, arg_idx++, sizeof(int), &inp_format);
+    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem), &out_buf);
+    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem), &out_mask_buf);
     size_t local_size = 1;
     size_t global_size = 1;
 
-//    status = clEnqueueNDRangeKernel(commandQueue, kernel, 1, NULL,
-//                           &global_size, &local_size, 0,
-//                           NULL,NULL );
-//    CHECK_AND_RETURN(status, "failed to enqueue ND range kernel");
-//
-//    status = clEnqueueReadBuffer(commandQueue, out_buf, CL_TRUE, 0,
-//                                 out_count * sizeof(cl_int),result_array, 0,
-//                                 NULL, NULL);
-//    CHECK_AND_RETURN(status, "failed to read result buffer");
+    status = clEnqueueNDRangeKernel(commandQueue, kernel, 1, NULL,
+                           &global_size, &local_size, 0,
+                           NULL,NULL );
+    CHECK_AND_RETURN(status, "failed to enqueue ND range kernel");
 
-    // a test array
-    result_array[0] = 1;
-    result_array[1] = 18; // sheep
-    result_array[2] = 1063948516;
-    result_array[3] = 100;
-    result_array[4] = 200;
-    result_array[5] = 250;
-    result_array[6] = 300;
+    status = clEnqueueReadBuffer(commandQueue, out_buf, CL_TRUE, 0,
+                                 out_count * sizeof(cl_int),result_array, 0,
+                                 NULL, NULL);
+    CHECK_AND_RETURN(status, "failed to read result buffer");
 
     // commit the results back
     env->ReleaseIntArrayElements(result,result_array, 0);
