@@ -85,6 +85,16 @@ public class MainActivity extends AppCompatActivity {
     private CaptureRequest.Builder requestBuilder;
 
     /**
+     * used to create a capture request that pocl uses
+     */
+    private CaptureRequest.Builder imageReaderRequestBuilder;
+
+    /**
+     * used to request the camera to take a new image for pocl
+     */
+    private CaptureRequest imageReaderCaptureRequest;
+
+    /**
      * used to control capturing images from the camera
      */
     private CameraCaptureSession captureSession;
@@ -152,12 +162,7 @@ public class MainActivity extends AppCompatActivity {
     /**
      * a thread to run pocl on
      */
-    private HandlerThread poclBackgroundThread;
-
-    /**
-     * used to enqueue work on the pocl thread
-     */
-    private Handler poclBackgroundThreadHandler;
+    private Thread imageProcessThread;
 
     /**
      * set how verbose the program should be
@@ -258,6 +263,7 @@ public class MainActivity extends AppCompatActivity {
         // setup overlay
         overlayVisualizer = new OverlayVisualizer();
         overlayView = binding.overlayView;
+        // TODO: see if there is a better way to do this
         overlayView.setZOrderOnTop(true);
 
         Context context = getApplicationContext();
@@ -266,6 +272,8 @@ public class MainActivity extends AppCompatActivity {
         counter = new FPSCounter();
         statUpdateScheduler = Executors.newScheduledThreadPool(1);
 
+        // TODO: remove this example
+        // this is an example run
         // Running in separate thread to avoid UI hangs
         Thread td = new Thread() {
             public void run() {
@@ -344,8 +352,6 @@ public class MainActivity extends AppCompatActivity {
 
         startBackgroundThreads();
 
-        poclBackgroundThreadHandler.post(() -> initPoclImageProcessor(getAssets()));
-
         counter.Reset();
         energyMonitor.reset();
         // schedule the metrics to update every second
@@ -358,6 +364,8 @@ public class MainActivity extends AppCompatActivity {
         if (previewView.isAvailable()) {
             Log.println(Log.INFO, "MA flow", "preview available, setting up camera");
             setupCamera();
+            startImageProcessThread();
+
         } else {
             Log.println(Log.INFO, "MA flow", "preview not available, not setting up camera");
         }
@@ -417,13 +425,13 @@ public class MainActivity extends AppCompatActivity {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started onPause method");
         }
 
-        poclBackgroundThreadHandler.post(() -> destroyPoclImageProcessor());
-
         // used to stop the stat update scheduler.
         statUpdateFuture.cancel(false);
 
         closeCamera();
         stopBackgroundThreads();
+        stopImageProcessThread();
+
         super.onPause();
     }
 
@@ -606,32 +614,57 @@ public class MainActivity extends AppCompatActivity {
         imageReader = ImageReader.newInstance(captureSize.getWidth(), captureSize.getHeight(),
                 captureFormat, imageBufferSize);
 
-        imageReader.setOnImageAvailableListener(imageReaderListener, poclBackgroundThreadHandler);
     }
 
-    private final ImageReader.OnImageAvailableListener imageReaderListener
-            = new ImageReader.OnImageAvailableListener() {
-        @Override
-        public void onImageAvailable(ImageReader reader) {
-            poclBackgroundThreadHandler.post(new ImageProcessRunnable(reader));
-        }
-    };
+    /**
+     * Method to call pocl. This method contains a while loop that exits
+     * when an interrupt is sent to the thread running this method.
+     * This method makes sure to start and destroy needed opencl objects.
+     * This method also makes sure to queue an image capture for the next iteration.
+     */
+    private void imageProcessLoop() {
 
-    private class ImageProcessRunnable implements Runnable {
-
-
-        private final ImageReader reader;
-
-        public ImageProcessRunnable(ImageReader inputReader) {
-
-            reader = inputReader;
+        if (DEBUGEXECUTION) {
+            Log.println(Log.INFO, "EXECUTIONFLOW", "started image process loop");
         }
 
-        @Override
-        public void run() {
+        Image image = null;
+        try {
 
-            try {
-                Image image = reader.acquireNextImage();
+            initPoclImageProcessor(getAssets());
+
+            // the main loop, will continue until an interrupt is sent
+            while (!Thread.interrupted()) {
+
+                if (DEBUGEXECUTION) {
+                    Log.println(Log.INFO, "EXECUTIONFLOW", "started new image process" +
+                            " iteration");
+                }
+                // capture the next image.
+                // since the imagereader has a queue,
+                // we can request a new image to be captured,
+                // while working on another.
+                if (null != captureSession) {
+                    captureSession.capture(imageReaderCaptureRequest, null, null);
+                }
+
+                if (null != imageReader) {
+                    image = imageReader.acquireLatestImage();
+                }
+
+                // if there wasn't an image available, sleep
+                if (null == image) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "no image available, " +
+                                "sleeping");
+                    }
+                    // if an interrupt is sent while sleeping,
+                    // an execption is thrown. This is fine since
+                    // we weren't doing anything anyway
+                    Thread.sleep(17);
+                    continue;
+                }
+
                 Image.Plane[] planes = image.getPlanes();
 
                 ByteBuffer Y = planes[0].getBuffer();
@@ -678,15 +711,35 @@ public class MainActivity extends AppCompatActivity {
 
                 // don't forget to close the image when done
                 image.close();
-            } catch (Exception e) {
-                Log.println(Log.INFO, "MainActivity.java:ImageProcessRunnable", "error while " +
-                        "processing image");
-
             }
 
-        }
-    }
+        } catch (InterruptedException e) {
+            // if an image was open, close it.
+            // can be null if the imagereader didn't have an image available
+            if (image != null) {
+                image.close();
+            }
+            Log.println(Log.INFO, "MainActivity.java:imageProcessLoop", "received " +
+                    "interrupt, closing down");
 
+        } catch (Exception e) {
+
+            if (image != null) {
+                image.close();
+            }
+            Log.println(Log.INFO, "MainActivity.java:imageProcessLoop", "error while " +
+                    "processing image");
+            e.printStackTrace();
+
+        } finally {
+            // always free pocl
+            destroyPoclImageProcessor();
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "finishing image process loop");
+            }
+        }
+
+    }
 
     /**
      * figure out the orientations of the camera and display and use that to setup the right
@@ -777,7 +830,6 @@ public class MainActivity extends AppCompatActivity {
         }
         configureTransform(width, height);
 
-        return;
     }
 
     /**
@@ -995,9 +1047,14 @@ public class MainActivity extends AppCompatActivity {
 
 
             requestBuilder = chosenCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-
+            requestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
+                    CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
             requestBuilder.addTarget(previewSurface);
-            requestBuilder.addTarget(imageReader.getSurface());
+
+            imageReaderRequestBuilder = chosenCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            imageReaderRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
+                    CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+            imageReaderRequestBuilder.addTarget(imageReader.getSurface());
 
             // todo: use the new proper method for creating a capture session
             // https://stackoverflow.com/questions/67077568/how-to-correctly-use-the-new-createcapturesession-in-camera2-in-android
@@ -1024,17 +1081,17 @@ public class MainActivity extends AppCompatActivity {
                                 "callback called");
                     }
 
-                    if (chosenCamera == null || requestBuilder == null) {
+                    if (chosenCamera == null || requestBuilder == null ||
+                            imageReaderRequestBuilder == null) {
                         return;
                     }
 
                     captureSession = session;
 
                     try {
-                        requestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
-                                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
 
                         CaptureRequest captureRequest = requestBuilder.build();
+                        imageReaderCaptureRequest = imageReaderRequestBuilder.build();
 
                         // todo: possibly add listener to request
                         captureSession.setRepeatingRequest(captureRequest, null,
@@ -1053,7 +1110,6 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
 
-                    return;
                 }
 
                 @Override
@@ -1104,9 +1160,6 @@ public class MainActivity extends AppCompatActivity {
         backgroundThread.start();
         backgroundThreadHandler = new Handler(backgroundThread.getLooper());
 
-        poclBackgroundThread = new HandlerThread("PoclBackground");
-        poclBackgroundThread.start();
-        poclBackgroundThreadHandler = new Handler(poclBackgroundThread.getLooper());
     }
 
     /**
@@ -1117,15 +1170,53 @@ public class MainActivity extends AppCompatActivity {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started stopBackgroundThread method");
         }
         backgroundThread.quitSafely();
-        poclBackgroundThread.quitSafely();
         try {
             backgroundThread.join();
             backgroundThread = null;
             backgroundThreadHandler = null;
 
-            poclBackgroundThread.join();
-            poclBackgroundThread = null;
-            poclBackgroundThreadHandler = null;
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * function to start the image process thread, and thereby the
+     * main image process loop
+     */
+    private void startImageProcessThread() {
+        if (DEBUGEXECUTION) {
+            Log.println(Log.INFO, "EXECUTIONFLOW", "started startImageProcessThread method");
+        }
+
+        imageProcessThread = new Thread() {
+            public void run() {
+                imageProcessLoop();
+            }
+        };
+
+        imageProcessThread.start();
+
+    }
+
+    /**
+     * function to safely stop the image process thread and
+     * ask it nicely to stop anything it is doing
+     */
+    private void stopImageProcessThread() {
+        if (DEBUGEXECUTION) {
+            Log.println(Log.INFO, "EXECUTIONFLOW", "started stopImageProcessThread method");
+        }
+        if (null == imageProcessThread) {
+            return;
+        }
+
+        // sending an interrupt will exit the while loop
+        imageProcessThread.interrupt();
+        try {
+            // wait for the last iteration to be done
+            imageProcessThread.join();
+            imageProcessThread = null;
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
