@@ -181,7 +181,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEnv *env,
                                                                            jclass clazz, jint width,
-                                                                           jint height, jobject y,
+                                                                           jint height, jint rotation,
+                                                                           jobject y,
                                                                            jint yrow_stride,
                                                                            jint ypixel_stride,
                                                                            jobject u, jobject v,
@@ -252,7 +253,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     status = clEnqueueUnmapMemObject(commandQueue, img_buf, host_img_ptr, 0, NULL, NULL);
     CHECK_AND_RETURN(status, "failed to unmap the image buffer");
 
-    int rotate_cw_degrees = 0;
+    int rotate_cw_degrees = rotation;
     int inp_format = 1; // 0 - RGB
     // 1 - YUV420 NV21 Android (interleaved U/V)
     // 2 - YUV420 (U/V separate)

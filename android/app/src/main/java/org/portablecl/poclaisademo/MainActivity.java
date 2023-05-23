@@ -699,8 +699,8 @@ public class MainActivity extends AppCompatActivity {
 
                 int[] results = new int[1 + 10 * 6];
                 int rotation = orientationsSwapped ? 90 : 0;
-                poclProcessYUVImage(image.getWidth(), image.getHeight(), Y, YRowStride, YPixelStride,
-                        U, V, UVRowStride, UVPixelStride, results);
+                poclProcessYUVImage(image.getWidth(), image.getHeight(), rotation, Y, YRowStride,
+                        YPixelStride, U, V, UVRowStride, UVPixelStride, results);
 
                 overlayVisualizer.DrawOverlay(results, captureSize, orientationsSwapped,
                         overlayView);
