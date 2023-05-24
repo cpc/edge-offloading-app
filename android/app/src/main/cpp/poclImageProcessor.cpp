@@ -220,7 +220,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                     NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the output buffer");
 
-    cl_mem out_mask_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * sizeof(cl_char) / 4,
+    cl_mem out_mask_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * MAX_DETECTIONS * sizeof(cl_char) / 4,
                                     NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
 
