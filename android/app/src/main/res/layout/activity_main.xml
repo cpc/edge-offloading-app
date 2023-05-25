@@ -44,4 +44,18 @@
         app:layout_constraintStart_toStartOf="@+id/cameraFeed"
         app:layout_constraintTop_toTopOf="@+id/cameraFeed" />
 
+    <Switch
+        android:id="@+id/modeSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="25dp"
+        android:layout_marginBottom="25dp"
+        android:checked="false"
+        android:showText="true"
+        android:text="Mode"
+        android:textOff="Local"
+        android:textOn="Remote"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>

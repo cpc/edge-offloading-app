@@ -36,7 +36,10 @@ import android.util.Size;
 import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.TextureView;
+import android.view.View;
+import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -257,8 +260,10 @@ public class MainActivity extends AppCompatActivity {
 
         ocl_text = binding.clOutput;
         previewView = binding.cameraFeed;
-
         previewView.setSurfaceTextureListener(surfaceTextureListener);
+
+        Switch modeSwitch = binding.modeSwitch;
+        modeSwitch.setOnClickListener(modeListener);
 
         // setup overlay
         overlayVisualizer = new OverlayVisualizer();
@@ -282,8 +287,8 @@ public class MainActivity extends AppCompatActivity {
         };
         td.start();
 
-        String cache_dir = getCacheDir().getAbsolutePath();
 
+        String cache_dir = getCacheDir().getAbsolutePath();
         // used to configure pocl
         setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
         setNativeEnv("POCL_DEVICES", "basic");
@@ -337,6 +342,27 @@ public class MainActivity extends AppCompatActivity {
     };
 
     /**
+     *  A listener that hands interactions with the mode switch.
+     *  This switch sets the device variable and restarts the
+     *  image process thread
+     */
+    private final View.OnClickListener modeListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            if (((Switch) v).isChecked()) {
+                Toast.makeText(MainActivity.this, "Switching to remote device, please wait", Toast.LENGTH_SHORT).show();
+                // TODO: uncomment this
+//                setNativeEnv("POCL_DEVICES", "remote");
+            } else {
+                Toast.makeText(MainActivity.this, "Switching to local device, please wait", Toast.LENGTH_SHORT).show();
+                setNativeEnv("POCL_DEVICES", "basic");
+            }
+            stopImageProcessThread();
+            startImageProcessThread();
+        }
+    };
+
+    /**
      * this is the last function is called before things are actually running.
      * <p>
      * see https://developer.android.com/guide/components/activities/activity-lifecycle
@@ -382,7 +408,7 @@ public class MainActivity extends AppCompatActivity {
 
                 energyMonitor.tick();
                 String formatString = "FPS: %.2f  AVG FPS: %.2f \n" +
-                        "EPS: %.3f J/s  AVG EPS: %.3f J/s \n" +
+                        "EPS: %.3f W  AVG EPS: %.3f W \n" +
                         "charge: %d μAh\n" +
                         "voltage: %d mV \n" +
                         "current: %d mA\n";
@@ -640,12 +666,19 @@ public class MainActivity extends AppCompatActivity {
                     Log.println(Log.INFO, "EXECUTIONFLOW", "started new image process" +
                             " iteration");
                 }
-                // capture the next image.
-                // since the imagereader has a queue,
-                // we can request a new image to be captured,
-                // while working on another.
-                if (null != captureSession) {
-                    captureSession.capture(imageReaderCaptureRequest, null, null);
+
+                try {
+                    // capture the next image.
+                    // since the imagereader has a queue,
+                    // we can request a new image to be captured,
+                    // while working on another.
+                    if (null != captureSession) {
+                        captureSession.capture(imageReaderCaptureRequest, null, null);
+                    }
+                } catch (Exception e) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.WARN, "imageProcessLoop", "capture session is not available");
+                    }
                 }
 
                 if (null != imageReader) {
@@ -702,9 +735,8 @@ public class MainActivity extends AppCompatActivity {
                 poclProcessYUVImage(image.getWidth(), image.getHeight(), rotation, Y, YRowStride,
                         YPixelStride, U, V, UVRowStride, UVPixelStride, results);
 
-                overlayVisualizer.DrawOverlay(results, captureSize, orientationsSwapped,
-                        overlayView);
-
+                runOnUiThread(() -> overlayVisualizer.drawOverlay(results, captureSize,
+                        orientationsSwapped, overlayView));
 
                 // used to calculate the (avg) FPS
                 counter.TickFrame();
@@ -1061,7 +1093,6 @@ public class MainActivity extends AppCompatActivity {
             chosenCamera.createCaptureSession(Arrays.asList(previewSurface,
                             imageReader.getSurface()),
                     previewStateCallback, null);
-
         } catch (CameraAccessException e) {
             Log.println(Log.ERROR, "MainActivity.java:createPreview", "could not access camera");
             e.printStackTrace();
