@@ -7,7 +7,6 @@
 
 #include <rename_opencl.h>
 #include <CL/cl.h>
-#include <CL/cl_ext_pocl.h>
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
 #include <android/log.h>
@@ -31,7 +30,11 @@ static cl_context context = NULL;
 static cl_command_queue commandQueue = NULL;
 static cl_program program = NULL;
 static cl_kernel kernel = NULL;
-static clCreateProgramWithBuiltInOnnxKernelsPOCL_fn ext_clCreateProgramWithBuiltInOnnxKernelsPOCL = nullptr;
+
+// Global variables for smuggling our blob into PoCL so we can pretend it is a builtin kernel.
+// Please don't ever actually do this in production code.
+volatile const char *pocl_onnx_blob = NULL;
+volatile uint64_t pocl_onnx_blob_size = 0;
 
 cl_program createClProgramFromOnnxAsset(JNIEnv *env, jobject jAssetManager, const char *filename, cl_int num_devices, cl_device_id *devices, const char *kernel_names, cl_int *status)
 {
@@ -56,9 +59,14 @@ cl_program createClProgramFromOnnxAsset(JNIEnv *env, jobject jAssetManager, cons
 
     __android_log_print(ANDROID_LOG_DEBUG, "NDK_Asset_Manager", "ONNX blob read successfully");
 
-    size_t blob_size = num_bytes;
-    cl_program p = ext_clCreateProgramWithBuiltInOnnxKernelsPOCL(context, num_devices, devices, kernel_names, (const char **)&tmp, &blob_size, status);
+    // Smuggling in progress
+    pocl_onnx_blob = tmp;
+    pocl_onnx_blob_size = num_bytes;
+    cl_program p = clCreateProgramWithBuiltInKernels(context, num_devices, devices, kernel_names, status);
 
+    // Destroy the evidence
+    pocl_onnx_blob_size = 0;
+    pocl_onnx_blob = nullptr;
     delete[] tmp;
 
     return p;
@@ -81,11 +89,6 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
 
     status = clGetPlatformIDs(1, &platform, NULL);
     CHECK_AND_RETURN(status, "getting platform id failed");
-
-    ext_clCreateProgramWithBuiltInOnnxKernelsPOCL =
-            reinterpret_cast<clCreateProgramWithBuiltInOnnxKernelsPOCL_fn>(
-                    clGetExtensionFunctionAddressForPlatform(platform, "clCreateProgramWithBuiltInOnnxKernelsPOCL"));
-
 
     status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_DEFAULT, 1, &device, NULL);
     CHECK_AND_RETURN(status, "getting device id failed");
