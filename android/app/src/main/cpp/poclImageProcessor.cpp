@@ -33,16 +33,15 @@ static cl_kernel kernel = NULL;
 
 // Global variables for smuggling our blob into PoCL so we can pretend it is a builtin kernel.
 // Please don't ever actually do this in production code.
-volatile const char *pocl_onnx_blob = NULL;
-volatile uint64_t pocl_onnx_blob_size = 0;
+const char *pocl_onnx_blob = NULL;
+uint64_t pocl_onnx_blob_size = 0;
 
-cl_program createClProgramFromOnnxAsset(JNIEnv *env, jobject jAssetManager, const char *filename, cl_int num_devices, cl_device_id *devices, const char *kernel_names, cl_int *status)
+bool smuggleONNXAsset(JNIEnv *env, jobject jAssetManager, const char *filename)
 {
-
     AAssetManager *assetManager = AAssetManager_fromJava(env, jAssetManager);
     if (assetManager == nullptr) {
         __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager", "Failed to get asset manager");
-        return nullptr;
+        return false;
     }
 
     AAsset *a = AAssetManager_open(assetManager, "yolov8n-seg.onnx", AASSET_MODE_STREAMING);
@@ -54,7 +53,7 @@ cl_program createClProgramFromOnnxAsset(JNIEnv *env, jobject jAssetManager, cons
     if (read_bytes != num_bytes) {
         delete[] tmp;
         __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager", "Failed to read asset contents");
-        return nullptr;
+        return false;
     }
 
     __android_log_print(ANDROID_LOG_DEBUG, "NDK_Asset_Manager", "ONNX blob read successfully");
@@ -62,14 +61,14 @@ cl_program createClProgramFromOnnxAsset(JNIEnv *env, jobject jAssetManager, cons
     // Smuggling in progress
     pocl_onnx_blob = tmp;
     pocl_onnx_blob_size = num_bytes;
-    cl_program p = clCreateProgramWithBuiltInKernels(context, num_devices, devices, kernel_names, status);
+    return true;
+}
 
-    // Destroy the evidence
+void destroySmugglingEvidence() {
+    char * tmp = (char *)pocl_onnx_blob;
     pocl_onnx_blob_size = 0;
     pocl_onnx_blob = nullptr;
     delete[] tmp;
-
-    return p;
 }
 
 
@@ -116,15 +115,19 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     commandQueue = clCreateCommandQueue(context, device, 0, &status);
     CHECK_AND_RETURN(status, "creating command queue failed");
 
+    assert(smuggleONNXAsset(env, jAssetManager, "yolov8n-seg.onnx"));
+
     char* kernel_name =  "pocl.dnn.detection.u8";
-    program = createClProgramFromOnnxAsset(env, jAssetManager, "yolov8n-seg.onnx", 1, &device, kernel_name, &status);
+    program = clCreateProgramWithBuiltInKernels(context, 1, &device, kernel_name, &status);
     CHECK_AND_RETURN(status, "creation of program failed");
 
-    status = clBuildProgram(program, 1, &device, NULL, NULL, NULL);
+    status = clBuildProgram(program, 1, &device, nullptr, nullptr, nullptr);
     CHECK_AND_RETURN(status, "building of program failed");
 
     kernel = clCreateKernel(program, kernel_name, &status);
     CHECK_AND_RETURN(status, "creating kernel failed");
+
+    destroySmugglingEvidence();
 
     clReleaseDevice(device);
 
