@@ -52,6 +52,13 @@ find_library(android-lib android)
 # add the libopencl-stub subdirectory with cmakelists.txt to link the opencl stubs to
 add_subdirectory(${EXTERNAL_PATH}/libopencl-stub libopencl-stub-dir)
 
+add_library(onnxruntime SHARED IMPORTED)
+set_target_properties(onnxruntime PROPERTIES IMPORTED_LOCATION ${EXTERNAL_PATH}/onnxruntime-android/jni/${ANDROID_ABI}/libonnxruntime.so)
+add_library(onnxruntime4j_jni SHARED IMPORTED)
+set_target_properties(onnxruntime4j_jni PROPERTIES IMPORTED_LOCATION ${EXTERNAL_PATH}/onnxruntime-android/jni/${ANDROID_ABI}/libonnxruntime4j_jni.so)
+set(ONNXRUNTIME_LIBRARIES onnxruntime)
+set(ONNXRUNTIME_INCLUDE_DIRS "${EXTERNAL_PATH}/onnxruntime-android/headers")
+
 # build opencv.
 set (OPENCV_CMAKE_ARGS
         -DCMAKE_MAKE_PROGRAM=${ANDROID_NDK}/prebuilt/linux-x86_64/bin/make
@@ -121,6 +128,8 @@ set(POCL_CMAKE_ARGS
         -DANDROID_NATIVE_API_LEVEL=${ANDROID_PLATFORM_LEVEL}
         -DVISIBILITY_HIDDEN=0
         -DOpenCV_DIR=${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/jni
+        -DONNXRUNTIME_INCLUDE_DIRS=${ONNXRUNTIME_INCLUDE_DIRS}
+        -DONNXRUNTIME_LIBRARIES=${ONNXRUNTIME_LIBRARIES}
         )
 
 ExternalProject_Add(pocl
@@ -157,6 +166,7 @@ target_link_libraries(
         opencv_dnn
         opencv_imgproc
         opencv_core
+        ${ONNXRUNTIME_LIBRARIES}
         )
 
 add_dependencies(pocl build_opencv)
