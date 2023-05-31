@@ -115,7 +115,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     commandQueue = clCreateCommandQueue(context, device, 0, &status);
     CHECK_AND_RETURN(status, "creating command queue failed");
 
-    assert(smuggleONNXAsset(env, jAssetManager, "yolov8n-seg.onnx"));
+    bool smuggling_ok = smuggleONNXAsset(env, jAssetManager, "yolov8n-seg.onnx");
+    assert(smuggling_ok);
 
     char* kernel_name =  "pocl.dnn.detection.u8";
     program = clCreateProgramWithBuiltInKernels(context, 1, &device, kernel_name, &status);
