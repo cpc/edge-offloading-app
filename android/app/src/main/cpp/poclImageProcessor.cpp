@@ -26,8 +26,9 @@ extern "C" {
 
 int out_count = 1 + MAX_DETECTIONS * 6;
 
+#define NUM_CL_DEVICES 3
 static cl_context context = NULL;
-static cl_command_queue commandQueue = NULL;
+static cl_command_queue commandQueue[NUM_CL_DEVICES] = {nullptr};
 static cl_program program = NULL;
 static cl_kernel kernel = NULL;
 
@@ -83,46 +84,55 @@ JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JNIEnv *env,
                                                                               jclass clazz, jobject jAssetManager) {
     cl_platform_id platform;
-    cl_device_id device;
+    cl_device_id devices[NUM_CL_DEVICES];
+    cl_uint devices_found;
     cl_int status;
 
     status = clGetPlatformIDs(1, &platform, NULL);
     CHECK_AND_RETURN(status, "getting platform id failed");
 
-    status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_DEFAULT, 1, &device, NULL);
+    status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, NUM_CL_DEVICES, devices, &devices_found);
     CHECK_AND_RETURN(status, "getting device id failed");
+    __android_log_print(ANDROID_LOG_INFO, LOGTAG, "Platform has %d devices", devices_found);
+    assert(devices_found == NUM_CL_DEVICES);
 
     // some info
     char result_array[256];
-    clGetDeviceInfo(device, CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
-    __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DEVICE_NAME: %s", result_array);
+    for (unsigned i = 0; i < NUM_CL_DEVICES; ++i) {
+        clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
+        __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DEVICE_NAME: %s", result_array);
 
-    clGetDeviceInfo(device, CL_DEVICE_VERSION, 256 * sizeof(char), result_array, NULL);
-    __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DEVICE_VERSION: %s", result_array);
+        clGetDeviceInfo(devices[i], CL_DEVICE_VERSION, 256 * sizeof(char), result_array, NULL);
+        __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DEVICE_VERSION: %s", result_array);
 
-    clGetDeviceInfo(device, CL_DRIVER_VERSION, 256 * sizeof(char), result_array, NULL);
-    __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DRIVER_VERSION: %s", result_array);
+        clGetDeviceInfo(devices[i], CL_DRIVER_VERSION, 256 * sizeof(char), result_array, NULL);
+        __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DRIVER_VERSION: %s", result_array);
 
-    clGetDeviceInfo(device, CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
-    __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DEVICE_NAME: %s", result_array);
+        clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
+        __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DEVICE_NAME: %s", result_array);
+    }
 
     cl_context_properties cps[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
                                    0};
 
-    context = clCreateContext(cps, 1, &device, NULL, NULL, &status);
+    context = clCreateContext(cps, NUM_CL_DEVICES, devices, NULL, NULL, &status);
     CHECK_AND_RETURN(status, "creating context failed");
 
-    commandQueue = clCreateCommandQueue(context, device, 0, &status);
-    CHECK_AND_RETURN(status, "creating command queue failed");
+    for (unsigned i = 0; i < NUM_CL_DEVICES; ++i) {
+        commandQueue[i] = clCreateCommandQueue(context, devices[i], 0, &status);
+        CHECK_AND_RETURN(status, "creating command queue failed");
+    }
 
     bool smuggling_ok = smuggleONNXAsset(env, jAssetManager, "yolov8n-seg.onnx");
     assert(smuggling_ok);
 
+    cl_device_id inference_devices[] = {devices[0], devices[2]};
+    // Only create builtin kernel for basic and remote devices
     char* kernel_name =  "pocl.dnn.detection.u8";
-    program = clCreateProgramWithBuiltInKernels(context, 1, &device, kernel_name, &status);
+    program = clCreateProgramWithBuiltInKernels(context, 2, inference_devices, kernel_name, &status);
     CHECK_AND_RETURN(status, "creation of program failed");
 
-    status = clBuildProgram(program, 1, &device, nullptr, nullptr, nullptr);
+    status = clBuildProgram(program, 2, inference_devices, nullptr, nullptr, nullptr);
     CHECK_AND_RETURN(status, "building of program failed");
 
     kernel = clCreateKernel(program, kernel_name, &status);
@@ -130,7 +140,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
 
     destroySmugglingEvidence();
 
-    clReleaseDevice(device);
+    for (unsigned i = 0; i < NUM_CL_DEVICES; ++i) {
+        clReleaseDevice(devices[i]);
+    }
 
     return 0;
 }
@@ -145,9 +157,11 @@ JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor(JNIEnv *env,
                                                                                  jclass clazz) {
 
-    if (commandQueue != nullptr) {
-        clReleaseCommandQueue(commandQueue);
-        commandQueue = nullptr;
+    for (unsigned i = 0; i < NUM_CL_DEVICES; ++i) {
+        if (commandQueue != nullptr) {
+            clReleaseCommandQueue(commandQueue[i]);
+            commandQueue[i] = nullptr;
+        }
     }
 
     if (context != nullptr) {
@@ -187,9 +201,10 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
  */
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEnv *env,
-                                                                           jclass clazz, jint width,
-                                                                           jint height, jint rotation,
-                                                                           jobject y,
+                                                                           jclass clazz,
+                                                                           jint device_index,
+                                                                           jint width, jint height,
+                                                                           jint rotation, jobject y,
                                                                            jint yrow_stride,
                                                                            jint ypixel_stride,
                                                                            jobject u, jobject v,
@@ -231,7 +246,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                     NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
 
-    cl_char * host_img_ptr = (cl_char *) clEnqueueMapBuffer(commandQueue, img_buf, CL_TRUE,
+    cl_char * host_img_ptr = (cl_char *) clEnqueueMapBuffer(commandQueue[device_index], img_buf, CL_TRUE,
                                                             CL_MAP_WRITE, 0,
                                                             img_buf_size,
                                                             0, NULL,
@@ -257,7 +272,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
         host_img_ptr[uv_start_index + 1 + 2*i] = u_ptr[i*uvpixel_stride];
     }
 
-    status = clEnqueueUnmapMemObject(commandQueue, img_buf, host_img_ptr, 0, NULL, NULL);
+    status = clEnqueueUnmapMemObject(commandQueue[device_index], img_buf, host_img_ptr, 0, NULL, NULL);
     CHECK_AND_RETURN(status, "failed to unmap the image buffer");
 
     int rotate_cw_degrees = rotation;
@@ -279,12 +294,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     size_t local_size = 1;
     size_t global_size = 1;
 
-    status = clEnqueueNDRangeKernel(commandQueue, kernel, 1, NULL,
+    status = clEnqueueNDRangeKernel(commandQueue[device_index], kernel, 1, NULL,
                            &global_size, &local_size, 0,
                            NULL,NULL );
     CHECK_AND_RETURN(status, "failed to enqueue ND range kernel");
 
-    status = clEnqueueReadBuffer(commandQueue, out_buf, CL_TRUE, 0,
+    status = clEnqueueReadBuffer(commandQueue[device_index], out_buf, CL_TRUE, 0,
                                  out_count * sizeof(cl_int),result_array, 0,
                                  NULL, NULL);
     CHECK_AND_RETURN(status, "failed to read result buffer");

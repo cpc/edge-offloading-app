@@ -168,6 +168,17 @@ public class MainActivity extends AppCompatActivity {
     private Thread imageProcessThread;
 
     /**
+     * which device to use for inferencing
+     */
+    private int inferencing_device;
+    private final int LOCAL_DEVICE = 0;
+
+    private final int PASSTHRU_DEVICE = 1;
+    private final int REMOTE_DEVICE = 2;
+
+
+
+    /**
      * set how verbose the program should be
      */
     private static int verbose;
@@ -239,7 +250,7 @@ public class MainActivity extends AppCompatActivity {
         verbose = 1;
         captureSize = new Size(640, 480);
         imageBufferSize = 2;
-        String server_address = "192.168.50.112";
+        String server_address = "10.1.200.5/0";
 
         // this should be an image format we can work with on the native side.
         captureFormat = ImageFormat.YUV_420_888;
@@ -291,8 +302,9 @@ public class MainActivity extends AppCompatActivity {
         String cache_dir = getCacheDir().getAbsolutePath();
         // used to configure pocl
         setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
-        setNativeEnv("POCL_DEVICES", "basic");
+        setNativeEnv("POCL_DEVICES", "basic remote proxy");
         setNativeEnv("POCL_REMOTE0_PARAMETERS", server_address);
+        inferencing_device = LOCAL_DEVICE;
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
     }
 
@@ -352,13 +364,13 @@ public class MainActivity extends AppCompatActivity {
             if (((Switch) v).isChecked()) {
                 Toast.makeText(MainActivity.this, "Switching to remote device, please wait", Toast.LENGTH_SHORT).show();
                 // TODO: uncomment this
-//                setNativeEnv("POCL_DEVICES", "remote");
+                inferencing_device = REMOTE_DEVICE;
             } else {
                 Toast.makeText(MainActivity.this, "Switching to local device, please wait", Toast.LENGTH_SHORT).show();
-                setNativeEnv("POCL_DEVICES", "basic");
+                inferencing_device = LOCAL_DEVICE;
             }
-            stopImageProcessThread();
-            startImageProcessThread();
+            //stopImageProcessThread();
+            //startImageProcessThread();
         }
     };
 
@@ -732,7 +744,7 @@ public class MainActivity extends AppCompatActivity {
 
                 int[] results = new int[1 + 10 * 6];
                 int rotation = orientationsSwapped ? 90 : 0;
-                poclProcessYUVImage(image.getWidth(), image.getHeight(), rotation, Y, YRowStride,
+                poclProcessYUVImage(inferencing_device, image.getWidth(), image.getHeight(), rotation, Y, YRowStride,
                         YPixelStride, U, V, UVRowStride, UVPixelStride, results);
 
                 runOnUiThread(() -> overlayVisualizer.drawOverlay(results, captureSize,
