@@ -246,11 +246,13 @@ public class MainActivity extends AppCompatActivity {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started onCreate method");
         }
 
+        // get bundle with variables set during startup activity
+        Bundle bundle = getIntent().getExtras();
+
         // todo: make these configurable
         verbose = 1;
         captureSize = new Size(640, 480);
         imageBufferSize = 2;
-        String server_address = "10.1.200.5/0";
 
         // this should be an image format we can work with on the native side.
         captureFormat = ImageFormat.YUV_420_888;
@@ -303,7 +305,7 @@ public class MainActivity extends AppCompatActivity {
         // used to configure pocl
         setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
         setNativeEnv("POCL_DEVICES", "basic remote proxy");
-        setNativeEnv("POCL_REMOTE0_PARAMETERS", server_address);
+        setNativeEnv("POCL_REMOTE0_PARAMETERS", bundle.getString("IP"));
         inferencing_device = LOCAL_DEVICE;
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
     }
@@ -471,6 +473,15 @@ public class MainActivity extends AppCompatActivity {
         stopImageProcessThread();
 
         super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+
+        if (DEBUGEXECUTION) {
+            Log.println(Log.INFO, "EXECUTIONFLOW", "started onDestroy method");
+        }
+        super.onDestroy();
     }
 
     /**
