@@ -341,7 +341,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     clFinish(commandQueue[device_index]);
 
     // commit the results back
-    env->ReleaseIntArrayElements(result,result_array, JNI_FALSE);
+    env->ReleaseIntArrayElements(result, result_array, JNI_FALSE);
 //    __android_log_print(ANDROID_LOG_DEBUG, "DETECTION", "%d %d %d %d %d %d %d", result_array[0],result_array[1],result_array[2],result_array[3],result_array[4],result_array[5],result_array[6]);
 
     return 0;
@@ -350,3 +350,23 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
 #ifdef __cplusplus
 }
 #endif
+
+extern "C"
+void pocl_remote_get_traffic_stats(uint64_t *out_buf, int server_num);
+
+extern "C"
+JNIEXPORT jobject JNICALL
+Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getRemoteTrafficStats(JNIEnv *env,
+                                                                             jclass clazz) {
+    jclass c = env->FindClass("org/portablecl/poclaisademo/TrafficMonitor$DataPoint");
+    assert (c != nullptr);
+
+    jmethodID datapoint_constructor = env->GetMethodID(c, "<init>", "(JJJJJJ)V");
+    assert (datapoint_constructor != nullptr);
+
+    uint64_t buf[6];
+    pocl_remote_get_traffic_stats(buf, 0);
+
+    return env->NewObject(c, datapoint_constructor, (jlong) buf[0], (jlong) buf[1], (jlong) buf[2],
+                          (jlong) buf[3], (jlong) buf[4], (jlong) buf[5]);
+}

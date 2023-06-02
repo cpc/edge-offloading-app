@@ -208,6 +208,11 @@ public class MainActivity extends AppCompatActivity {
     private static EnergyMonitor energyMonitor;
 
     /**
+     * helper object for holding network traffic stats
+     */
+    private static TrafficMonitor trafficMonitor;
+
+    /**
      * used to schedule a thread to periodically update stats
      */
     private ScheduledExecutorService statUpdateScheduler;
@@ -286,6 +291,7 @@ public class MainActivity extends AppCompatActivity {
 
         Context context = getApplicationContext();
         energyMonitor = new EnergyMonitor(context);
+        trafficMonitor = new TrafficMonitor();
 
         counter = new FPSCounter();
         statUpdateScheduler = Executors.newScheduledThreadPool(1);
@@ -394,6 +400,7 @@ public class MainActivity extends AppCompatActivity {
 
         counter.Reset();
         energyMonitor.reset();
+        trafficMonitor.reset();
         // schedule the metrics to update every second
         statUpdateFuture = statUpdateScheduler.scheduleAtFixedRate(statUpdater, 1, 1,
                 TimeUnit.SECONDS);
@@ -421,11 +428,13 @@ public class MainActivity extends AppCompatActivity {
             try {
 
                 energyMonitor.tick();
+                trafficMonitor.tick();
                 String formatString = "FPS: %.2f  AVG FPS: %.2f \n" +
                         "EPS: %.3f W  AVG EPS: %.3f W \n" +
                         "charge: %d μAh\n" +
                         "voltage: %d mV \n" +
-                        "current: %d mA\n";
+                        "current: %d mA\n" +
+                        "bandwidth: ∇ %s | ∆ %s ";
 
                 String statString = String.format(Locale.US, formatString,
                         counter.getFPS(),
@@ -434,7 +443,9 @@ public class MainActivity extends AppCompatActivity {
                         energyMonitor.getAverageEPS(),
                         energyMonitor.getCharge(),
                         energyMonitor.getVoltage(),
-                        energyMonitor.getcurrent()
+                        energyMonitor.getcurrent(),
+                        trafficMonitor.getRXBandwidthString(),
+                        trafficMonitor.getTXBandwidthString()
                 );
 
                 // needed since only the uithread is allowed to make changes to the textview

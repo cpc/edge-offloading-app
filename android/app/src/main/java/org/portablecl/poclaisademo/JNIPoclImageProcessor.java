@@ -18,5 +18,6 @@ public class JNIPoclImageProcessor {
                                                  ByteBuffer U, ByteBuffer V, int UVRowStride,
                                                  int UVPixelStride, int[] result);
 
+    public static native TrafficMonitor.DataPoint getRemoteTrafficStats();
 
 }
