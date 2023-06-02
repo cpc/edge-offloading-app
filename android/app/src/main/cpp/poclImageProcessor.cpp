@@ -32,6 +32,20 @@ static cl_command_queue commandQueue[NUM_CL_DEVICES] = {nullptr};
 static cl_program program = NULL;
 static cl_kernel kernel = NULL;
 
+// kernel execution loop related things
+static size_t tot_pixels;
+static size_t img_buf_size;
+static cl_int inp_w;
+static cl_int inp_h;
+static cl_int rotate_cw_degrees;
+static cl_int inp_format;
+static cl_mem img_buf;
+static cl_mem out_buf;
+static cl_mem out_mask_buf;
+static cl_uchar* host_img_buf = nullptr;
+static size_t local_size;
+static size_t global_size;
+
 // Global variables for smuggling our blob into PoCL so we can pretend it is a builtin kernel.
 // Please don't ever actually do this in production code.
 const char *pocl_onnx_blob = NULL;
@@ -82,7 +96,8 @@ void destroySmugglingEvidence() {
  */
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JNIEnv *env,
-                                                                              jclass clazz, jobject jAssetManager) {
+                                                                              jclass clazz, jobject jAssetManager,
+                                                                              jint width, jint height) {
     cl_platform_id platform;
     cl_device_id devices[NUM_CL_DEVICES];
     cl_uint devices_found;
@@ -144,6 +159,45 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
         clReleaseDevice(devices[i]);
     }
 
+    // set some default values;
+    rotate_cw_degrees = 90;
+    // 0 - RGB
+    // 1 - YUV420 NV21 Android (interleaved U/V)
+    // 2 - YUV420 (U/V separate)
+    inp_format = 1;
+
+    inp_w = width;
+    inp_h = height;
+    tot_pixels = inp_w * inp_h;
+    // yuv420 so 6 bytes for every 4 pixels
+    img_buf_size = (tot_pixels * 3) / 2 ;
+    img_buf = clCreateBuffer(context, (CL_MEM_READ_ONLY),
+                                    img_buf_size, NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the image buffer");
+
+    out_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, out_count * sizeof(cl_int),
+                                    NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the output buffer");
+
+    out_mask_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * MAX_DETECTIONS * sizeof(cl_char) / 4,
+                                         NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
+
+    // buffer to copy image data to
+    host_img_buf = (cl_uchar*) malloc(img_buf_size);
+
+    int arg_idx = 0;
+    status = clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem), &img_buf);
+    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_int), &inp_w);
+    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_int), &inp_h);
+    status |=
+            clSetKernelArg(kernel, arg_idx++, sizeof(cl_int), &rotate_cw_degrees);
+    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_int), &inp_format);
+    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem), &out_buf);
+    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem), &out_mask_buf);
+
+    global_size = 1;
+    local_size = 1;
     return 0;
 }
 
@@ -179,6 +233,26 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
         program = nullptr;
     }
 
+    if (nullptr != img_buf){
+        clReleaseMemObject(img_buf);
+        img_buf = nullptr;
+    }
+
+    if (nullptr != out_buf){
+        clReleaseMemObject(out_buf);
+        out_buf = nullptr;
+    }
+
+    if (nullptr != out_mask_buf){
+        clReleaseMemObject(out_mask_buf);
+        out_mask_buf = nullptr;
+    }
+
+    if(nullptr != host_img_buf){
+        free(host_img_buf);
+        host_img_buf = nullptr;
+    }
+
     return 0;
 }
 
@@ -203,7 +277,6 @@ JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEnv *env,
                                                                            jclass clazz,
                                                                            jint device_index,
-                                                                           jint width, jint height,
                                                                            jint rotation, jobject y,
                                                                            jint yrow_stride,
                                                                            jint ypixel_stride,
@@ -217,100 +290,57 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
         return 1;
     }
 
-
     cl_int	status;
     // todo: look into if iscopy=true works on android
     cl_int * result_array = env->GetIntArrayElements(result, JNI_FALSE);
-
-    int tot_pixels = width * height;
 
     cl_char *y_ptr = (cl_char *) env->GetDirectBufferAddress(y);
     cl_char *u_ptr = (cl_char *) env->GetDirectBufferAddress(u);
     cl_char *v_ptr = (cl_char *) env->GetDirectBufferAddress(v);
 
-//    __android_log_print(ANDROID_LOG_INFO, "native test", " y address %p", y_ptr);
-//    __android_log_print(ANDROID_LOG_INFO, "native test", " u address %p", u_ptr);
-//    __android_log_print(ANDROID_LOG_INFO, "native test", " v address %p", v_ptr);
-
-    // yuv420 so 6 bytes for every 4 pixels
-    int img_buf_size = (tot_pixels * 3) / 2 ;
-    cl_mem img_buf = clCreateBuffer(context, (CL_MEM_READ_ONLY),
-                                    img_buf_size, NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the image buffer");
-
-    cl_mem out_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, out_count * sizeof(cl_int),
-                                    NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the output buffer");
-
-    cl_mem out_mask_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * MAX_DETECTIONS * sizeof(cl_char) / 4,
-                                    NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
-
-    cl_char * host_img_ptr = (cl_char *) clEnqueueMapBuffer(commandQueue[device_index], img_buf, CL_TRUE,
-                                                            CL_MAP_WRITE, 0,
-                                                            img_buf_size,
-                                                            0, NULL,
-                                                            NULL,
-                                                            &status);
-    CHECK_AND_RETURN(status, "failed to map the image buffer");
+    rotate_cw_degrees = rotation;
 
     // copy y plane into buffer
-    for(int i = 0; i < height; i++){
+    for(int i = 0; i < inp_h; i++){
         // row_stride is in bytes
         for(int j = 0; j < yrow_stride ; j++){
-            host_img_ptr[i*yrow_stride + j] = y_ptr[(i*yrow_stride + j)*ypixel_stride];
+            host_img_buf[i*yrow_stride + j] = y_ptr[(i*yrow_stride + j)*ypixel_stride];
         }
     }
 
-    int uv_start_index = height*yrow_stride;
+    int uv_start_index = inp_h*yrow_stride;
     // interleave u and v regardless of if planar or semiplanar
     // divided by 4 since u and v are subsampled by 2
-    for(int i = 0; i < (height * width)/4; i++){
+    for(int i = 0; i < (inp_h * inp_w)/4; i++){
 
-        host_img_ptr[uv_start_index + 2*i] = v_ptr[i*uvpixel_stride];
+        host_img_buf[uv_start_index + 2*i] = v_ptr[i*uvpixel_stride];
 
-        host_img_ptr[uv_start_index + 1 + 2*i] = u_ptr[i*uvpixel_stride];
+        host_img_buf[uv_start_index + 1 + 2*i] = u_ptr[i*uvpixel_stride];
     }
 
-    status = clEnqueueUnmapMemObject(commandQueue[device_index], img_buf, host_img_ptr, 0, NULL, NULL);
-    CHECK_AND_RETURN(status, "failed to unmap the image buffer");
+    cl_event write_event;
+    status = clEnqueueWriteBuffer(commandQueue[device_index], img_buf,
+                                  CL_FALSE, 0,
+                                  img_buf_size, host_img_buf,
+                                  0, NULL, &write_event );
+    CHECK_AND_RETURN(status, "failed to write image to ocl buffers");
 
-    int rotate_cw_degrees = rotation;
-    int inp_format = 1; // 0 - RGB
-    // 1 - YUV420 NV21 Android (interleaved U/V)
-    // 2 - YUV420 (U/V separate)
-    int inp_w = width;
-    int inp_h = height;
-
-    int arg_idx = 0;
-    status = clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem), &img_buf);
-    status |= clSetKernelArg(kernel, arg_idx++, sizeof(int), &inp_w);
-    status |= clSetKernelArg(kernel, arg_idx++, sizeof(int), &inp_h);
-    status |=
-        clSetKernelArg(kernel, arg_idx++, sizeof(int), &rotate_cw_degrees);
-    status |= clSetKernelArg(kernel, arg_idx++, sizeof(int), &inp_format);
-    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem), &out_buf);
-    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem), &out_mask_buf);
-    size_t local_size = 1;
-    size_t global_size = 1;
-
+    cl_event ndrange_event;
     status = clEnqueueNDRangeKernel(commandQueue[device_index], kernel, 1, NULL,
-                           &global_size, &local_size, 0,
-                           NULL,NULL );
+                           &global_size, &local_size, 1,
+                           &write_event,&ndrange_event );
     CHECK_AND_RETURN(status, "failed to enqueue ND range kernel");
 
-    status = clEnqueueReadBuffer(commandQueue[device_index], out_buf, CL_TRUE, 0,
-                                 out_count * sizeof(cl_int),result_array, 0,
-                                 NULL, NULL);
+    status = clEnqueueReadBuffer(commandQueue[device_index], out_buf, CL_FALSE, 0,
+                                 out_count * sizeof(cl_int),result_array, 1,
+                                 &ndrange_event, NULL);
     CHECK_AND_RETURN(status, "failed to read result buffer");
+
+    clFinish(commandQueue[device_index]);
 
     // commit the results back
     env->ReleaseIntArrayElements(result,result_array, JNI_FALSE);
-    __android_log_print(ANDROID_LOG_DEBUG, "DETECTION", "%d %d %d %d %d %d %d", result_array[0],result_array[1],result_array[2],result_array[3],result_array[4],result_array[5],result_array[6]);
-
-    clReleaseMemObject(img_buf);
-    clReleaseMemObject(out_buf);
-    clReleaseMemObject(out_mask_buf);
+//    __android_log_print(ANDROID_LOG_DEBUG, "DETECTION", "%d %d %d %d %d %d %d", result_array[0],result_array[1],result_array[2],result_array[3],result_array[4],result_array[5],result_array[6]);
 
     return 0;
 }

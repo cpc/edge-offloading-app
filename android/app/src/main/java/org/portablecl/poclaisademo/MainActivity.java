@@ -680,7 +680,7 @@ public class MainActivity extends AppCompatActivity {
         Image image = null;
         try {
 
-            initPoclImageProcessor(getAssets());
+            initPoclImageProcessor(getAssets(), captureSize.getWidth(), captureSize.getHeight());
 
             // the main loop, will continue until an interrupt is sent
             while (!Thread.interrupted()) {
@@ -755,7 +755,7 @@ public class MainActivity extends AppCompatActivity {
 
                 int[] results = new int[1 + 10 * 6];
                 int rotation = orientationsSwapped ? 90 : 0;
-                poclProcessYUVImage(inferencing_device, image.getWidth(), image.getHeight(), rotation, Y, YRowStride,
+                poclProcessYUVImage(inferencing_device, rotation, Y, YRowStride,
                         YPixelStride, U, V, UVRowStride, UVPixelStride, results);
 
                 runOnUiThread(() -> overlayVisualizer.drawOverlay(results, captureSize,
