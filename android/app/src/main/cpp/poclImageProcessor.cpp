@@ -336,6 +336,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                  &ndrange_event, NULL);
     CHECK_AND_RETURN(status, "failed to read result buffer");
 
+    clReleaseEvent(write_event);
+    clReleaseEvent(ndrange_event);
     clFinish(commandQueue[device_index]);
 
     // commit the results back
