@@ -9,11 +9,11 @@ import java.nio.ByteBuffer;
 
 public class JNIPoclImageProcessor {
 
-    public static native int initPoclImageProcessor(AssetManager jAssetManager);
+    public static native int initPoclImageProcessor(AssetManager jAssetManager, int width, int height);
 
     public static native int destroyPoclImageProcessor();
 
-    public static native int poclProcessYUVImage(int deviceIndex, int width, int height, int rotation,
+    public static native int poclProcessYUVImage(int deviceIndex, int rotation,
                                                  ByteBuffer Y, int YRowStride, int YPixelStride,
                                                  ByteBuffer U, ByteBuffer V, int UVRowStride,
                                                  int UVPixelStride, int[] result);
