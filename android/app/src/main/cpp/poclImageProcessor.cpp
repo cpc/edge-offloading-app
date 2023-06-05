@@ -12,10 +12,14 @@
 #include <android/log.h>
 #include <string.h>
 #include <stdlib.h>
+#include <vector>
 #include <jni.h>
 #include <android/bitmap.h>
 #include "sharedUtils.h"
 #include <assert.h>
+
+#include <opencv2/imgproc.hpp>
+#include <opencv2/opencv.hpp>
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,8 +27,41 @@ extern "C" {
 
 #define LOGTAG "poclimageprocessor"
 #define MAX_DETECTIONS 10
+#define MASK_W 160
+#define MASK_H 120
 
-int out_count = 1 + MAX_DETECTIONS * 6;
+static int detection_count = 1 + MAX_DETECTIONS * 6;
+static int segmentation_count = MAX_DETECTIONS * MASK_W * MASK_H;
+static int total_out_count = detection_count + segmentation_count;
+static int do_segment = 1;
+
+static int colors[] = {-1651865, -6634562, -5921894,
+         -9968734, -1277957, -2838283,
+         -9013359, -9634954, -470042,
+         -8997255, -4620585, -2953862,
+         -3811878, -8603498, -2455171,
+         -5325920, -6757258, -8214427,
+         -5903423, -4680978, -4146958,
+         -602947, -5396049, -9898511,
+         -8346466, -2122577, -2304523,
+         -4667802, -222837, -4983945,
+         -234790, -8865559, -4660525,
+         -3744578, -8720427, -9778035,
+         -680538, -7942224, -7162754,
+         -2986121, -8795194, -2772629,
+         -4820488, -9401960, -3443339,
+         -1781041, -4494168, -3167240,
+         -7629631, -6685500, -6901785,
+         -2968136, -3953703, -4545430,
+         -6558846, -2631687, -5011272,
+         -4983118, -9804322, -2593374,
+         -8473686, -4006938, -7801488,
+         -7161859, -4854121, -5654350,
+         -817410, -8013957, -9252928,
+         -2240041, -3625560, -6381719,
+         -4674608, -5704237, -8466309,
+         -1788449, -7283030, -5781889,
+         -4207444, -8225948};
 
 #define NUM_CL_DEVICES 3
 static cl_context context = NULL;
@@ -175,7 +212,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
                                     img_buf_size, NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the image buffer");
 
-    out_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, out_count * sizeof(cl_int),
+    out_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, total_out_count * sizeof(cl_int),
                                     NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the output buffer");
 
@@ -283,7 +320,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                                                            jobject u, jobject v,
                                                                            jint uvrow_stride,
                                                                            jint uvpixel_stride,
-                                                                           jintArray result) {
+                                                                           jintArray detection_result,
+                                                                           jbyteArray segmentation_result) {
 
     if (!kernel) {
         __android_log_print(ANDROID_LOG_ERROR, LOGTAG, "poclProcessYUVImage called but OpenCL kernel does not exist!");
@@ -292,7 +330,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
 
     cl_int	status;
     // todo: look into if iscopy=true works on android
-    cl_int * result_array = env->GetIntArrayElements(result, JNI_FALSE);
+    cl_int * detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
+    cl_char * segmentation_array = env->GetByteArrayElements(segmentation_result, JNI_FALSE);
+    std::vector<cl_char> segmentation_out(MAX_DETECTIONS * MASK_W * MASK_H);
 
     cl_char *y_ptr = (cl_char *) env->GetDirectBufferAddress(y);
     cl_char *u_ptr = (cl_char *) env->GetDirectBufferAddress(u);
@@ -332,16 +372,57 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     CHECK_AND_RETURN(status, "failed to enqueue ND range kernel");
 
     status = clEnqueueReadBuffer(commandQueue[device_index], out_buf, CL_FALSE, 0,
-                                 out_count * sizeof(cl_int),result_array, 1,
+                                 detection_count * sizeof(cl_int),detection_array, 1,
                                  &ndrange_event, NULL);
-    CHECK_AND_RETURN(status, "failed to read result buffer");
+    CHECK_AND_RETURN(status, "failed to read detection result buffer");
+
+    if (do_segment) {
+        status = clEnqueueReadBuffer(commandQueue[device_index], out_mask_buf, CL_FALSE, 0,
+                                     segmentation_count * sizeof(cl_char),segmentation_out.data(), 1,
+                                     &ndrange_event, NULL);
+        CHECK_AND_RETURN(status, "failed to read segmentation result buffer");
+    }
 
     clReleaseEvent(write_event);
     clReleaseEvent(ndrange_event);
     clFinish(commandQueue[device_index]);
 
+    if (do_segment) {
+        int num_detections = detection_array[0];
+        cv::Mat color_mask = cv::Mat::zeros(MASK_H, MASK_W, CV_8UC4);
+
+        for (int i = 0; i < num_detections; ++i) {
+            cl_int class_id = detection_array[1 + 6 * i];
+            int color_int = colors[class_id];
+            cl_uchar* channels = reinterpret_cast<cl_uchar*>(&color_int);
+            cv::Scalar color = cv::Scalar(channels[0], channels[1], channels[2], channels[3]) / 2;
+
+            int box_x = (int)((float)(detection_array[1 + 6 * i + 2]) / 480 * MASK_W);
+            int box_y = (int)((float)(detection_array[1 + 6 * i + 3]) / 640 * MASK_H);
+            int box_w = (int)((float)(detection_array[1 + 6 * i + 4]) / 480 * MASK_W);
+            int box_h = (int)((float)(detection_array[1 + 6 * i + 5]) / 640 * MASK_H);
+
+            box_x = std::min(std::max(box_x, 0), MASK_W);
+            box_y = std::min(std::max(box_y, 0), MASK_H);
+            box_w = std::min(box_w, MASK_W - box_x);
+            box_h = std::min(box_h, MASK_H - box_y);
+
+            if (box_w > 0 && box_h > 0) {
+                cv::Mat raw_mask(MASK_H, MASK_W, CV_8UC1,
+                                 reinterpret_cast<cl_uchar*>(segmentation_out.data() + i * MASK_W * MASK_H));
+                cv::Rect roi(box_x, box_y, box_w, box_h);
+                cv::Mat raw_mask_roi = cv::Mat::zeros(MASK_H, MASK_W, CV_8UC1);
+                raw_mask(roi).copyTo(raw_mask_roi(roi));
+                color_mask.setTo(color, raw_mask_roi);
+            }
+        }
+
+        memcpy(segmentation_array, reinterpret_cast<cl_char*>(color_mask.data), MASK_W*MASK_H*4);
+    }
+
     // commit the results back
-    env->ReleaseIntArrayElements(result, result_array, JNI_FALSE);
+    env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
+    env->ReleaseByteArrayElements(segmentation_result, segmentation_array, JNI_FALSE);
 //    __android_log_print(ANDROID_LOG_DEBUG, "DETECTION", "%d %d %d %d %d %d %d", result_array[0],result_array[1],result_array[2],result_array[3],result_array[4],result_array[5],result_array[6]);
 
     return 0;

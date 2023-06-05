@@ -16,7 +16,8 @@ public class JNIPoclImageProcessor {
     public static native int poclProcessYUVImage(int deviceIndex, int rotation,
                                                  ByteBuffer Y, int YRowStride, int YPixelStride,
                                                  ByteBuffer U, ByteBuffer V, int UVRowStride,
-                                                 int UVPixelStride, int[] result);
+                                                 int UVPixelStride, int[] detection_result,
+                                                 byte[] segmentation_result);
 
     public static native TrafficMonitor.DataPoint getRemoteTrafficStats();
 
