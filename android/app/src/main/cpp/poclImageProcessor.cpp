@@ -392,14 +392,38 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
         cv::Mat color_mask = cv::Mat::zeros(MASK_H, MASK_W, CV_8UC4);
 
         for (int i = 0; i < num_detections; ++i) {
-            cl_int classIds = detection_array[1 + 6 * i];
-            int color_int = colors[classIds];
+            cl_int class_id = detection_array[1 + 6 * i];
+            int color_int = colors[class_id];
             cl_uchar* channels = reinterpret_cast<cl_uchar*>(&color_int);
             cv::Scalar color = cv::Scalar(channels[0], channels[1], channels[2], channels[3]) / 2;
 
-            cv::Mat raw_mask(MASK_H, MASK_W, CV_8UC1,
-                             reinterpret_cast<cl_uchar*>(segmentation_out.data() + i * MASK_W * MASK_H));
-            color_mask.setTo(color, raw_mask);
+            __android_log_print(ANDROID_LOG_DEBUG, "SEGMENTATION", "prebox: %d %d %d %d",
+                detection_array[1 + 6 * i + 2],
+                detection_array[1 + 6 * i + 3],
+                detection_array[1 + 6 * i + 4],
+                detection_array[1 + 6 * i + 5]);
+
+            int box_x = (int)((float)(detection_array[1 + 6 * i + 2]) / 480 * MASK_W);
+            int box_y = (int)((float)(detection_array[1 + 6 * i + 3]) / 640 * MASK_H);
+            int box_w = (int)((float)(detection_array[1 + 6 * i + 4]) / 480 * MASK_W);
+            int box_h = (int)((float)(detection_array[1 + 6 * i + 5]) / 640 * MASK_H);
+
+            box_x = std::min(std::max(box_x, 0), MASK_W);
+            box_y = std::min(std::max(box_y, 0), MASK_H);
+            box_w = std::min(box_w, MASK_W - box_x);
+            box_h = std::min(box_h, MASK_H - box_y);
+
+            __android_log_print(ANDROID_LOG_DEBUG, "SEGMENTATION", "box: %d %d %d %d",
+                box_x, box_y, box_w, box_h);
+
+            if (box_w > 0 && box_h > 0) {
+                cv::Mat raw_mask(MASK_H, MASK_W, CV_8UC1,
+                                 reinterpret_cast<cl_uchar*>(segmentation_out.data() + i * MASK_W * MASK_H));
+                cv::Rect roi(box_x, box_y, box_w, box_h);
+                cv::Mat raw_mask_roi = cv::Mat::zeros(MASK_H, MASK_W, CV_8UC1);
+                raw_mask(roi).copyTo(raw_mask_roi(roi));
+                color_mask.setTo(color, raw_mask_roi);
+            }
         }
 
         memcpy(segmentation_array, reinterpret_cast<cl_char*>(color_mask.data), MASK_W*MASK_H*4);
