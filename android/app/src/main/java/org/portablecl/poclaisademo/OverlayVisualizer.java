@@ -1,14 +1,19 @@
 package org.portablecl.poclaisademo;
 
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.util.Log;
 import android.util.Size;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+
+import java.nio.ByteBuffer;
 
 /**
  * a class that draws overlay received from the pocl image processor
@@ -93,14 +98,16 @@ public class OverlayVisualizer {
      * @param detections
      * @param surfaceView
      */
-    public void drawOverlay(int[] detections, Size captureSize,
+    public void drawOverlay(int[] detections, byte[] segmentations, Size captureSize,
                             boolean rotated, SurfaceView surfaceView) {
+
+        //int MAX_DETECTIONS = 10;
+        int MASK_W = 160;
+        int MASK_H = 120;
+        boolean do_segment = true;
 
         try {
             int numDetections = detections[0];
-
-            int width = surfaceView.getWidth();
-            int height = surfaceView.getHeight();
 
             float xScale, yScale;
             if (rotated) {
@@ -110,7 +117,6 @@ public class OverlayVisualizer {
                 xScale = (float) surfaceView.getWidth() / captureSize.getWidth();
                 yScale = (float) surfaceView.getHeight() / captureSize.getHeight();
             }
-
 
             float confidence;
             int classIds;
@@ -124,8 +130,16 @@ public class OverlayVisualizer {
 
             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
 
-            for (int i = 0; i < numDetections; i++) {
+            if (do_segment) {
+                ByteBuffer segmentation_buf = ByteBuffer.wrap(segmentations);
+                Bitmap segmentation_bitmap = Bitmap.createBitmap(MASK_W, MASK_H, Bitmap.Config.ARGB_8888);
+                segmentation_bitmap.copyPixelsFromBuffer(segmentation_buf);
+                Rect src = new Rect(0, 0, MASK_W, MASK_H);
+                Rect dst = new Rect(0, 0, surfaceView.getWidth(), surfaceView.getHeight());
+                canvas.drawBitmap(segmentation_bitmap, src, dst, paint);
+            }
 
+            for (int i = 0; i < numDetections; i++) {
                 classIds = detections[1 + 6 * i];
                 className = classes[classIds];
                 confidence = Float.intBitsToFloat(detections[1 + 6 * i + 1]);
@@ -141,7 +155,6 @@ public class OverlayVisualizer {
                 canvas.drawRect(box_x * xScale, box_y * yScale, (box_x + box_w) * xScale,
                         (box_y + box_h) * yScale, paint);
                 canvas.drawText(overlayLabel, box_x * xScale, (box_y * yScale) - fontSize, paint);
-
             }
 
             holder.unlockCanvasAndPost(canvas);

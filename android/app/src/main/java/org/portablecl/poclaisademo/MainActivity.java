@@ -688,6 +688,13 @@ public class MainActivity extends AppCompatActivity {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started image process loop");
         }
 
+        int MAX_DETECTIONS = 10;
+        int MASK_W = 160;
+        int MASK_H = 120;
+
+        int detection_count = 1 + MAX_DETECTIONS * 6;
+        int segmentation_count = MAX_DETECTIONS * MASK_W * MASK_H;
+
         Image image = null;
         try {
 
@@ -764,13 +771,14 @@ public class MainActivity extends AppCompatActivity {
                             "V row stride: " + VRowStride);
                 }
 
-                int[] results = new int[1 + 10 * 6];
+                int[] detection_results = new int[detection_count];
+                byte[] segmentation_results = new byte[segmentation_count * 4];
                 int rotation = orientationsSwapped ? 90 : 0;
                 poclProcessYUVImage(inferencing_device, rotation, Y, YRowStride,
-                        YPixelStride, U, V, UVRowStride, UVPixelStride, results);
+                        YPixelStride, U, V, UVRowStride, UVPixelStride, detection_results, segmentation_results);
 
-                runOnUiThread(() -> overlayVisualizer.drawOverlay(results, captureSize,
-                        orientationsSwapped, overlayView));
+                runOnUiThread(() -> overlayVisualizer.drawOverlay(detection_results, segmentation_results,
+                        captureSize, orientationsSwapped, overlayView));
 
                 // used to calculate the (avg) FPS
                 counter.TickFrame();

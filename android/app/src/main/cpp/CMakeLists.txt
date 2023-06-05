@@ -186,4 +186,8 @@ target_link_libraries( # Specifies the target library.
         ${log-lib}
 
         poclnative
+
+        opencv_imgproc
+
+        opencv_core
         )
