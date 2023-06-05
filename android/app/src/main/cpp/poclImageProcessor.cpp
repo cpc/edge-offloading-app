@@ -397,12 +397,6 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
             cl_uchar* channels = reinterpret_cast<cl_uchar*>(&color_int);
             cv::Scalar color = cv::Scalar(channels[0], channels[1], channels[2], channels[3]) / 2;
 
-            __android_log_print(ANDROID_LOG_DEBUG, "SEGMENTATION", "prebox: %d %d %d %d",
-                detection_array[1 + 6 * i + 2],
-                detection_array[1 + 6 * i + 3],
-                detection_array[1 + 6 * i + 4],
-                detection_array[1 + 6 * i + 5]);
-
             int box_x = (int)((float)(detection_array[1 + 6 * i + 2]) / 480 * MASK_W);
             int box_y = (int)((float)(detection_array[1 + 6 * i + 3]) / 640 * MASK_H);
             int box_w = (int)((float)(detection_array[1 + 6 * i + 4]) / 480 * MASK_W);
@@ -412,9 +406,6 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
             box_y = std::min(std::max(box_y, 0), MASK_H);
             box_w = std::min(box_w, MASK_W - box_x);
             box_h = std::min(box_h, MASK_H - box_y);
-
-            __android_log_print(ANDROID_LOG_DEBUG, "SEGMENTATION", "box: %d %d %d %d",
-                box_x, box_y, box_w, box_h);
 
             if (box_w > 0 && box_h > 0) {
                 cv::Mat raw_mask(MASK_H, MASK_W, CV_8UC1,
@@ -428,20 +419,6 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
 
         memcpy(segmentation_array, reinterpret_cast<cl_char*>(color_mask.data), MASK_W*MASK_H*4);
     }
-
-
-//    if (num_detections > 0) {
-//        __android_log_print(ANDROID_LOG_DEBUG, "SEGMENTATION", "Num detections: %d", num_detections);
-//        for (int y = 0; y < MASK_H; ++y) {
-//            for (int x = 0; x < MASK_W; ++x) {
-//                int i = y * MASK_W + x;
-//                __android_log_print(ANDROID_LOG_DEBUG, "SEGMENTATION", "(%3d, %3d): %4d %4d",
-//                                    x, y, segmentation_out[i], *reinterpret_cast<cl_uchar *>(&segmentation_out[i]));
-//            }
-//        }
-//
-//        while (true) {};
-//    }
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
