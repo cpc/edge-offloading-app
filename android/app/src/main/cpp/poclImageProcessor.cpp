@@ -395,12 +395,11 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
             cl_int classIds = detection_array[1 + 6 * i];
             int color_int = colors[classIds];
             cl_uchar* channels = reinterpret_cast<cl_uchar*>(&color_int);
-            cv::Scalar color = cv::Scalar(channels[0], channels[1], channels[2], channels[3]);
+            cv::Scalar color = cv::Scalar(channels[0], channels[1], channels[2], channels[3]) / 2;
 
             cv::Mat raw_mask(MASK_H, MASK_W, CV_8UC1,
                              reinterpret_cast<cl_uchar*>(segmentation_out.data() + i * MASK_W * MASK_H));
             color_mask.setTo(color, raw_mask);
-
         }
 
         memcpy(segmentation_array, reinterpret_cast<cl_char*>(color_mask.data), MASK_W*MASK_H*4);
