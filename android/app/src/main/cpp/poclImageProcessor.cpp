@@ -76,9 +76,9 @@ static cl_int inp_w;
 static cl_int inp_h;
 static cl_int rotate_cw_degrees;
 static cl_int inp_format;
-static cl_mem img_buf;
-static cl_mem out_buf;
-static cl_mem out_mask_buf;
+static cl_mem img_buf[3] = {nullptr, nullptr, nullptr};
+static cl_mem out_buf[3] = {nullptr, nullptr, nullptr};
+static cl_mem out_mask_buf[3] = {nullptr, nullptr, nullptr};
 static cl_uchar* host_img_buf = nullptr;
 static size_t local_size;
 static size_t global_size;
@@ -208,30 +208,41 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     tot_pixels = inp_w * inp_h;
     // yuv420 so 6 bytes for every 4 pixels
     img_buf_size = (tot_pixels * 3) / 2 ;
-    img_buf = clCreateBuffer(context, (CL_MEM_READ_ONLY),
+    img_buf[0] = clCreateBuffer(context, (CL_MEM_READ_ONLY),
                                     img_buf_size, NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the image buffer");
 
-    out_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, total_out_count * sizeof(cl_int),
+    out_buf[0] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, total_out_count * sizeof(cl_int),
                                     NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the output buffer");
 
-    out_mask_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * MAX_DETECTIONS * sizeof(cl_char) / 4,
+    out_mask_buf[0] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * MAX_DETECTIONS *
+    sizeof(cl_char) / 4,
                                          NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
+
+    img_buf[2] = clCreateBuffer(context, (CL_MEM_READ_ONLY),
+                                img_buf_size, NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the image buffer");
+
+    out_buf[2] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, total_out_count * sizeof(cl_int),
+                                NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the output buffer");
+
+    out_mask_buf[2] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * MAX_DETECTIONS *
+                                                                 sizeof(cl_char) / 4,
+                                     NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
 
     // buffer to copy image data to
     host_img_buf = (cl_uchar*) malloc(img_buf_size);
 
-    int arg_idx = 0;
-    status = clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem), &img_buf);
-    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_int), &inp_w);
-    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_int), &inp_h);
+    status |= clSetKernelArg(kernel, 1, sizeof(cl_int), &inp_w);
+    status |= clSetKernelArg(kernel, 2, sizeof(cl_int), &inp_h);
     status |=
-            clSetKernelArg(kernel, arg_idx++, sizeof(cl_int), &rotate_cw_degrees);
-    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_int), &inp_format);
-    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem), &out_buf);
-    status |= clSetKernelArg(kernel, arg_idx++, sizeof(cl_mem), &out_mask_buf);
+            clSetKernelArg(kernel, 3, sizeof(cl_int), &rotate_cw_degrees);
+    status |= clSetKernelArg(kernel, 4, sizeof(cl_int), &inp_format);
+
 
     global_size = 1;
     local_size = 1;
@@ -253,6 +264,21 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
             clReleaseCommandQueue(commandQueue[i]);
             commandQueue[i] = nullptr;
         }
+
+        if (nullptr != img_buf[i]){
+            clReleaseMemObject(img_buf[i]);
+            img_buf[i] = nullptr;
+        }
+
+        if (nullptr != out_buf[i]){
+            clReleaseMemObject(out_buf[i]);
+            out_buf[i] = nullptr;
+        }
+
+        if (nullptr != out_mask_buf){
+            clReleaseMemObject(out_mask_buf[i]);
+            out_mask_buf[i] = nullptr;
+        }
     }
 
     if (context != nullptr) {
@@ -269,22 +295,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
         clReleaseProgram(program);
         program = nullptr;
     }
-
-    if (nullptr != img_buf){
-        clReleaseMemObject(img_buf);
-        img_buf = nullptr;
-    }
-
-    if (nullptr != out_buf){
-        clReleaseMemObject(out_buf);
-        out_buf = nullptr;
-    }
-
-    if (nullptr != out_mask_buf){
-        clReleaseMemObject(out_mask_buf);
-        out_mask_buf = nullptr;
-    }
-
+    
     if(nullptr != host_img_buf){
         free(host_img_buf);
         host_img_buf = nullptr;
@@ -329,6 +340,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     }
 
     cl_int	status;
+
+    status = clSetKernelArg(kernel, 0, sizeof(cl_mem), &img_buf[device_index]);
+    status |= clSetKernelArg(kernel, 5, sizeof(cl_mem), &out_buf[device_index]);
+    status |= clSetKernelArg(kernel, 6, sizeof(cl_mem), &out_mask_buf[device_index]);
+    CHECK_AND_RETURN(status, "could not assign buffers to kernel");
+
     // todo: look into if iscopy=true works on android
     cl_int * detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
     cl_char * segmentation_array = env->GetByteArrayElements(segmentation_result, JNI_FALSE);
@@ -359,7 +376,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     }
 
     cl_event write_event;
-    status = clEnqueueWriteBuffer(commandQueue[device_index], img_buf,
+    status = clEnqueueWriteBuffer(commandQueue[device_index], img_buf[device_index],
                                   CL_FALSE, 0,
                                   img_buf_size, host_img_buf,
                                   0, NULL, &write_event );
@@ -371,13 +388,13 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                            &write_event,&ndrange_event );
     CHECK_AND_RETURN(status, "failed to enqueue ND range kernel");
 
-    status = clEnqueueReadBuffer(commandQueue[device_index], out_buf, CL_FALSE, 0,
+    status = clEnqueueReadBuffer(commandQueue[device_index], out_buf[device_index], CL_FALSE, 0,
                                  detection_count * sizeof(cl_int),detection_array, 1,
                                  &ndrange_event, NULL);
     CHECK_AND_RETURN(status, "failed to read detection result buffer");
 
     if (do_segment) {
-        status = clEnqueueReadBuffer(commandQueue[device_index], out_mask_buf, CL_FALSE, 0,
+        status = clEnqueueReadBuffer(commandQueue[device_index], out_mask_buf[device_index], CL_FALSE, 0,
                                      segmentation_count * sizeof(cl_char),segmentation_out.data(), 1,
                                      &ndrange_event, NULL);
         CHECK_AND_RETURN(status, "failed to read segmentation result buffer");
@@ -385,7 +402,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
 
     clReleaseEvent(write_event);
     clReleaseEvent(ndrange_event);
-    clFinish(commandQueue[device_index]);
+    status = clFinish(commandQueue[device_index]);
+    CHECK_AND_RETURN(status, "failed to clfinish");
 
     if (do_segment) {
         int num_detections = detection_array[0];
