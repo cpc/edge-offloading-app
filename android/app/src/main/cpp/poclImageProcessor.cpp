@@ -10,7 +10,7 @@
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
 #include <android/log.h>
-#include <string.h>
+#include <string>
 #include <stdlib.h>
 #include <vector>
 #include <jni.h>
@@ -32,6 +32,7 @@ extern "C" {
 
 static int detection_count = 1 + MAX_DETECTIONS * 6;
 static int segmentation_count = MAX_DETECTIONS * MASK_W * MASK_H;
+static int seg_postprocess_count = 4 * MASK_W * MASK_H; // RGBA image
 static int total_out_count = detection_count + segmentation_count;
 static int do_segment = 1;
 
@@ -67,7 +68,8 @@ static int colors[] = {-1651865, -6634562, -5921894,
 static cl_context context = NULL;
 static cl_command_queue commandQueue[NUM_CL_DEVICES] = {nullptr};
 static cl_program program = NULL;
-static cl_kernel kernel = NULL;
+static cl_kernel dnn_kernel = NULL;
+static cl_kernel postprocess_kernel = NULL;
 
 // kernel execution loop related things
 static size_t tot_pixels;
@@ -79,6 +81,7 @@ static cl_int inp_format;
 static cl_mem img_buf[3] = {nullptr, nullptr, nullptr};
 static cl_mem out_buf[3] = {nullptr, nullptr, nullptr};
 static cl_mem out_mask_buf[3] = {nullptr, nullptr, nullptr};
+static cl_mem postprocess_buf[3] = {nullptr, nullptr, nullptr};
 static cl_uchar* host_img_buf = nullptr;
 static size_t local_size;
 static size_t global_size;
@@ -180,15 +183,20 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
 
     cl_device_id inference_devices[] = {devices[0], devices[2]};
     // Only create builtin kernel for basic and remote devices
-    char* kernel_name =  "pocl.dnn.detection.u8";
-    program = clCreateProgramWithBuiltInKernels(context, 2, inference_devices, kernel_name, &status);
+    std::string dnn_kernel_name = "pocl.dnn.detection.u8";
+    std::string postprocess_kernel_name = "pocl.dnn.segmentation_postprocess.u8";
+    std::string kernel_names = dnn_kernel_name + ";" + postprocess_kernel_name;
+    program = clCreateProgramWithBuiltInKernels(context, 2, inference_devices, kernel_names.c_str(), &status);
     CHECK_AND_RETURN(status, "creation of program failed");
 
     status = clBuildProgram(program, 2, inference_devices, nullptr, nullptr, nullptr);
     CHECK_AND_RETURN(status, "building of program failed");
 
-    kernel = clCreateKernel(program, kernel_name, &status);
-    CHECK_AND_RETURN(status, "creating kernel failed");
+    dnn_kernel = clCreateKernel(program, dnn_kernel_name.c_str(), &status);
+    CHECK_AND_RETURN(status, "creating dnn kernel failed");
+
+    postprocess_kernel = clCreateKernel(program, postprocess_kernel_name.c_str(), &status);
+    CHECK_AND_RETURN(status, "creating postprocess kernel failed");
 
     destroySmugglingEvidence();
 
@@ -216,10 +224,14 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
                                     NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the output buffer");
 
-    out_mask_buf[0] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * MAX_DETECTIONS *
-    sizeof(cl_char) / 4,
+    out_mask_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE, tot_pixels * MAX_DETECTIONS * sizeof(cl_char) / 4,
                                          NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
+
+    // RGBA:
+    postprocess_buf[0] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * 4 * sizeof(cl_char) / 4,
+                                         NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the segmentation preprocessing buffer");
 
     img_buf[2] = clCreateBuffer(context, (CL_MEM_READ_ONLY),
                                 img_buf_size, NULL, &status);
@@ -234,15 +246,25 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
                                      NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
 
+    postprocess_buf[2] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * 4 * sizeof(cl_char) / 4,
+                                         NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the segmentation preprocessing buffer");
+
     // buffer to copy image data to
     host_img_buf = (cl_uchar*) malloc(img_buf_size);
 
-    status |= clSetKernelArg(kernel, 1, sizeof(cl_int), &inp_w);
-    status |= clSetKernelArg(kernel, 2, sizeof(cl_int), &inp_h);
+    //status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &img_buf);
+    status = clSetKernelArg(dnn_kernel, 1, sizeof(cl_int), &inp_w);
+    status |= clSetKernelArg(dnn_kernel, 2, sizeof(cl_int), &inp_h);
     status |=
-            clSetKernelArg(kernel, 3, sizeof(cl_int), &rotate_cw_degrees);
-    status |= clSetKernelArg(kernel, 4, sizeof(cl_int), &inp_format);
-
+            clSetKernelArg(dnn_kernel, 3, sizeof(cl_int), &rotate_cw_degrees);
+    status |= clSetKernelArg(dnn_kernel, 4, sizeof(cl_int), &inp_format);
+    //status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &out_buf);
+    //status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &out_mask_buf);
+    
+    //status = clSetKernelArg(postprocess_kernel, 0, sizeof(cl_mem), &out_buf);
+    //status |= clSetKernelArg(postprocess_kernel, 1, sizeof(cl_mem), &out_mask_buf);
+    //status |= clSetKernelArg(postprocess_kernel, 2, sizeof(cl_mem), &postprocess_buf);
 
     global_size = 1;
     local_size = 1;
@@ -279,6 +301,11 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
             clReleaseMemObject(out_mask_buf[i]);
             out_mask_buf[i] = nullptr;
         }
+
+        if (nullptr != postprocess_buf){
+            clReleaseMemObject(postprocess_buf[i]);
+            postprocess_buf[i] = nullptr;
+        }
     }
 
     if (context != nullptr) {
@@ -286,9 +313,14 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
         context = nullptr;
     }
 
-    if (kernel != nullptr) {
-        clReleaseKernel(kernel);
-        kernel = nullptr;
+    if (dnn_kernel != nullptr) {
+        clReleaseKernel(dnn_kernel);
+        dnn_kernel = nullptr;
+    }
+
+    if (postprocess_kernel != nullptr) {
+        clReleaseKernel(postprocess_kernel);
+        postprocess_kernel = nullptr;
     }
 
     if (program != nullptr) {
@@ -334,22 +366,31 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                                                            jintArray detection_result,
                                                                            jbyteArray segmentation_result) {
 
-    if (!kernel) {
-        __android_log_print(ANDROID_LOG_ERROR, LOGTAG, "poclProcessYUVImage called but OpenCL kernel does not exist!");
+    if (!dnn_kernel) {
+        __android_log_print(ANDROID_LOG_ERROR, LOGTAG, "poclProcessYUVImage called but DNN kernel does not exist!");
+        return 1;
+    }
+
+    if (!postprocess_kernel) {
+        __android_log_print(ANDROID_LOG_ERROR, LOGTAG, "poclProcessYUVImage called but postprocess kernel does not exist!");
         return 1;
     }
 
     cl_int	status;
 
-    status = clSetKernelArg(kernel, 0, sizeof(cl_mem), &img_buf[device_index]);
-    status |= clSetKernelArg(kernel, 5, sizeof(cl_mem), &out_buf[device_index]);
-    status |= clSetKernelArg(kernel, 6, sizeof(cl_mem), &out_mask_buf[device_index]);
-    CHECK_AND_RETURN(status, "could not assign buffers to kernel");
+    status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &img_buf[device_index]);
+    status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &out_buf[device_index]);
+    status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &out_mask_buf[device_index]);
+    CHECK_AND_RETURN(status, "could not assign buffers to DNN kernel");
+
+    status = clSetKernelArg(postprocess_kernel, 0, sizeof(cl_mem), &out_buf[device_index]);
+    status |= clSetKernelArg(postprocess_kernel, 1, sizeof(cl_mem), &out_mask_buf[device_index]);
+    status |= clSetKernelArg(postprocess_kernel, 2, sizeof(cl_mem), &postprocess_buf[device_index]);
+    CHECK_AND_RETURN(status, "could not assign buffers to postprocess kernel");
 
     // todo: look into if iscopy=true works on android
     cl_int * detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
     cl_char * segmentation_array = env->GetByteArrayElements(segmentation_result, JNI_FALSE);
-    std::vector<cl_char> segmentation_out(MAX_DETECTIONS * MASK_W * MASK_H);
 
     cl_char *y_ptr = (cl_char *) env->GetDirectBufferAddress(y);
     cl_char *u_ptr = (cl_char *) env->GetDirectBufferAddress(u);
@@ -383,10 +424,10 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     CHECK_AND_RETURN(status, "failed to write image to ocl buffers");
 
     cl_event ndrange_event;
-    status = clEnqueueNDRangeKernel(commandQueue[device_index], kernel, 1, NULL,
+    status = clEnqueueNDRangeKernel(commandQueue[device_index], dnn_kernel, 1, NULL,
                            &global_size, &local_size, 1,
-                           &write_event,&ndrange_event );
-    CHECK_AND_RETURN(status, "failed to enqueue ND range kernel");
+                           &write_event, &ndrange_event);
+    CHECK_AND_RETURN(status, "failed to enqueue ND range DNN kernel");
 
     status = clEnqueueReadBuffer(commandQueue[device_index], out_buf[device_index], CL_FALSE, 0,
                                  detection_count * sizeof(cl_int),detection_array, 1,
@@ -394,49 +435,24 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     CHECK_AND_RETURN(status, "failed to read detection result buffer");
 
     if (do_segment) {
-        status = clEnqueueReadBuffer(commandQueue[device_index], out_mask_buf[device_index], CL_FALSE, 0,
-                                     segmentation_count * sizeof(cl_char),segmentation_out.data(), 1,
-                                     &ndrange_event, NULL);
-        CHECK_AND_RETURN(status, "failed to read segmentation result buffer");
+        cl_event postprocess_event;
+        status = clEnqueueNDRangeKernel(commandQueue[device_index], postprocess_kernel, 1, NULL,
+                               &global_size, &local_size, 1,
+                               &ndrange_event, &postprocess_event);
+        CHECK_AND_RETURN(status, "failed to enqueue ND range postprocess kernel");
+
+        status = clEnqueueReadBuffer(commandQueue[device_index], postprocess_buf[device_index], CL_FALSE, 0,
+                                     seg_postprocess_count * sizeof(cl_char), segmentation_array, 1,
+                                     &postprocess_event, NULL);
+        CHECK_AND_RETURN(status, "failed to read segmentation postprocess result buffer");
+
+        clReleaseEvent(postprocess_event);
     }
 
     clReleaseEvent(write_event);
     clReleaseEvent(ndrange_event);
     status = clFinish(commandQueue[device_index]);
     CHECK_AND_RETURN(status, "failed to clfinish");
-
-    if (do_segment) {
-        int num_detections = detection_array[0];
-        cv::Mat color_mask = cv::Mat::zeros(MASK_H, MASK_W, CV_8UC4);
-
-        for (int i = 0; i < num_detections; ++i) {
-            cl_int class_id = detection_array[1 + 6 * i];
-            int color_int = colors[class_id];
-            cl_uchar* channels = reinterpret_cast<cl_uchar*>(&color_int);
-            cv::Scalar color = cv::Scalar(channels[0], channels[1], channels[2], channels[3]) / 2;
-
-            int box_x = (int)((float)(detection_array[1 + 6 * i + 2]) / 480 * MASK_W);
-            int box_y = (int)((float)(detection_array[1 + 6 * i + 3]) / 640 * MASK_H);
-            int box_w = (int)((float)(detection_array[1 + 6 * i + 4]) / 480 * MASK_W);
-            int box_h = (int)((float)(detection_array[1 + 6 * i + 5]) / 640 * MASK_H);
-
-            box_x = std::min(std::max(box_x, 0), MASK_W);
-            box_y = std::min(std::max(box_y, 0), MASK_H);
-            box_w = std::min(box_w, MASK_W - box_x);
-            box_h = std::min(box_h, MASK_H - box_y);
-
-            if (box_w > 0 && box_h > 0) {
-                cv::Mat raw_mask(MASK_H, MASK_W, CV_8UC1,
-                                 reinterpret_cast<cl_uchar*>(segmentation_out.data() + i * MASK_W * MASK_H));
-                cv::Rect roi(box_x, box_y, box_w, box_h);
-                cv::Mat raw_mask_roi = cv::Mat::zeros(MASK_H, MASK_W, CV_8UC1);
-                raw_mask(roi).copyTo(raw_mask_roi(roi));
-                color_mask.setTo(color, raw_mask_roi);
-            }
-        }
-
-        memcpy(segmentation_array, reinterpret_cast<cl_char*>(color_mask.data), MASK_W*MASK_H*4);
-    }
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
