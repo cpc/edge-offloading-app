@@ -123,6 +123,11 @@ public class MainActivity extends AppCompatActivity {
     private final Semaphore cameraLock = new Semaphore(1);
 
     /**
+     * a semaphore used to sync the image process loop with available images
+     */
+    private final Semaphore imageAvailableLock = new Semaphore(1);
+
+    /**
      * the image reader is used to get images for processing
      */
     private ImageReader imageReader;
@@ -177,7 +182,6 @@ public class MainActivity extends AppCompatActivity {
     private final int REMOTE_DEVICE = 2;
 
 
-
     /**
      * set how verbose the program should be
      */
@@ -186,7 +190,7 @@ public class MainActivity extends AppCompatActivity {
     /**
      * if true, each function will print when they are being called
      */
-    private static final boolean DEBUGEXECUTION = true;
+    private static final boolean DEBUGEXECUTION = false;
 
     /**
      * a list permissions to request
@@ -362,27 +366,27 @@ public class MainActivity extends AppCompatActivity {
     };
 
     /**
-     *  A listener that hands interactions with the mode switch.
-     *  This switch sets the device variable and restarts the
-     *  image process thread
+     * A listener that hands interactions with the mode switch.
+     * This switch sets the device variable and restarts the
+     * image process thread
      */
     private final View.OnClickListener modeListener = new View.OnClickListener() {
         @Override
         public void onClick(View v) {
             if (((Switch) v).isChecked()) {
-                Toast.makeText(MainActivity.this, "Switching to remote device, please wait", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, "Switching to remote device, please wait",
+                        Toast.LENGTH_SHORT).show();
                 // TODO: uncomment this
                 inferencing_device = REMOTE_DEVICE;
             } else {
-                Toast.makeText(MainActivity.this, "Switching to local device, please wait", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, "Switching to local device, please wait",
+                        Toast.LENGTH_SHORT).show();
                 inferencing_device = LOCAL_DEVICE;
             }
 
             counter.reset();
             energyMonitor.reset();
             trafficMonitor.reset();
-            //stopImageProcessThread();
-            //startImageProcessThread();
         }
     };
 
@@ -486,9 +490,10 @@ public class MainActivity extends AppCompatActivity {
         // used to stop the stat update scheduler.
         statUpdateFuture.cancel(false);
 
+        // imageprocessthread depends on camera and background threads, so close this first
+        stopImageProcessThread();
         closeCamera();
         stopBackgroundThreads();
-        stopImageProcessThread();
 
         super.onPause();
     }
@@ -680,8 +685,19 @@ public class MainActivity extends AppCompatActivity {
 
         imageReader = ImageReader.newInstance(captureSize.getWidth(), captureSize.getHeight(),
                 captureFormat, imageBufferSize);
-
+        imageReader.setOnImageAvailableListener(imageAvailableListener, backgroundThreadHandler);
     }
+
+    private final ImageReader.OnImageAvailableListener imageAvailableListener =
+            new ImageReader.OnImageAvailableListener() {
+        @Override
+        public void onImageAvailable(ImageReader reader) {
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "image available");
+            }
+            imageAvailableLock.release();
+        }
+    };
 
     /**
      * Method to call pocl. This method contains a while loop that exits
@@ -707,6 +723,15 @@ public class MainActivity extends AppCompatActivity {
 
             initPoclImageProcessor(getAssets(), captureSize.getWidth(), captureSize.getHeight());
 
+            // get lock that is released when first image is available
+            imageAvailableLock.acquire();
+
+            // camera lock will be available when everything is setup
+            cameraLock.acquire();
+            // send request for image
+            captureSession.capture(imageReaderCaptureRequest, null, backgroundThreadHandler);
+            cameraLock.release();
+
             // the main loop, will continue until an interrupt is sent
             while (!Thread.interrupted()) {
 
@@ -715,35 +740,18 @@ public class MainActivity extends AppCompatActivity {
                             " iteration");
                 }
 
-                try {
-                    // capture the next image.
-                    // since the imagereader has a queue,
-                    // we can request a new image to be captured,
-                    // while working on another.
-                    if (null != captureSession) {
-                        captureSession.capture(imageReaderCaptureRequest, null, null);
-                    }
-                } catch (Exception e) {
-                    if (DEBUGEXECUTION) {
-                        Log.println(Log.WARN, "imageProcessLoop", "capture session is not available");
-                    }
-                }
+                // wait until image is available,
+                // the first one will be from the capture request before the loop starts.
+                imageAvailableLock.acquire();
+                image = imageReader.acquireLatestImage();
 
-                if (null != imageReader) {
-                    image = imageReader.acquireLatestImage();
-                }
+                cameraLock.acquire();
+                // capture the next image already
+                captureSession.capture(imageReaderCaptureRequest, null, backgroundThreadHandler);
+                cameraLock.release();
 
-                // if there wasn't an image available, sleep
-                if (null == image) {
-                    if (DEBUGEXECUTION) {
-                        Log.println(Log.INFO, "EXECUTIONFLOW", "no image available, " +
-                                "sleeping");
-                    }
-                    // if an interrupt is sent while sleeping,
-                    // an execption is thrown. This is fine since
-                    // we weren't doing anything anyway
-                    Thread.sleep(17);
-                    continue;
+                if (DEBUGEXECUTION) {
+                    Log.println(Log.INFO, "EXECUTIONFLOW", "acquired image");
                 }
 
                 Image.Plane[] planes = image.getPlanes();
@@ -781,10 +789,19 @@ public class MainActivity extends AppCompatActivity {
                 int[] detection_results = new int[detection_count];
                 byte[] segmentation_results = new byte[seg_postprocess_count];
                 int rotation = orientationsSwapped ? 90 : 0;
-                poclProcessYUVImage(inferencing_device, rotation, Y, YRowStride,
-                        YPixelStride, U, V, UVRowStride, UVPixelStride, detection_results, segmentation_results);
 
-                runOnUiThread(() -> overlayVisualizer.drawOverlay(detection_results, segmentation_results,
+                long currentTime = System.nanoTime();
+                poclProcessYUVImage(inferencing_device, rotation, Y, YRowStride,
+                        YPixelStride, U, V, UVRowStride, UVPixelStride, detection_results,
+                        segmentation_results);
+                if (verbose >= 1) {
+                    Log.println(Log.WARN, "imageprocessloop",
+                            "pocl compute time: " + (System.nanoTime() - currentTime) / 100000 +
+                                    "ms");
+                }
+
+                runOnUiThread(() -> overlayVisualizer.drawOverlay(detection_results,
+                        segmentation_results,
                         captureSize, orientationsSwapped, overlayView));
 
                 // used to calculate the (avg) FPS
@@ -1066,7 +1083,6 @@ public class MainActivity extends AppCompatActivity {
 
                     chosenCamera = camera;
                     createPreview();
-                    cameraLock.release();
                 }
 
                 @Override
@@ -1132,7 +1148,8 @@ public class MainActivity extends AppCompatActivity {
                     CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
             requestBuilder.addTarget(previewSurface);
 
-            imageReaderRequestBuilder = chosenCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            imageReaderRequestBuilder =
+                    chosenCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             imageReaderRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
                     CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
             imageReaderRequestBuilder.addTarget(imageReader.getSurface());
@@ -1189,6 +1206,7 @@ public class MainActivity extends AppCompatActivity {
                                     "session no longer available");
                         }
                     }
+                    cameraLock.release();
 
                 }
 
