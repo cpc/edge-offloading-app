@@ -377,6 +377,10 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(MainActivity.this, "Switching to local device, please wait", Toast.LENGTH_SHORT).show();
                 inferencing_device = LOCAL_DEVICE;
             }
+
+            counter.reset();
+            energyMonitor.reset();
+            trafficMonitor.reset();
             //stopImageProcessThread();
             //startImageProcessThread();
         }
@@ -398,7 +402,7 @@ public class MainActivity extends AppCompatActivity {
 
         startBackgroundThreads();
 
-        counter.Reset();
+        counter.reset();
         energyMonitor.reset();
         trafficMonitor.reset();
         // schedule the metrics to update every second
@@ -429,21 +433,24 @@ public class MainActivity extends AppCompatActivity {
 
                 energyMonitor.tick();
                 trafficMonitor.tick();
-                String formatString = "FPS: %.2f  AVG FPS: %.2f \n" +
-                        "EPS: %.3f W  AVG EPS: %.3f W \n" +
-                        "charge: %d μAh\n" +
-                        "voltage: %d mV \n" +
-                        "current: %d mA\n" +
+                String formatString = "FPS: %.1f (%.0f ms)  AVG FPS: %.1f (%.0f ms) \n" +
+                        "pow: %.3f W  AVG pow: %.3f W \n" +
+                        "EPF: %.3f J  AVG EPF: %.3f J \n" +
                         "bandwidth: ∇ %s | ∆ %s ";
 
+                float fps = counter.getFPS();
+                float avgfps = counter.getAverageFPS();
+                float eps = energyMonitor.getEPS();
+                float avgeps = energyMonitor.getAverageEPS();
+                float fpssecs = (0 != fps) ? 1000/fps : 0;
+                float avgfpssecs = (0 != avgfps) ? 1000/avgfps : 0;
+                float epf = (0 != fps) ? eps/fps : 0;
+                float avgepf = (0 != avgfps) ? avgeps/avgfps : 0;
                 String statString = String.format(Locale.US, formatString,
-                        counter.getFPS(),
-                        counter.getAverageFPS(),
-                        energyMonitor.getEPS(),
-                        energyMonitor.getAverageEPS(),
-                        energyMonitor.getCharge(),
-                        energyMonitor.getVoltage(),
-                        energyMonitor.getcurrent(),
+                        fps, fpssecs,
+                        avgfps, avgfpssecs,
+                        eps, avgeps,
+                        epf, avgepf,
                         trafficMonitor.getRXBandwidthString(),
                         trafficMonitor.getTXBandwidthString()
                 );
@@ -781,7 +788,7 @@ public class MainActivity extends AppCompatActivity {
                         captureSize, orientationsSwapped, overlayView));
 
                 // used to calculate the (avg) FPS
-                counter.TickFrame();
+                counter.tickFrame();
 
                 // don't forget to close the image when done
                 image.close();

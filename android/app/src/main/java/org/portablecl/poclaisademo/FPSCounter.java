@@ -28,7 +28,7 @@ public class FPSCounter {
     /**
      * set all metric values to zero
      */
-    public void Reset() {
+    public void reset() {
         totalTime = 0;
         frameCount = 0;
         frameTime = 0;
@@ -39,7 +39,7 @@ public class FPSCounter {
      * measures times between being called to calculate FPS.
      * Should be called after every frame has been shown
      */
-    public void TickFrame() {
+    public void tickFrame() {
         long currentTime = System.nanoTime();
 
         if (previousFrameTime == 0) {

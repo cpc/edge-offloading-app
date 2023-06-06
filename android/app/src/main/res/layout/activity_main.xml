@@ -28,9 +28,7 @@
         android:layout_height="wrap_content"
         android:fontFamily="monospace"
         android:includeFontPadding="false"
-        android:shadowColor="#000000"
         android:shadowRadius="3"
-        android:textColor="#FFFFFF"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         tools:text="from OpenCL" />
