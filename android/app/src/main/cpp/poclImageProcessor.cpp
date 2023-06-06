@@ -378,9 +378,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
 
     cl_int	status;
 
-    status = clSetKernelArg(kernel, 0, sizeof(cl_mem), &img_buf[device_index]);
-    status |= clSetKernelArg(kernel, 5, sizeof(cl_mem), &out_buf[device_index]);
-    status |= clSetKernelArg(kernel, 6, sizeof(cl_mem), &out_mask_buf[device_index]);
+    status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &img_buf[device_index]);
+    status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &out_buf[device_index]);
+    status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &out_mask_buf[device_index]);
     CHECK_AND_RETURN(status, "could not assign buffers to DNN kernel");
 
     status = clSetKernelArg(postprocess_kernel, 0, sizeof(cl_mem), &out_buf[device_index]);
