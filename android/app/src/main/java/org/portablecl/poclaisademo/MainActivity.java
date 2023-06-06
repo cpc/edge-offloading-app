@@ -700,7 +700,7 @@ public class MainActivity extends AppCompatActivity {
         int MASK_H = 120;
 
         int detection_count = 1 + MAX_DETECTIONS * 6;
-        int segmentation_count = MAX_DETECTIONS * MASK_W * MASK_H;
+        int seg_postprocess_count = 4 * MASK_W * MASK_H;
 
         Image image = null;
         try {
@@ -779,7 +779,7 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 int[] detection_results = new int[detection_count];
-                byte[] segmentation_results = new byte[segmentation_count * 4];
+                byte[] segmentation_results = new byte[seg_postprocess_count];
                 int rotation = orientationsSwapped ? 90 : 0;
                 poclProcessYUVImage(inferencing_device, rotation, Y, YRowStride,
                         YPixelStride, U, V, UVRowStride, UVPixelStride, detection_results, segmentation_results);
