@@ -440,8 +440,8 @@ public class MainActivity extends AppCompatActivity {
 
                 float fps = counter.getFPS();
                 float avgfps = counter.getAverageFPS();
-                float eps = energyMonitor.getEPS();
-                float avgeps = energyMonitor.getAverageEPS();
+                float eps = -energyMonitor.getEPS();
+                float avgeps = -energyMonitor.getAverageEPS();
                 float fpssecs = (0 != fps) ? 1000/fps : 0;
                 float avgfpssecs = (0 != avgfps) ? 1000/avgfps : 0;
                 float epf = (0 != fps) ? eps/fps : 0;
