@@ -447,11 +447,11 @@ public class MainActivity extends AppCompatActivity {
 
                 energyMonitor.tick();
                 trafficMonitor.tick();
-                String formatString = "FPS: %.1f (%.0f ms)  AVG FPS: %.1f (%.0f ms) \n" +
-                        "pow: %.3f W  AVG pow: %.3f W \n" +
-                        "EPF: %.3f J  AVG EPF: %.3f J \n" +
+                String formatString = "FPS: %3.1f (%4.0fms)  AVG FPS: %3.1f (%4.0fms) \n" +
+                        "pow: %5.2f W  AVG pow: %5.2f W \n" +
+                        "EPF: %5.2f J  AVG EPF: %5.2f J \n" +
                         "bandwidth: ∇ %s | ∆ %s \n" +
-                        "ping: %.1f ms  AVG ping: %.1f ms\n";
+                        "ping: %5.1f ms  AVG ping: %5.1f ms\n";
 
                 float fps = counter.getFPS();
                 float avgfps = counter.getAverageFPS();
