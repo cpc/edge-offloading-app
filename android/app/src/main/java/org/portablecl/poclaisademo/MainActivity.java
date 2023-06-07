@@ -209,6 +209,11 @@ public class MainActivity extends AppCompatActivity {
     private static TrafficMonitor trafficMonitor;
 
     /**
+     * object to keep track of ping times.
+     */
+    private static PingMonitor pingMonitor;
+
+    /**
      * used to schedule a thread to periodically update stats
      */
     private ScheduledExecutorService statUpdateScheduler;
@@ -288,6 +293,7 @@ public class MainActivity extends AppCompatActivity {
         Context context = getApplicationContext();
         energyMonitor = new EnergyMonitor(context);
         trafficMonitor = new TrafficMonitor();
+        pingMonitor = new PingMonitor(bundle.getString("IP"));
 
         counter = new FPSCounter();
         statUpdateScheduler = Executors.newScheduledThreadPool(1);
@@ -379,6 +385,12 @@ public class MainActivity extends AppCompatActivity {
             counter.reset();
             energyMonitor.reset();
             trafficMonitor.reset();
+            if (REMOTE_DEVICE == inferencing_device) {
+                pingMonitor.start();
+            } else {
+                pingMonitor.stop();
+            }
+            pingMonitor.reset();
         }
     };
 
@@ -401,6 +413,12 @@ public class MainActivity extends AppCompatActivity {
         counter.reset();
         energyMonitor.reset();
         trafficMonitor.reset();
+
+        if (REMOTE_DEVICE == inferencing_device) {
+            pingMonitor.start();
+        }
+        pingMonitor.reset();
+
         // schedule the metrics to update every second
         statUpdateFuture = statUpdateScheduler.scheduleAtFixedRate(statUpdater, 1, 1,
                 TimeUnit.SECONDS);
@@ -432,7 +450,8 @@ public class MainActivity extends AppCompatActivity {
                 String formatString = "FPS: %.1f (%.0f ms)  AVG FPS: %.1f (%.0f ms) \n" +
                         "pow: %.3f W  AVG pow: %.3f W \n" +
                         "EPF: %.3f J  AVG EPF: %.3f J \n" +
-                        "bandwidth: ∇ %s | ∆ %s ";
+                        "bandwidth: ∇ %s | ∆ %s \n" +
+                        "ping: %.1f ms  AVG ping: %.1f ms\n";
 
                 float fps = counter.getFPS();
                 float avgfps = counter.getAverageFPS();
@@ -448,7 +467,9 @@ public class MainActivity extends AppCompatActivity {
                         eps, avgeps,
                         epf, avgepf,
                         trafficMonitor.getRXBandwidthString(),
-                        trafficMonitor.getTXBandwidthString()
+                        trafficMonitor.getTXBandwidthString(),
+                        (REMOTE_DEVICE == inferencing_device) ? pingMonitor.getPing() : 0,
+                        (REMOTE_DEVICE == inferencing_device) ? pingMonitor.getAveragePing() : 0
                 );
 
                 // needed since only the uithread is allowed to make changes to the textview
@@ -480,7 +501,9 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // used to stop the stat update scheduler.
-        statUpdateFuture.cancel(false);
+        statUpdateFuture.cancel(true);
+
+        pingMonitor.stop();
 
         // imageprocessthread depends on camera and background threads, so close this first
         stopImageProcessThread();
@@ -684,7 +707,7 @@ public class MainActivity extends AppCompatActivity {
             new ImageReader.OnImageAvailableListener() {
                 @Override
                 public void onImageAvailable(ImageReader reader) {
-                    if (DEBUGEXECUTION) {
+                    if (DEBUGEXECUTION && verbose >= 3) {
                         Log.println(Log.INFO, "EXECUTIONFLOW", "image available");
                     }
                     imageAvailableLock.release();
