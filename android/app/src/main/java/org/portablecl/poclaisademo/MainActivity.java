@@ -88,16 +88,6 @@ public class MainActivity extends AppCompatActivity {
     private CaptureRequest.Builder requestBuilder;
 
     /**
-     * used to create a capture request that pocl uses
-     */
-    private CaptureRequest.Builder imageReaderRequestBuilder;
-
-    /**
-     * used to request the camera to take a new image for pocl
-     */
-    private CaptureRequest imageReaderCaptureRequest;
-
-    /**
      * used to control capturing images from the camera
      */
     private CameraCaptureSession captureSession;
@@ -123,9 +113,11 @@ public class MainActivity extends AppCompatActivity {
     private final Semaphore cameraLock = new Semaphore(1);
 
     /**
-     * a semaphore used to sync the image process loop with available images
+     * a semaphore used to sync the image process loop with available images.
+     * zero starting permits, so a lock can only be acquired when the
+     * camerareader releases a permit.
      */
-    private final Semaphore imageAvailableLock = new Semaphore(1);
+    private final Semaphore imageAvailableLock = new Semaphore(0);
 
     /**
      * the image reader is used to get images for processing
@@ -190,7 +182,7 @@ public class MainActivity extends AppCompatActivity {
     /**
      * if true, each function will print when they are being called
      */
-    private static final boolean DEBUGEXECUTION = false;
+    private static final boolean DEBUGEXECUTION = true;
 
     /**
      * a list permissions to request
@@ -261,7 +253,7 @@ public class MainActivity extends AppCompatActivity {
         // todo: make these configurable
         verbose = 1;
         captureSize = new Size(640, 480);
-        imageBufferSize = 2;
+        imageBufferSize = 35;
 
         // this should be an image format we can work with on the native side.
         captureFormat = ImageFormat.YUV_420_888;
@@ -446,10 +438,10 @@ public class MainActivity extends AppCompatActivity {
                 float avgfps = counter.getAverageFPS();
                 float eps = -energyMonitor.getEPS();
                 float avgeps = -energyMonitor.getAverageEPS();
-                float fpssecs = (0 != fps) ? 1000/fps : 0;
-                float avgfpssecs = (0 != avgfps) ? 1000/avgfps : 0;
-                float epf = (0 != fps) ? eps/fps : 0;
-                float avgepf = (0 != avgfps) ? avgeps/avgfps : 0;
+                float fpssecs = (0 != fps) ? 1000 / fps : 0;
+                float avgfpssecs = (0 != avgfps) ? 1000 / avgfps : 0;
+                float epf = (0 != fps) ? eps / fps : 0;
+                float avgepf = (0 != avgfps) ? avgeps / avgfps : 0;
                 String statString = String.format(Locale.US, formatString,
                         fps, fpssecs,
                         avgfps, avgfpssecs,
@@ -690,14 +682,14 @@ public class MainActivity extends AppCompatActivity {
 
     private final ImageReader.OnImageAvailableListener imageAvailableListener =
             new ImageReader.OnImageAvailableListener() {
-        @Override
-        public void onImageAvailable(ImageReader reader) {
-            if (DEBUGEXECUTION) {
-                Log.println(Log.INFO, "EXECUTIONFLOW", "image available");
-            }
-            imageAvailableLock.release();
-        }
-    };
+                @Override
+                public void onImageAvailable(ImageReader reader) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "image available");
+                    }
+                    imageAvailableLock.release();
+                }
+            };
 
     /**
      * Method to call pocl. This method contains a while loop that exits
@@ -723,15 +715,6 @@ public class MainActivity extends AppCompatActivity {
 
             initPoclImageProcessor(getAssets(), captureSize.getWidth(), captureSize.getHeight());
 
-            // get lock that is released when first image is available
-            imageAvailableLock.acquire();
-
-            // camera lock will be available when everything is setup
-            cameraLock.acquire();
-            // send request for image
-            captureSession.capture(imageReaderCaptureRequest, null, backgroundThreadHandler);
-            cameraLock.release();
-
             // the main loop, will continue until an interrupt is sent
             while (!Thread.interrupted()) {
 
@@ -741,17 +724,21 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 // wait until image is available,
-                // the first one will be from the capture request before the loop starts.
                 imageAvailableLock.acquire();
                 image = imageReader.acquireLatestImage();
-
-                cameraLock.acquire();
-                // capture the next image already
-                captureSession.capture(imageReaderCaptureRequest, null, backgroundThreadHandler);
-                cameraLock.release();
+                // acquirelatestimage closes all other images,
+                // so release all permits related to those images
+                // like this, we will only acquire a lock when a
+                // new image is available
+                int drainedPermits = imageAvailableLock.drainPermits();
 
                 if (DEBUGEXECUTION) {
                     Log.println(Log.INFO, "EXECUTIONFLOW", "acquired image");
+                }
+
+                if (verbose >= 1) {
+                    Log.println(Log.INFO, "imageprocessloop",
+                            "drained permits: " + drainedPermits);
                 }
 
                 Image.Plane[] planes = image.getPlanes();
@@ -1148,16 +1135,13 @@ public class MainActivity extends AppCompatActivity {
                     CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
             requestBuilder.addTarget(previewSurface);
 
-            imageReaderRequestBuilder =
-                    chosenCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            imageReaderRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
-                    CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-            imageReaderRequestBuilder.addTarget(imageReader.getSurface());
+            Surface imageReaderSurface = imageReader.getSurface();
+            requestBuilder.addTarget(imageReaderSurface);
 
             // todo: use the new proper method for creating a capture session
             // https://stackoverflow.com/questions/67077568/how-to-correctly-use-the-new-createcapturesession-in-camera2-in-android
             chosenCamera.createCaptureSession(Arrays.asList(previewSurface,
-                            imageReader.getSurface()),
+                            imageReaderSurface),
                     previewStateCallback, null);
         } catch (CameraAccessException e) {
             Log.println(Log.ERROR, "MainActivity.java:createPreview", "could not access camera");
@@ -1178,8 +1162,7 @@ public class MainActivity extends AppCompatActivity {
                                 "callback called");
                     }
 
-                    if (chosenCamera == null || requestBuilder == null ||
-                            imageReaderRequestBuilder == null) {
+                    if (chosenCamera == null || requestBuilder == null) {
                         return;
                     }
 
@@ -1188,7 +1171,6 @@ public class MainActivity extends AppCompatActivity {
                     try {
 
                         CaptureRequest captureRequest = requestBuilder.build();
-                        imageReaderCaptureRequest = imageReaderRequestBuilder.build();
 
                         // todo: possibly add listener to request
                         captureSession.setRepeatingRequest(captureRequest, null,
