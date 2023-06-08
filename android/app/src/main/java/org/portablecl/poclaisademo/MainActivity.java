@@ -483,9 +483,9 @@ public class MainActivity extends AppCompatActivity {
                         "bandwidth: ∇ %s | ∆ %s \n" +
                         "ping: %5.1f ms  AVG ping: %5.1f ms\n";
 
-                float fps = counter.getFPS();
+                float fps = counter.getEMAFPS();
                 float avgfps = counter.getAverageFPS();
-                float eps = -energyMonitor.getEPS();
+                float eps = -energyMonitor.getEMAEPS();
                 float avgeps = -energyMonitor.getAverageEPS();
                 float fpssecs = (0 != fps) ? 1000 / fps : 0;
                 float avgfpssecs = (0 != avgfps) ? 1000 / avgfps : 0;

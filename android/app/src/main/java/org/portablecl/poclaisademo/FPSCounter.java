@@ -14,6 +14,20 @@ public class FPSCounter {
     private long previousFrameTime;
 
     /**
+     * an exponential moving average of the fps.
+     * this fps does not jump as wildly.
+     */
+    private float ema_fps;
+
+    /**
+     * the smoothing factor determines how receptive the
+     * ema_fps is to change. closer to 1 means very receptive.
+     * finding this number is not a science, but this number
+     * seems to work well for our use case
+     */
+    private final static float smoothingFactor = 0.6f;
+
+    /**
      * the time is measured in nanoseconds so 10**9
      */
     private final float timePrecision = 1000000000f;
@@ -23,6 +37,7 @@ public class FPSCounter {
         frameCount = 0;
         frameTime = 0;
         previousFrameTime = 0;
+        ema_fps = 0;
     }
 
     /**
@@ -33,6 +48,7 @@ public class FPSCounter {
         frameCount = 0;
         frameTime = 0;
         previousFrameTime = 0;
+        ema_fps = 0;
     }
 
     /**
@@ -49,6 +65,8 @@ public class FPSCounter {
         }
 
         frameTime = currentTime - previousFrameTime;
+
+        ema_fps = ema_fps + smoothingFactor*((timePrecision/frameTime) - ema_fps);
 
         totalTime += frameTime;
         frameCount += 1;
@@ -69,6 +87,14 @@ public class FPSCounter {
             return 0;
         }
         return timePrecision / frameTime;
+    }
+
+    /**
+     * return the EMA FPS
+     * @return the Exponential Moving Average Frames per Second
+     */
+    public float getEMAFPS() {
+        return ema_fps;
     }
 
     /**

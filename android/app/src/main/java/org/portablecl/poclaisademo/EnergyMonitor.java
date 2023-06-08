@@ -61,12 +61,27 @@ public class EnergyMonitor {
      */
     private int voltage;
 
+    /**
+     * the smoothing factor determines how receptive the
+     * ema_eps is to change. closer to 1 means very receptive.
+     * finding this number is not a science, but this number
+     * seems to work well for our use case
+     */
+    private final static float smoothing_factor = 0.3f;
+
+    /**
+     * an exponential moving average of the eps.
+     * this eps does not jump as wildly.
+     */
+    private float ema_eps;
+
     public EnergyMonitor(Context context) {
         totalTime = 0;
         previousTime = 0;
         totalEnergyDelta = 0;
         timeFrame = 0;
         energyFrame = 0;
+        ema_eps = 0;
 
         this.manager = (BatteryManager) context.getSystemService(Context.BATTERY_SERVICE);
         // since battery changed is "sticky", we don't have to provide a receiver,
@@ -92,6 +107,7 @@ public class EnergyMonitor {
         totalEnergyDelta = 0;
         timeFrame = 0;
         energyFrame = 0;
+        ema_eps = 0;
     }
 
     /**
@@ -118,6 +134,7 @@ public class EnergyMonitor {
         energyFrame = (current * currentScale) * (voltage * voltageScale);
         totalEnergyDelta += energyFrame * (timeFrame * timescale);
 
+        ema_eps = ema_eps + smoothing_factor*((energyFrame / (timeFrame * timescale)) - ema_eps);
 
     }
 
@@ -162,6 +179,14 @@ public class EnergyMonitor {
         }
 
         return energyFrame / (timeFrame * timescale);
+    }
+
+    /**
+     * reutrn the EMA FPS
+     * @return exponential moving average energy per second
+     */
+    public float getEMAEPS(){
+        return ema_eps;
     }
 
     /**
