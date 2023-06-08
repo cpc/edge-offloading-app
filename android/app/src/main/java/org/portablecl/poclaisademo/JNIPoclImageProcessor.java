@@ -13,7 +13,7 @@ public class JNIPoclImageProcessor {
 
     public static native int destroyPoclImageProcessor();
 
-    public static native int poclProcessYUVImage(int deviceIndex, int rotation,
+    public static native int poclProcessYUVImage(int deviceIndex, int do_segment, int rotation,
                                                  ByteBuffer Y, int YRowStride, int YPixelStride,
                                                  ByteBuffer U, ByteBuffer V, int UVRowStride,
                                                  int UVPixelStride, int[] detection_result,

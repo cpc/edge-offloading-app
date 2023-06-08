@@ -173,6 +173,8 @@ public class MainActivity extends AppCompatActivity {
     private final int PASSTHRU_DEVICE = 1;
     private final int REMOTE_DEVICE = 2;
 
+    private int do_segment;
+
 
     /**
      * set how verbose the program should be
@@ -284,6 +286,11 @@ public class MainActivity extends AppCompatActivity {
         Switch modeSwitch = binding.modeSwitch;
         modeSwitch.setOnClickListener(modeListener);
 
+        Switch segmentationSwitch = binding.segmentSwitch;
+        do_segment = 1;
+        segmentationSwitch.setOnClickListener(segmentListener);
+
+
         // setup overlay
         overlayVisualizer = new OverlayVisualizer();
         overlayView = binding.overlayView;
@@ -316,6 +323,7 @@ public class MainActivity extends AppCompatActivity {
         setNativeEnv("POCL_REMOTE0_PARAMETERS", bundle.getString("IP"));
         inferencing_device = LOCAL_DEVICE;
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
+
     }
 
     /**
@@ -365,8 +373,7 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * A listener that hands interactions with the mode switch.
-     * This switch sets the device variable and restarts the
-     * image process thread
+     * This switch sets the device variable and resets monitors
      */
     private final View.OnClickListener modeListener = new View.OnClickListener() {
         @Override
@@ -374,7 +381,6 @@ public class MainActivity extends AppCompatActivity {
             if (((Switch) v).isChecked()) {
                 Toast.makeText(MainActivity.this, "Switching to remote device, please wait",
                         Toast.LENGTH_SHORT).show();
-                // TODO: uncomment this
                 inferencing_device = REMOTE_DEVICE;
             } else {
                 Toast.makeText(MainActivity.this, "Switching to local device, please wait",
@@ -391,6 +397,30 @@ public class MainActivity extends AppCompatActivity {
                 pingMonitor.stop();
             }
             pingMonitor.reset();
+        }
+    };
+
+    /**
+     * A listener that hands interactions with the segmentation switch.
+     * This switch sets the segmentation variable and resets monitors
+     */
+    private final View.OnClickListener segmentListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            if (((Switch) v).isChecked()) {
+                Toast.makeText(MainActivity.this, "enabling segmentation, please wait",
+                        Toast.LENGTH_SHORT).show();
+                do_segment = 1;
+            } else {
+                Toast.makeText(MainActivity.this, "disabling segmentation, please wait",
+                        Toast.LENGTH_SHORT).show();
+                do_segment = 0;
+            }
+
+            counter.reset();
+            energyMonitor.reset();
+            trafficMonitor.reset();
+
         }
     };
 
@@ -732,6 +762,9 @@ public class MainActivity extends AppCompatActivity {
 
         int detection_count = 1 + MAX_DETECTIONS * 6;
         int seg_postprocess_count = 4 * MASK_W * MASK_H;
+        
+        int[] detection_results = new int[detection_count];
+        byte[] segmentation_results = new byte[seg_postprocess_count];
 
         Image image = null;
         try {
@@ -796,12 +829,10 @@ public class MainActivity extends AppCompatActivity {
                             "V row stride: " + VRowStride);
                 }
 
-                int[] detection_results = new int[detection_count];
-                byte[] segmentation_results = new byte[seg_postprocess_count];
                 int rotation = orientationsSwapped ? 90 : 0;
 
                 long currentTime = System.nanoTime();
-                poclProcessYUVImage(inferencing_device, rotation, Y, YRowStride,
+                poclProcessYUVImage(inferencing_device, do_segment, rotation, Y, YRowStride,
                         YPixelStride, U, V, UVRowStride, UVPixelStride, detection_results,
                         segmentation_results);
                 if (verbose >= 1) {
@@ -810,7 +841,7 @@ public class MainActivity extends AppCompatActivity {
                                     "ms");
                 }
 
-                runOnUiThread(() -> overlayVisualizer.drawOverlay(detection_results,
+                runOnUiThread(() -> overlayVisualizer.drawOverlay(do_segment, detection_results,
                         segmentation_results,
                         captureSize, orientationsSwapped, overlayView));
 

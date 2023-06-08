@@ -98,13 +98,13 @@ public class OverlayVisualizer {
      * @param detections
      * @param surfaceView
      */
-    public void drawOverlay(int[] detections, byte[] segmentations, Size captureSize,
+    public void drawOverlay(int do_segment, int[] detections, byte[] segmentations,
+                            Size captureSize,
                             boolean rotated, SurfaceView surfaceView) {
 
         //int MAX_DETECTIONS = 10;
         int MASK_W = 160;
         int MASK_H = 120;
-        boolean do_segment = true;
 
         try {
             int numDetections = detections[0];
@@ -130,7 +130,7 @@ public class OverlayVisualizer {
 
             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
 
-            if (do_segment) {
+            if (1 == do_segment) {
                 ByteBuffer segmentation_buf = ByteBuffer.wrap(segmentations);
                 Bitmap segmentation_bitmap = Bitmap.createBitmap(MASK_W, MASK_H, Bitmap.Config.ARGB_8888);
                 segmentation_bitmap.copyPixelsFromBuffer(segmentation_buf);

@@ -18,9 +18,6 @@
 #include "sharedUtils.h"
 #include <assert.h>
 
-#include <opencv2/imgproc.hpp>
-#include <opencv2/opencv.hpp>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,7 +31,6 @@ static int detection_count = 1 + MAX_DETECTIONS * 6;
 static int segmentation_count = MAX_DETECTIONS * MASK_W * MASK_H;
 static int seg_postprocess_count = 4 * MASK_W * MASK_H; // RGBA image
 static int total_out_count = detection_count + segmentation_count;
-static int do_segment = 1;
 
 static int colors[] = {-1651865, -6634562, -5921894,
          -9968734, -1277957, -2838283,
@@ -85,6 +81,11 @@ static cl_mem postprocess_buf[3] = {nullptr, nullptr, nullptr};
 static cl_uchar* host_img_buf = nullptr;
 static size_t local_size;
 static size_t global_size;
+
+// make these variables global, just in case
+// they don't get set properly during processing.
+int device_index_copy = 0;
+int do_segment_copy = 0;
 
 // Global variables for smuggling our blob into PoCL so we can pretend it is a builtin kernel.
 // Please don't ever actually do this in production code.
@@ -261,7 +262,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     status |= clSetKernelArg(dnn_kernel, 4, sizeof(cl_int), &inp_format);
     //status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &out_buf);
     //status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &out_mask_buf);
-    
+
     //status = clSetKernelArg(postprocess_kernel, 0, sizeof(cl_mem), &out_buf);
     //status |= clSetKernelArg(postprocess_kernel, 1, sizeof(cl_mem), &out_mask_buf);
     //status |= clSetKernelArg(postprocess_kernel, 2, sizeof(cl_mem), &postprocess_buf);
@@ -327,7 +328,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
         clReleaseProgram(program);
         program = nullptr;
     }
-    
+
     if(nullptr != host_img_buf){
         free(host_img_buf);
         host_img_buf = nullptr;
@@ -357,6 +358,7 @@ JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEnv *env,
                                                                            jclass clazz,
                                                                            jint device_index,
+                                                                           jint do_segment,
                                                                            jint rotation, jobject y,
                                                                            jint yrow_stride,
                                                                            jint ypixel_stride,
@@ -367,30 +369,39 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                                                            jbyteArray segmentation_result) {
 
     if (!dnn_kernel) {
-        __android_log_print(ANDROID_LOG_ERROR, LOGTAG, "poclProcessYUVImage called but DNN kernel does not exist!");
+        __android_log_print(ANDROID_LOG_ERROR, LOGTAG,
+                            "poclProcessYUVImage called but DNN kernel does not exist!");
         return 1;
     }
 
     if (!postprocess_kernel) {
-        __android_log_print(ANDROID_LOG_ERROR, LOGTAG, "poclProcessYUVImage called but postprocess kernel does not exist!");
+        __android_log_print(ANDROID_LOG_ERROR, LOGTAG,
+                            "poclProcessYUVImage called but postprocess kernel does not exist!");
         return 1;
     }
 
-    cl_int	status;
+    // make local copies so that they don't change during execution
+    // when the user presses a button.
+    device_index_copy = device_index;
+    do_segment_copy = do_segment;
 
-    status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &img_buf[device_index]);
-    status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &out_buf[device_index]);
-    status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &out_mask_buf[device_index]);
+    cl_int status;
+
+    status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &img_buf[device_index_copy]);
+    status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &out_buf[device_index_copy]);
+    status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &out_mask_buf[device_index_copy]);
     CHECK_AND_RETURN(status, "could not assign buffers to DNN kernel");
 
-    status = clSetKernelArg(postprocess_kernel, 0, sizeof(cl_mem), &out_buf[device_index]);
-    status |= clSetKernelArg(postprocess_kernel, 1, sizeof(cl_mem), &out_mask_buf[device_index]);
-    status |= clSetKernelArg(postprocess_kernel, 2, sizeof(cl_mem), &postprocess_buf[device_index]);
+    status = clSetKernelArg(postprocess_kernel, 0, sizeof(cl_mem), &out_buf[device_index_copy]);
+    status |= clSetKernelArg(postprocess_kernel, 1, sizeof(cl_mem),
+                             &out_mask_buf[device_index_copy]);
+    status |= clSetKernelArg(postprocess_kernel, 2, sizeof(cl_mem),
+                             &postprocess_buf[device_index_copy]);
     CHECK_AND_RETURN(status, "could not assign buffers to postprocess kernel");
 
     // todo: look into if iscopy=true works on android
-    cl_int * detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
-    cl_char * segmentation_array = env->GetByteArrayElements(segmentation_result, JNI_FALSE);
+    cl_int *detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
+    cl_char *segmentation_array = env->GetByteArrayElements(segmentation_result, JNI_FALSE);
 
     cl_char *y_ptr = (cl_char *) env->GetDirectBufferAddress(y);
     cl_char *u_ptr = (cl_char *) env->GetDirectBufferAddress(u);
@@ -417,31 +428,34 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     }
 
     cl_event write_event;
-    status = clEnqueueWriteBuffer(commandQueue[device_index], img_buf[device_index],
+    status = clEnqueueWriteBuffer(commandQueue[device_index_copy], img_buf[device_index_copy],
                                   CL_FALSE, 0,
                                   img_buf_size, host_img_buf,
-                                  0, NULL, &write_event );
+                                  0, NULL, &write_event);
     CHECK_AND_RETURN(status, "failed to write image to ocl buffers");
 
     cl_event ndrange_event;
-    status = clEnqueueNDRangeKernel(commandQueue[device_index], dnn_kernel, 1, NULL,
-                           &global_size, &local_size, 1,
-                           &write_event, &ndrange_event);
+    status = clEnqueueNDRangeKernel(commandQueue[device_index_copy], dnn_kernel, 1, NULL,
+                                    &global_size, &local_size, 1,
+                                    &write_event, &ndrange_event);
     CHECK_AND_RETURN(status, "failed to enqueue ND range DNN kernel");
 
-    status = clEnqueueReadBuffer(commandQueue[device_index], out_buf[device_index], CL_FALSE, 0,
-                                 detection_count * sizeof(cl_int),detection_array, 1,
+    status = clEnqueueReadBuffer(commandQueue[device_index_copy], out_buf[device_index_copy],
+                                 CL_FALSE, 0,
+                                 detection_count * sizeof(cl_int), detection_array, 1,
                                  &ndrange_event, NULL);
     CHECK_AND_RETURN(status, "failed to read detection result buffer");
 
-    if (do_segment) {
+    if (do_segment_copy) {
         cl_event postprocess_event;
-        status = clEnqueueNDRangeKernel(commandQueue[device_index], postprocess_kernel, 1, NULL,
-                               &global_size, &local_size, 1,
-                               &ndrange_event, &postprocess_event);
+        status = clEnqueueNDRangeKernel(commandQueue[device_index_copy], postprocess_kernel, 1,
+                                        NULL,
+                                        &global_size, &local_size, 1,
+                                        &ndrange_event, &postprocess_event);
         CHECK_AND_RETURN(status, "failed to enqueue ND range postprocess kernel");
 
-        status = clEnqueueReadBuffer(commandQueue[device_index], postprocess_buf[device_index], CL_FALSE, 0,
+        status = clEnqueueReadBuffer(commandQueue[device_index_copy],
+                                     postprocess_buf[device_index_copy], CL_FALSE, 0,
                                      seg_postprocess_count * sizeof(cl_char), segmentation_array, 1,
                                      &postprocess_event, NULL);
         CHECK_AND_RETURN(status, "failed to read segmentation postprocess result buffer");
@@ -451,7 +465,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
 
     clReleaseEvent(write_event);
     clReleaseEvent(ndrange_event);
-    status = clFinish(commandQueue[device_index]);
+    status = clFinish(commandQueue[device_index_copy]);
     CHECK_AND_RETURN(status, "failed to clfinish");
 
     // commit the results back
