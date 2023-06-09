@@ -2,6 +2,8 @@ package org.portablecl.poclaisademo;
 
 
 import static android.hardware.camera2.CameraMetadata.LENS_FACING_BACK;
+import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
+import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessYUVImage;
@@ -9,6 +11,7 @@ import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
@@ -140,6 +143,9 @@ public class MainActivity extends AppCompatActivity {
      */
     private Size previewSize;
 
+    private String IPAddress;
+    private boolean disableRemote;
+
     /**
      * the bitmap to save the result of processing in
      */
@@ -256,6 +262,8 @@ public class MainActivity extends AppCompatActivity {
 
         // get bundle with variables set during startup activity
         Bundle bundle = getIntent().getExtras();
+        IPAddress = bundle.getString(IPKEY);
+        disableRemote = bundle.getBoolean(DISABLEREMOTEKEY);
 
         // todo: make these configurable
         verbose = 1;
@@ -300,7 +308,7 @@ public class MainActivity extends AppCompatActivity {
         Context context = getApplicationContext();
         energyMonitor = new EnergyMonitor(context);
         trafficMonitor = new TrafficMonitor();
-        pingMonitor = new PingMonitor(bundle.getString("IP"));
+        pingMonitor = new PingMonitor(IPAddress);
 
         counter = new FPSCounter();
         statUpdateScheduler = Executors.newScheduledThreadPool(1);
@@ -315,14 +323,14 @@ public class MainActivity extends AppCompatActivity {
         };
         td.start();
 
-        if (bundle.getBoolean("disableRemote")) {
+        if (disableRemote) {
             // disable this switch when remote is disabled
             modeSwitch.setClickable(false);
             setNativeEnv("POCL_DEVICES", "basic");
         } else {
             modeSwitch.setClickable(true);
             setNativeEnv("POCL_DEVICES", "basic remote proxy");
-            setNativeEnv("POCL_REMOTE0_PARAMETERS", bundle.getString("IP"));
+            setNativeEnv("POCL_REMOTE0_PARAMETERS", IPAddress);
         }
 
 
@@ -557,6 +565,18 @@ public class MainActivity extends AppCompatActivity {
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started onDestroy method");
         }
+
+        // restart the app if the main activity is closed
+        Context applicationContext = getApplicationContext();
+        Intent intent =
+                applicationContext.getPackageManager().getLaunchIntentForPackage(
+                        applicationContext.getPackageName());
+        Intent restartIntent = Intent.makeRestartActivityTask(intent.getComponent());
+        restartIntent.putExtra(IPKEY, IPAddress );
+        restartIntent.putExtra(DISABLEREMOTEKEY, disableRemote);
+        applicationContext.startActivity(restartIntent);
+        Runtime.getRuntime().exit(0);
+
         super.onDestroy();
     }
 

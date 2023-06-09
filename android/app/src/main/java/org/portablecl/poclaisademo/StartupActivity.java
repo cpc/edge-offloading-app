@@ -1,5 +1,7 @@
 package org.portablecl.poclaisademo;
 
+import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
+import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static java.lang.Character.isDigit;
 
 import android.content.Intent;
@@ -42,17 +44,14 @@ public class StartupActivity extends AppCompatActivity {
      */
     private boolean disableRemote;
 
-    /**
-     * a check to see if there have been any changes since pocl has been initialized.
-     */
-    private boolean hasSetMode;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         ActivityStartupBinding binding = ActivityStartupBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+
+        Bundle bundle = getIntent().getExtras();
 
         Button startButton = binding.startButton;
         startButton.setOnClickListener(startButtonListener);
@@ -63,10 +62,21 @@ public class StartupActivity extends AppCompatActivity {
         IPAddressView.setAdapter(adapter);
         IPAddressView.setOnEditorActionListener(editorActionListener);
 
-        disableRemote = false;
-        hasSetMode = false;
+        if (null != bundle && bundle.containsKey("IP")){
+            IPAddressView.setText(bundle.getString("IP"));
+        }
+
         Switch modeSwitch = binding.disableSwitch;
         modeSwitch.setOnClickListener(modeListener);
+
+        if(null != bundle && bundle.containsKey(DISABLEREMOTEKEY)){
+            boolean state = bundle.getBoolean(DISABLEREMOTEKEY);
+            Log.println(Log.INFO, "startupactivity", "setting disableRemote to: " + state);
+            modeSwitch.setChecked(state);
+            disableRemote = state;
+        }else{
+            disableRemote = false;
+        }
 
     }
 
@@ -105,9 +115,8 @@ public class StartupActivity extends AppCompatActivity {
             Intent i = new Intent(getApplicationContext(), MainActivity.class);
 
             // pass ip to the main activity
-            i.putExtra("IP", value);
-            i.putExtra("disableRemote", disableRemote);
-            hasSetMode = true;
+            i.putExtra(IPKEY, value);
+            i.putExtra(DISABLEREMOTEKEY, disableRemote);
 
             // start the main activity
             startActivity(i);
@@ -145,21 +154,9 @@ public class StartupActivity extends AppCompatActivity {
                 Log.println(Log.INFO, "EXECUTIONFLOW", "started modelistener callback");
             }
 
-            if (hasSetMode) {
-                Toast.makeText(StartupActivity.this, "restart " +
-                                "app to make this change",
-                        Toast.LENGTH_SHORT).show();
-
-                // revert the user's attempt to change state
-                ((Switch) v).setChecked(!((Switch) v).isChecked());
-
-                return;
-            }
-
             disableRemote = ((Switch) v).isChecked();
         }
     };
-
 
     @Override
     protected void onDestroy() {
