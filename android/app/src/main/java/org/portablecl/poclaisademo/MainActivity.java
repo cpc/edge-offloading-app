@@ -769,6 +769,15 @@ public class MainActivity extends AppCompatActivity {
                         Log.println(Log.INFO, "EXECUTIONFLOW", "image available");
                     }
                     imageAvailableLock.release();
+                    if(imageAvailableLock.availablePermits() > 33){
+                        Image image = imageReader.acquireLatestImage();
+                        imageAvailableLock.drainPermits();
+                        image.close();
+                        if(verbose >=2){
+                            Log.println(Log.WARN, "imageavailablelistener", "imagereader buffer " +
+                                    "got really full");
+                        }
+                    }
                 }
             };
 
@@ -797,7 +806,16 @@ public class MainActivity extends AppCompatActivity {
         Image image = null;
         try {
 
-            initPoclImageProcessor(getAssets(), captureSize.getWidth(), captureSize.getHeight());
+             int status = initPoclImageProcessor(getAssets(), captureSize.getWidth(),
+                     captureSize.getHeight());
+
+             if(-33 == status){
+                 runOnUiThread( () -> Toast.makeText(MainActivity.this,
+                         "could not connect to server, please check connection",
+                         Toast.LENGTH_SHORT).show());
+
+                 return;
+             }
 
             // the main loop, will continue until an interrupt is sent
             while (!Thread.interrupted()) {
@@ -823,6 +841,10 @@ public class MainActivity extends AppCompatActivity {
                 if (verbose >= 1) {
                     Log.println(Log.INFO, "imageprocessloop",
                             "drained permits: " + drainedPermits);
+                }
+
+                if(null == image){
+                    continue;
                 }
 
                 Image.Plane[] planes = image.getPlanes();
