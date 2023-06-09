@@ -315,12 +315,20 @@ public class MainActivity extends AppCompatActivity {
         };
         td.start();
 
+        if (bundle.getBoolean("disableRemote")) {
+            // disable this switch when remote is disabled
+            modeSwitch.setClickable(false);
+            setNativeEnv("POCL_DEVICES", "basic");
+        } else {
+            modeSwitch.setClickable(true);
+            setNativeEnv("POCL_DEVICES", "basic remote proxy");
+            setNativeEnv("POCL_REMOTE0_PARAMETERS", bundle.getString("IP"));
+        }
+
 
         String cache_dir = getCacheDir().getAbsolutePath();
         // used to configure pocl
         setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
-        setNativeEnv("POCL_DEVICES", "basic remote proxy");
-        setNativeEnv("POCL_REMOTE0_PARAMETERS", bundle.getString("IP"));
         inferencing_device = LOCAL_DEVICE;
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
 

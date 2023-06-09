@@ -11,6 +11,7 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 import android.widget.Button;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -36,6 +37,16 @@ public class StartupActivity extends AppCompatActivity {
      */
     private final static String[] IPAddresses = {"192.168.36.206", "10.1.200.5"};
 
+    /**
+     * a boolean that is passed to the main activity disable remote
+     */
+    private boolean disableRemote;
+
+    /**
+     * a check to see if there have been any changes since pocl has been initialized.
+     */
+    private boolean hasSetMode;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -47,9 +58,15 @@ public class StartupActivity extends AppCompatActivity {
         startButton.setOnClickListener(startButtonListener);
 
         IPAddressView = binding.IPTextView;
-        ArrayAdapter adapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, IPAddresses);
+        ArrayAdapter adapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1
+                , IPAddresses);
         IPAddressView.setAdapter(adapter);
         IPAddressView.setOnEditorActionListener(editorActionListener);
+
+        disableRemote = false;
+        hasSetMode = false;
+        Switch modeSwitch = binding.disableSwitch;
+        modeSwitch.setOnClickListener(modeListener);
 
     }
 
@@ -89,6 +106,8 @@ public class StartupActivity extends AppCompatActivity {
 
             // pass ip to the main activity
             i.putExtra("IP", value);
+            i.putExtra("disableRemote", disableRemote);
+            hasSetMode = true;
 
             // start the main activity
             startActivity(i);
@@ -111,6 +130,33 @@ public class StartupActivity extends AppCompatActivity {
                 v.clearFocus();
             }
             return false;
+        }
+    };
+
+    /**
+     * A listener that hands interactions with the mode switch.
+     * This switch sets the option to disable remote
+     */
+    private final View.OnClickListener modeListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started modelistener callback");
+            }
+
+            if (hasSetMode) {
+                Toast.makeText(StartupActivity.this, "restart " +
+                                "app to make this change",
+                        Toast.LENGTH_SHORT).show();
+
+                // revert the user's attempt to change state
+                ((Switch) v).setChecked(!((Switch) v).isChecked());
+
+                return;
+            }
+
+            disableRemote = ((Switch) v).isChecked();
         }
     };
 

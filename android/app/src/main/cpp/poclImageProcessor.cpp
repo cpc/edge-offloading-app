@@ -60,9 +60,9 @@ static int colors[] = {-1651865, -6634562, -5921894,
          -1788449, -7283030, -5781889,
          -4207444, -8225948};
 
-#define NUM_CL_DEVICES 3
+#define MAX_NUM_CL_DEVICES 3
 static cl_context context = NULL;
-static cl_command_queue commandQueue[NUM_CL_DEVICES] = {nullptr};
+static cl_command_queue commandQueue[MAX_NUM_CL_DEVICES] = {nullptr};
 static cl_program program = NULL;
 static cl_kernel dnn_kernel = NULL;
 static cl_kernel postprocess_kernel = NULL;
@@ -74,11 +74,11 @@ static cl_int inp_w;
 static cl_int inp_h;
 static cl_int rotate_cw_degrees;
 static cl_int inp_format;
-static cl_mem img_buf[3] = {nullptr, nullptr, nullptr};
-static cl_mem out_buf[3] = {nullptr, nullptr, nullptr};
-static cl_mem out_mask_buf[3] = {nullptr, nullptr, nullptr};
-static cl_mem postprocess_buf[3] = {nullptr, nullptr, nullptr};
-static cl_uchar* host_img_buf = nullptr;
+static cl_mem img_buf[MAX_NUM_CL_DEVICES] = {nullptr};
+static cl_mem out_buf[MAX_NUM_CL_DEVICES] = {nullptr};
+static cl_mem out_mask_buf[MAX_NUM_CL_DEVICES] = {nullptr};
+static cl_mem postprocess_buf[MAX_NUM_CL_DEVICES] = {nullptr};
+static cl_uchar *host_img_buf = nullptr;
 static size_t local_size;
 static size_t global_size;
 
@@ -140,21 +140,22 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
                                                                               jclass clazz, jobject jAssetManager,
                                                                               jint width, jint height) {
     cl_platform_id platform;
-    cl_device_id devices[NUM_CL_DEVICES];
+    cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
     cl_uint devices_found;
     cl_int status;
 
     status = clGetPlatformIDs(1, &platform, NULL);
     CHECK_AND_RETURN(status, "getting platform id failed");
 
-    status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, NUM_CL_DEVICES, devices, &devices_found);
+    status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, MAX_NUM_CL_DEVICES, devices,
+                            &devices_found);
     CHECK_AND_RETURN(status, "getting device id failed");
     __android_log_print(ANDROID_LOG_INFO, LOGTAG, "Platform has %d devices", devices_found);
-    assert(devices_found == NUM_CL_DEVICES);
+    assert(devices_found > 0);
 
     // some info
     char result_array[256];
-    for (unsigned i = 0; i < NUM_CL_DEVICES; ++i) {
+    for (unsigned i = 0; i < devices_found; ++i) {
         clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
         __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DEVICE_NAME: %s", result_array);
 
@@ -171,10 +172,10 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     cl_context_properties cps[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
                                    0};
 
-    context = clCreateContext(cps, NUM_CL_DEVICES, devices, NULL, NULL, &status);
+    context = clCreateContext(cps, devices_found, devices, NULL, NULL, &status);
     CHECK_AND_RETURN(status, "creating context failed");
 
-    for (unsigned i = 0; i < NUM_CL_DEVICES; ++i) {
+    for (unsigned i = 0; i < devices_found; ++i) {
         commandQueue[i] = clCreateCommandQueue(context, devices[i], 0, &status);
         CHECK_AND_RETURN(status, "creating command queue failed");
     }
@@ -182,16 +183,29 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     bool smuggling_ok = smuggleONNXAsset(env, jAssetManager, "yolov8n-seg.onnx");
     assert(smuggling_ok);
 
-    cl_device_id inference_devices[] = {devices[0], devices[2]};
     // Only create builtin kernel for basic and remote devices
     std::string dnn_kernel_name = "pocl.dnn.detection.u8";
     std::string postprocess_kernel_name = "pocl.dnn.segmentation_postprocess.u8";
     std::string kernel_names = dnn_kernel_name + ";" + postprocess_kernel_name;
-    program = clCreateProgramWithBuiltInKernels(context, 2, inference_devices, kernel_names.c_str(), &status);
-    CHECK_AND_RETURN(status, "creation of program failed");
+    
+    if (1 == devices_found) {
+        program = clCreateProgramWithBuiltInKernels(context, 1, devices, kernel_names
+                .c_str(), &status);
+        CHECK_AND_RETURN(status, "creation of program failed");
 
-    status = clBuildProgram(program, 2, inference_devices, nullptr, nullptr, nullptr);
-    CHECK_AND_RETURN(status, "building of program failed");
+        status = clBuildProgram(program, 1, devices, nullptr, nullptr, nullptr);
+        CHECK_AND_RETURN(status, "building of program failed");
+
+    } else {
+        cl_device_id inference_devices[] = {devices[0], devices[2]};
+
+        program = clCreateProgramWithBuiltInKernels(context, 2, inference_devices,
+                                                    kernel_names.c_str(), &status);
+        CHECK_AND_RETURN(status, "creation of program failed");
+
+        status = clBuildProgram(program, 2, inference_devices, nullptr, nullptr, nullptr);
+        CHECK_AND_RETURN(status, "building of program failed");
+    }
 
     dnn_kernel = clCreateKernel(program, dnn_kernel_name.c_str(), &status);
     CHECK_AND_RETURN(status, "creating dnn kernel failed");
@@ -201,8 +215,10 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
 
     destroySmugglingEvidence();
 
-    for (unsigned i = 0; i < NUM_CL_DEVICES; ++i) {
-        clReleaseDevice(devices[i]);
+    for (unsigned i = 0; i < MAX_NUM_CL_DEVICES; ++i) {
+        if (nullptr != devices[i]) {
+            clReleaseDevice(devices[i]);
+        }
     }
 
     // set some default values;
@@ -225,31 +241,36 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
                                     NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the output buffer");
 
-    out_mask_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE, tot_pixels * MAX_DETECTIONS * sizeof(cl_char) / 4,
-                                         NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
-
-    // RGBA:
-    postprocess_buf[0] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * 4 * sizeof(cl_char) / 4,
-                                         NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the segmentation preprocessing buffer");
-
-    img_buf[2] = clCreateBuffer(context, (CL_MEM_READ_ONLY),
-                                img_buf_size, NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the image buffer");
-
-    out_buf[2] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, total_out_count * sizeof(cl_int),
-                                NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the output buffer");
-
-    out_mask_buf[2] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * MAX_DETECTIONS *
-                                                                 sizeof(cl_char) / 4,
+    out_mask_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                     tot_pixels * MAX_DETECTIONS * sizeof(cl_char) / 4,
                                      NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
 
-    postprocess_buf[2] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * 4 * sizeof(cl_char) / 4,
-                                         NULL, &status);
+    // RGBA:
+    postprocess_buf[0] = clCreateBuffer(context, CL_MEM_WRITE_ONLY,
+                                        tot_pixels * 4 * sizeof(cl_char) / 4,
+                                        NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation preprocessing buffer");
+
+    if (devices_found > 1) {
+        img_buf[2] = clCreateBuffer(context, (CL_MEM_READ_ONLY),
+                                    img_buf_size, NULL, &status);
+        CHECK_AND_RETURN(status, "failed to create the image buffer");
+
+        out_buf[2] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, total_out_count * sizeof(cl_int),
+                                    NULL, &status);
+        CHECK_AND_RETURN(status, "failed to create the output buffer");
+
+        out_mask_buf[2] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, tot_pixels * MAX_DETECTIONS *
+                                                                     sizeof(cl_char) / 4,
+                                         NULL, &status);
+        CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
+
+        postprocess_buf[2] = clCreateBuffer(context, CL_MEM_WRITE_ONLY,
+                                            tot_pixels * 4 * sizeof(cl_char) / 4,
+                                            NULL, &status);
+        CHECK_AND_RETURN(status, "failed to create the segmentation preprocessing buffer");
+    }
 
     // buffer to copy image data to
     host_img_buf = (cl_uchar*) malloc(img_buf_size);
@@ -282,13 +303,13 @@ JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor(JNIEnv *env,
                                                                                  jclass clazz) {
 
-    for (unsigned i = 0; i < NUM_CL_DEVICES; ++i) {
+    for (unsigned i = 0; i < MAX_NUM_CL_DEVICES; ++i) {
         if (commandQueue[i] != nullptr) {
             clReleaseCommandQueue(commandQueue[i]);
             commandQueue[i] = nullptr;
         }
 
-        if (nullptr != img_buf[i]){
+        if (nullptr != img_buf[i]) {
             clReleaseMemObject(img_buf[i]);
             img_buf[i] = nullptr;
         }
