@@ -283,7 +283,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
                                                                                  jclass clazz) {
 
     for (unsigned i = 0; i < NUM_CL_DEVICES; ++i) {
-        if (commandQueue != nullptr) {
+        if (commandQueue[i] != nullptr) {
             clReleaseCommandQueue(commandQueue[i]);
             commandQueue[i] = nullptr;
         }
@@ -298,12 +298,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
             out_buf[i] = nullptr;
         }
 
-        if (nullptr != out_mask_buf){
+        if (nullptr != out_mask_buf[i]){
             clReleaseMemObject(out_mask_buf[i]);
             out_mask_buf[i] = nullptr;
         }
 
-        if (nullptr != postprocess_buf){
+        if (nullptr != postprocess_buf[i]){
             clReleaseMemObject(postprocess_buf[i]);
             postprocess_buf[i] = nullptr;
         }
