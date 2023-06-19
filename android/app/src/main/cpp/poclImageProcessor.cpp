@@ -86,6 +86,7 @@ static size_t global_size;
 // they don't get set properly during processing.
 int device_index_copy = 0;
 int do_segment_copy = 0;
+unsigned char enable_profiling = 0;
 
 // Global variables for smuggling our blob into PoCL so we can pretend it is a builtin kernel.
 // Please don't ever actually do this in production code.
@@ -137,8 +138,11 @@ void destroySmugglingEvidence() {
  */
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JNIEnv *env,
-                                                                              jclass clazz, jobject jAssetManager,
-                                                                              jint width, jint height) {
+                                                                              jclass clazz,
+                                                                              jboolean enableProfiling,
+                                                                              jobject jAssetManager,
+                                                                              jint width,
+                                                                              jint height) {
     cl_platform_id platform;
     cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
     cl_uint devices_found;
@@ -175,8 +179,15 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     context = clCreateContext(cps, devices_found, devices, NULL, NULL, &status);
     CHECK_AND_RETURN(status, "creating context failed");
 
+    enable_profiling = enableProfiling;
+    cl_command_queue_properties cq_properties = 0;
+    if (enable_profiling) {
+        __android_log_print(ANDROID_LOG_INFO, LOGTAG, "enabling profiling");
+        cq_properties = CL_QUEUE_PROFILING_ENABLE;
+    }
+    
     for (unsigned i = 0; i < devices_found; ++i) {
-        commandQueue[i] = clCreateCommandQueue(context, devices[i], 0, &status);
+        commandQueue[i] = clCreateCommandQueue(context, devices[i], cq_properties, &status);
         CHECK_AND_RETURN(status, "creating command queue failed");
     }
 
@@ -350,12 +361,30 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
         program = nullptr;
     }
 
-    if(nullptr != host_img_buf){
+    if (nullptr != host_img_buf) {
         free(host_img_buf);
         host_img_buf = nullptr;
     }
 
     return 0;
+}
+
+cl_ulong getEventRuntime(cl_event event){
+    int status;
+    cl_ulong event_start, event_end;
+
+    status = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong),
+                                     &event_start, NULL);
+    CHECK_AND_RETURN(status, "could not read event start date");
+
+    status = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong),
+                                     &event_end, NULL);
+    CHECK_AND_RETURN(status, "could not read event end date");
+
+    // useful for debugging
+//    __android_log_print(ANDROID_LOG_WARN, LOGTAG, "timestampe values: %ld, %ld", event_end, event_start );
+
+    return event_end - event_start;
 }
 
 /**
@@ -461,14 +490,16 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                     &write_event, &ndrange_event);
     CHECK_AND_RETURN(status, "failed to enqueue ND range DNN kernel");
 
+    cl_event read_event;
     status = clEnqueueReadBuffer(commandQueue[device_index_copy], out_buf[device_index_copy],
                                  CL_FALSE, 0,
                                  detection_count * sizeof(cl_int), detection_array, 1,
-                                 &ndrange_event, NULL);
+                                 &ndrange_event, &read_event);
     CHECK_AND_RETURN(status, "failed to read detection result buffer");
 
+    cl_event postprocess_event = NULL, segment_event = NULL;
     if (do_segment_copy) {
-        cl_event postprocess_event;
+
         status = clEnqueueNDRangeKernel(commandQueue[device_index_copy], postprocess_kernel, 1,
                                         NULL,
                                         &global_size, &local_size, 1,
@@ -478,16 +509,47 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
         status = clEnqueueReadBuffer(commandQueue[device_index_copy],
                                      postprocess_buf[device_index_copy], CL_FALSE, 0,
                                      seg_postprocess_count * sizeof(cl_char), segmentation_array, 1,
-                                     &postprocess_event, NULL);
+                                     &postprocess_event, &segment_event);
         CHECK_AND_RETURN(status, "failed to read segmentation postprocess result buffer");
 
-        clReleaseEvent(postprocess_event);
     }
+
+    status = clFinish(commandQueue[device_index_copy]);
+    CHECK_AND_RETURN(status, "failed to clfinish");
+
+    if (enable_profiling) {
+        cl_ulong diff = getEventRuntime(write_event);
+        __android_log_print(ANDROID_LOG_WARN, LOGTAG, "writing took this long: %d ms, %d ns",
+                            (diff / 1000000), diff % 1000000);
+        diff = getEventRuntime(ndrange_event);
+        __android_log_print(ANDROID_LOG_WARN, LOGTAG, "writing took this long: %d ms, %d ns",
+                            (diff / 1000000), diff % 1000000);
+        diff = getEventRuntime(read_event);
+        __android_log_print(ANDROID_LOG_WARN, LOGTAG, "writing took this long: %d ms, %d ns",
+                            (diff / 1000000), diff % 1000000);
+
+        if (do_segment_copy) {
+            diff = getEventRuntime(postprocess_event);
+            __android_log_print(ANDROID_LOG_WARN, LOGTAG, "writing took this long: %d ms, %d ns",
+                                (diff / 1000000), diff % 1000000);
+            diff = getEventRuntime(segment_event);
+            __android_log_print(ANDROID_LOG_WARN, LOGTAG, "writing took this long: %d ms, %d ns",
+                                (diff / 1000000), diff % 1000000);
+        }
+    }
+
 
     clReleaseEvent(write_event);
     clReleaseEvent(ndrange_event);
-    status = clFinish(commandQueue[device_index_copy]);
-    CHECK_AND_RETURN(status, "failed to clfinish");
+    clReleaseEvent(read_event);
+
+    if(NULL != postprocess_event){
+        clReleaseEvent(postprocess_event);
+    }
+
+    if(NULL != segment_event){
+        clReleaseEvent(segment_event);
+    }
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);

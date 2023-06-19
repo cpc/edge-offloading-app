@@ -4,6 +4,7 @@ package org.portablecl.poclaisademo;
 import static android.hardware.camera2.CameraMetadata.LENS_FACING_BACK;
 import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
 import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
+import static org.portablecl.poclaisademo.BundleKeys.LOGFILEURIKEY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessYUVImage;
@@ -31,6 +32,7 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -181,6 +183,15 @@ public class MainActivity extends AppCompatActivity {
 
     private int do_segment;
 
+    /**
+     * boolean to enable logging that gets set during creation
+     */
+    private boolean enableLogging;
+
+    /**
+     * uri to the logging file
+     */
+    private Uri uri;
 
     /**
      * set how verbose the program should be
@@ -264,6 +275,17 @@ public class MainActivity extends AppCompatActivity {
         Bundle bundle = getIntent().getExtras();
         IPAddress = bundle.getString(IPKEY);
         disableRemote = bundle.getBoolean(DISABLEREMOTEKEY);
+
+        try {
+            uri = Uri.parse(bundle.getString(LOGFILEURIKEY, null));
+        } catch (Exception e) {
+            if (verbose >= 2) {
+                Log.println(Log.INFO, "mainactivity:logging", "could not parse uri");
+            }
+            uri = null;
+        }
+        // todo: setup filewrite
+        enableLogging = null != uri;
 
         // todo: make these configurable
         verbose = 1;
@@ -574,6 +596,7 @@ public class MainActivity extends AppCompatActivity {
         Intent restartIntent = Intent.makeRestartActivityTask(intent.getComponent());
         restartIntent.putExtra(IPKEY, IPAddress );
         restartIntent.putExtra(DISABLEREMOTEKEY, disableRemote);
+        restartIntent.putExtra(LOGFILEURIKEY, (null == uri) ? null : uri.toString());
         applicationContext.startActivity(restartIntent);
         Runtime.getRuntime().exit(0);
 
@@ -806,16 +829,16 @@ public class MainActivity extends AppCompatActivity {
         Image image = null;
         try {
 
-             int status = initPoclImageProcessor(getAssets(), captureSize.getWidth(),
-                     captureSize.getHeight());
+            int status = initPoclImageProcessor(enableLogging, getAssets(), captureSize.getWidth(),
+                    captureSize.getHeight());
 
-             if(-33 == status){
-                 runOnUiThread( () -> Toast.makeText(MainActivity.this,
-                         "could not connect to server, please check connection",
-                         Toast.LENGTH_SHORT).show());
+            if (-33 == status) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                        "could not connect to server, please check connection",
+                        Toast.LENGTH_SHORT).show());
 
-                 return;
-             }
+                return;
+            }
 
             // the main loop, will continue until an interrupt is sent
             while (!Thread.interrupted()) {

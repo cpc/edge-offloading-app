@@ -9,7 +9,9 @@ import java.nio.ByteBuffer;
 
 public class JNIPoclImageProcessor {
 
-    public static native int initPoclImageProcessor(AssetManager jAssetManager, int width, int height);
+    public static native int initPoclImageProcessor(boolean enableProfiling,
+                                                    AssetManager jAssetManager,
+                                                    int width, int height);
 
     public static native int destroyPoclImageProcessor();
 

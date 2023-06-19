@@ -12,4 +12,10 @@ public class BundleKeys {
      * Key to pass the disableremote boolean around
      */
     public static final String DISABLEREMOTEKEY = "disableRemote";
+
+
+    /**
+     * Key to pass the uri to the main activity
+     */
+    public static final String LOGFILEURIKEY = "logfileuri";
 }
