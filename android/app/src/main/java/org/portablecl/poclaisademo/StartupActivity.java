@@ -24,6 +24,10 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
 import org.portablecl.poclaisademo.databinding.ActivityStartupBinding;
@@ -37,11 +41,6 @@ public class StartupActivity extends AppCompatActivity {
      * static prefix to use with displaying the file name
      */
     private static final String fileTextPrefix = "file name: ";
-
-    /**
-     * used in identifying the activity used to create a uri
-     */
-    private static final int CREATEDOCUMENTACTIVITYCODE = 1;
 
     /**
      * enable execution debug prints
@@ -89,6 +88,12 @@ public class StartupActivity extends AppCompatActivity {
      * value store that persists across app life cycles
      */
     private SharedPreferences sharedPreferences;
+
+    /**
+     * used to launch the document creation activity
+     * and attach a callback to the result
+     */
+    ActivityResultLauncher<Intent> resultLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -157,6 +162,10 @@ public class StartupActivity extends AppCompatActivity {
 
         Button selectURI = binding.selectURI;
         selectURI.setOnClickListener(selectURIListener);
+
+        resultLauncher =
+                registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
+                handleActivityResultCallback);
     }
 
     /**
@@ -307,11 +316,48 @@ public class StartupActivity extends AppCompatActivity {
             fileIntent.addCategory(Intent.CATEGORY_OPENABLE);
             fileIntent.setType("text/plain");
             fileIntent.putExtra(Intent.EXTRA_TITLE, "pocl_log_file.txt");
-            // todo: use modern api call
-            startActivityForResult(fileIntent, CREATEDOCUMENTACTIVITYCODE);
+
+            resultLauncher.launch(fileIntent);
 
         }
     };
+
+    /**
+     * callback function that handles getting the uri from the document creation activity
+     */
+    final ActivityResultCallback<ActivityResult> handleActivityResultCallback =
+            new ActivityResultCallback<ActivityResult>() {
+                @Override
+                public void onActivityResult(ActivityResult result) {
+
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "started " +
+                                "handleActivityResultCallback callback");
+                    }
+
+                    if (Activity.RESULT_OK == result.getResultCode()) {
+
+                        Intent resultIntent = result.getData();
+
+                        if (null != resultIntent) {
+                            uri = resultIntent.getData();
+                            // make permission to the file persist across phone reboots
+                            getContentResolver().takePersistableUriPermission(uri,
+                                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                                            Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+                            String fileName = getFileName(uri);
+                            fileView.setText(fileTextPrefix + fileName);
+
+                            fileExists = true;
+
+                            SharedPreferences.Editor editor = sharedPreferences.edit();
+                            editor.putString(URIPREFERENCEKEY, uri.toString());
+                            editor.apply();
+                        }
+                    }
+                }
+            };
 
     /**
      * A listener that on the press of a button, will enable logging.
@@ -327,48 +373,6 @@ public class StartupActivity extends AppCompatActivity {
             enableLogging = ((Switch) v).isChecked();
         }
     };
-
-    /**
-     * This method is overloaded to receive uri of the file the user has selected.
-     *
-     * @param requestCode The integer request code originally supplied to
-     *                    startActivityForResult(), allowing you to identify who this
-     *                    result came from.
-     * @param resultCode  The integer result code returned by the child activity
-     *                    through its setResult().
-     * @param resultData  An Intent, which can return result data to the caller
-     *                    (various data can be attached to Intent "extras").
-     */
-    @Override
-    public void onActivityResult(int requestCode, int resultCode,
-                                 Intent resultData) {
-        super.onActivityResult(requestCode, resultCode, resultData);
-        if (DEBUGEXECUTION) {
-            Log.println(Log.INFO, "EXECUTIONFLOW", "started startbuttonlisener callback");
-        }
-        if (CREATEDOCUMENTACTIVITYCODE == requestCode && Activity.RESULT_OK == resultCode) {
-
-            if (null != resultData) {
-                uri = resultData.getData();
-                // make permission to the file persist across phone reboots
-                getContentResolver().takePersistableUriPermission(uri,
-                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-
-                String fileName = getFileName(uri);
-                if (null == fileName) {
-                    fileExists = false;
-                    fileName = "no file";
-                } else {
-                    fileExists = true;
-                }
-                fileView.setText(fileTextPrefix + fileName);
-
-                SharedPreferences.Editor editor = sharedPreferences.edit();
-                editor.putString(URIPREFERENCEKEY, uri.toString());
-                editor.apply();
-            }
-        }
-    }
 
     @Override
     protected void onDestroy() {
