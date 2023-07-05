@@ -21,6 +21,8 @@ public class JNIPoclImageProcessor {
                                                  int UVPixelStride, int[] detection_result,
                                                  byte[] segmentation_result);
 
+    public static native String getProfilingStats();
+
     public static native TrafficMonitor.DataPoint getRemoteTrafficStats();
 
 }

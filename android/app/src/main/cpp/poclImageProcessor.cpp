@@ -88,13 +88,19 @@ int device_index_copy = 0;
 int do_segment_copy = 0;
 unsigned char enable_profiling = 0;
 
+char *c_log_string = nullptr;
+#define DATA_POINT_SIZE 22  // number of decimal digits for 2^64 + ', '
+// allows for 6 datapoints plus newline and term char
+#define LOG_BUFFER_SIZE (DATA_POINT_SIZE * 6 +2)
+// enable this to print timing to logs
+//#define PRINT_PROFILE_TIME
+
 // Global variables for smuggling our blob into PoCL so we can pretend it is a builtin kernel.
 // Please don't ever actually do this in production code.
 const char *pocl_onnx_blob = NULL;
 uint64_t pocl_onnx_blob_size = 0;
 
-bool smuggleONNXAsset(JNIEnv *env, jobject jAssetManager, const char *filename)
-{
+bool smuggleONNXAsset(JNIEnv *env, jobject jAssetManager, const char *filename) {
     AAssetManager *assetManager = AAssetManager_fromJava(env, jAssetManager);
     if (assetManager == nullptr) {
         __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager", "Failed to get asset manager");
@@ -103,7 +109,7 @@ bool smuggleONNXAsset(JNIEnv *env, jobject jAssetManager, const char *filename)
 
     AAsset *a = AAssetManager_open(assetManager, "yolov8n-seg.onnx", AASSET_MODE_STREAMING);
     auto num_bytes = AAsset_getLength(a);
-    char * tmp = new char[num_bytes+1];
+    char *tmp = new char[num_bytes + 1];
     tmp[num_bytes] = 0;
     int read_bytes = AAsset_read(a, tmp, num_bytes);
     AAsset_close(a);
@@ -301,6 +307,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
 
     global_size = 1;
     local_size = 1;
+
+    c_log_string = (char *) malloc(LOG_BUFFER_SIZE * sizeof(char));
+
     return 0;
 }
 
@@ -366,6 +375,11 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
         host_img_buf = nullptr;
     }
 
+    if (nullptr != c_log_string) {
+        free(c_log_string);
+        c_log_string = nullptr;
+    }
+
     return 0;
 }
 
@@ -386,6 +400,24 @@ cl_ulong getEventRuntime(cl_event event){
 
     return event_end - event_start;
 }
+
+#if defined(PRINT_PROFILE_TIME)
+void printTime(timespec start, timespec stop, char message[256]) {
+
+    time_t s = stop.tv_sec - start.tv_sec;
+    unsigned long final = s * 1000000000;
+    final += stop.tv_nsec;
+    final -= start.tv_nsec;
+    unsigned secs, nsecs;
+    int ms = final / 1000000;
+    int ns = final % 1000000;
+
+    char display_message[256 + 16];
+    strcpy(display_message, message);
+    strcat(display_message, ": %d ms, %d ns");
+    __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing", display_message, ms, ns);
+}
+#endif
 
 /**
  * process the image with PoCL.
@@ -418,6 +450,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                                                            jintArray detection_result,
                                                                            jbyteArray segmentation_result) {
 
+    struct timespec timespec_a, timespec_b;
+
+#if defined(PRINT_PROFILE_TIME)
+    clock_gettime(CLOCK_MONOTONIC, &timespec_a);
+#endif
+
     if (!dnn_kernel) {
         __android_log_print(ANDROID_LOG_ERROR, LOGTAG,
                             "poclProcessYUVImage called but DNN kernel does not exist!");
@@ -449,6 +487,11 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                              &postprocess_buf[device_index_copy]);
     CHECK_AND_RETURN(status, "could not assign buffers to postprocess kernel");
 
+#if defined(PRINT_PROFILE_TIME)
+    clock_gettime(CLOCK_MONOTONIC, &timespec_b);
+    printTime(timespec_a, timespec_b, "assigning kernel params");
+#endif
+
     // todo: look into if iscopy=true works on android
     cl_int *detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
     cl_char *segmentation_array = env->GetByteArrayElements(segmentation_result, JNI_FALSE);
@@ -467,15 +510,19 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
         }
     }
 
-    int uv_start_index = inp_h*yrow_stride;
+    int uv_start_index = inp_h * yrow_stride;
     // interleave u and v regardless of if planar or semiplanar
     // divided by 4 since u and v are subsampled by 2
-    for(int i = 0; i < (inp_h * inp_w)/4; i++){
+    for (int i = 0; i < (inp_h * inp_w) / 4; i++) {
 
-        host_img_buf[uv_start_index + 2*i] = v_ptr[i*uvpixel_stride];
+        host_img_buf[uv_start_index + 2 * i] = v_ptr[i * uvpixel_stride];
 
-        host_img_buf[uv_start_index + 1 + 2*i] = u_ptr[i*uvpixel_stride];
+        host_img_buf[uv_start_index + 1 + 2 * i] = u_ptr[i * uvpixel_stride];
     }
+#if defined(PRINT_PROFILE_TIME)
+    clock_gettime(CLOCK_MONOTONIC, &timespec_a);
+    printTime(timespec_b, timespec_a, "copying image to array");
+#endif
 
     cl_event write_event;
     status = clEnqueueWriteBuffer(commandQueue[device_index_copy], img_buf[device_index_copy],
@@ -517,46 +564,118 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     status = clFinish(commandQueue[device_index_copy]);
     CHECK_AND_RETURN(status, "failed to clfinish");
 
+#if defined(PRINT_PROFILE_TIME)
+    clock_gettime(CLOCK_MONOTONIC, &timespec_b);
+    printTime(timespec_a, timespec_b, "total cl stuff");
+#endif
+
     if (enable_profiling) {
+
+        char formated_string[DATA_POINT_SIZE + 1];
+        // clear the string
+        strcpy(c_log_string, "\0");
+        int chars_used;
+
         cl_ulong diff = getEventRuntime(write_event);
-        __android_log_print(ANDROID_LOG_WARN, LOGTAG, "writing took this long: %d ms, %d ns",
+        chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
+        strncat(c_log_string, formated_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+        __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
+                            "writing took this long: %llu ms, %llu ns",
                             (diff / 1000000), diff % 1000000);
+#endif
+
         diff = getEventRuntime(ndrange_event);
-        __android_log_print(ANDROID_LOG_WARN, LOGTAG, "writing took this long: %d ms, %d ns",
+        chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
+        strncat(c_log_string, formated_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+        __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
+                            "detections took this long: %llu ms, %llu ns",
                             (diff / 1000000), diff % 1000000);
+#endif
+
         diff = getEventRuntime(read_event);
-        __android_log_print(ANDROID_LOG_WARN, LOGTAG, "writing took this long: %d ms, %d ns",
+        chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
+        strncat(c_log_string, formated_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+        __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
+                            "reading back took this long: %llu ms, %llu ns",
                             (diff / 1000000), diff % 1000000);
+#endif
 
         if (do_segment_copy) {
-            diff = getEventRuntime(postprocess_event);
-            __android_log_print(ANDROID_LOG_WARN, LOGTAG, "writing took this long: %d ms, %d ns",
-                                (diff / 1000000), diff % 1000000);
-            diff = getEventRuntime(segment_event);
-            __android_log_print(ANDROID_LOG_WARN, LOGTAG, "writing took this long: %d ms, %d ns",
-                                (diff / 1000000), diff % 1000000);
-        }
-    }
 
+            diff = getEventRuntime(postprocess_event);
+            chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
+            strncat(c_log_string, formated_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+            __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
+                                "post process took this long: %llu ms, %llu "
+                                "ns", (diff / 1000000), diff % 1000000);
+#endif
+
+            diff = getEventRuntime(postprocess_event);
+            chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
+            strncat(c_log_string, formated_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+            __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
+                                "reading segs took this long: %llu ms, "
+                                "%llu ns", (diff / 1000000), diff % 1000000);
+#endif
+
+        }
+
+        // finally add a new line to the end of it
+        strncat(c_log_string, "\n", 1);
+    }
 
     clReleaseEvent(write_event);
     clReleaseEvent(ndrange_event);
     clReleaseEvent(read_event);
 
-    if(NULL != postprocess_event){
+    if (NULL != postprocess_event) {
         clReleaseEvent(postprocess_event);
     }
 
-    if(NULL != segment_event){
+    if (NULL != segment_event) {
         clReleaseEvent(segment_event);
     }
+
+#if defined(PRINT_PROFILE_TIME)
+    clock_gettime(CLOCK_MONOTONIC, &timespec_a);
+    printTime(timespec_b, timespec_a, "printing messages");
+#endif
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
     env->ReleaseByteArrayElements(segmentation_result, segmentation_array, JNI_FALSE);
 //    __android_log_print(ANDROID_LOG_DEBUG, "DETECTION", "%d %d %d %d %d %d %d", result_array[0],result_array[1],result_array[2],result_array[3],result_array[4],result_array[5],result_array[6]);
 
+#if defined(PRINT_PROFILE_TIME)
+    clock_gettime(CLOCK_MONOTONIC, &timespec_b);
+    printTime(timespec_a, timespec_b, "releasing buffers");
+#endif
+
     return 0;
+}
+
+/**
+ * return a string that contains log lines that can be written to a file.
+ * This is a workaround to the fact that JNI makes strings immutable.
+ * @param env
+ * @param clazz
+ * @return
+ */
+JNIEXPORT jstring JNICALL
+Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getProfilingStats(JNIEnv *env,
+                                                                         jclass clazz) {
+
+    return env->NewStringUTF(c_log_string);
 }
 
 #ifdef __cplusplus
