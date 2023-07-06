@@ -103,6 +103,7 @@ set_target_properties(opencv_core PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_B
 
 # build pocl project
 set(POCL_CMAKE_ARGS
+        -DDISABLE_PTHREAD=1
         -DENABLE_LLVM=0
         -DENABLE_LOADABLE_DRIVERS=0
         -DENABLE_ICD=0
