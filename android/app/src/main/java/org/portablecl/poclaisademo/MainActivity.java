@@ -188,6 +188,11 @@ public class MainActivity extends AppCompatActivity {
     private int do_segment;
 
     /**
+     * value to indicate if the user wants compression enabled.
+     */
+    private int doCompression;
+
+    /**
      * boolean to enable logging that gets set during creation
      */
     private boolean enableLogging;
@@ -336,6 +341,9 @@ public class MainActivity extends AppCompatActivity {
         do_segment = 1;
         segmentationSwitch.setOnClickListener(segmentListener);
 
+        Switch comPressionSwitch = binding.CompressSwitch;
+        doCompression = 0;
+        comPressionSwitch.setOnClickListener(compressListener);
 
         // setup overlay
         overlayVisualizer = new OverlayVisualizer();
@@ -367,8 +375,9 @@ public class MainActivity extends AppCompatActivity {
             setNativeEnv("POCL_DEVICES", "basic");
         } else {
             modeSwitch.setClickable(true);
-            setNativeEnv("POCL_DEVICES", "basic remote proxy");
-            setNativeEnv("POCL_REMOTE0_PARAMETERS", IPAddress);
+            setNativeEnv("POCL_DEVICES", "basic remote remote proxy");
+            setNativeEnv("POCL_REMOTE0_PARAMETERS", IPAddress + ":10998/0");
+            setNativeEnv("POCL_REMOTE1_PARAMETERS", IPAddress + ":10998/1");
         }
 
 
@@ -469,6 +478,30 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(MainActivity.this, "disabling segmentation, please wait",
                         Toast.LENGTH_SHORT).show();
                 do_segment = 0;
+            }
+
+            counter.reset();
+            energyMonitor.reset();
+            trafficMonitor.reset();
+
+        }
+    };
+
+    /**
+     * A listener to receive user input related to setting compression.
+     * Also resets monitors.
+     */
+    private final View.OnClickListener compressListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            if (((Switch) v).isChecked()) {
+                Toast.makeText(MainActivity.this, "enabling compression, please wait",
+                        Toast.LENGTH_SHORT).show();
+                doCompression = 1;
+            } else {
+                Toast.makeText(MainActivity.this, "disabling compression, please wait",
+                        Toast.LENGTH_SHORT).show();
+                doCompression = 0;
             }
 
             counter.reset();
@@ -968,7 +1001,8 @@ public class MainActivity extends AppCompatActivity {
                 int rotation = orientationsSwapped ? 90 : 0;
 
                 long currentTime = System.nanoTime();
-                poclProcessYUVImage(inferencing_device, do_segment, rotation, Y, YRowStride,
+                poclProcessYUVImage(inferencing_device, do_segment, doCompression, rotation, Y,
+                        YRowStride,
                         YPixelStride, U, V, UVRowStride, UVPixelStride, detection_results,
                         segmentation_results);
                 long poclTime = System.nanoTime() - currentTime;
