@@ -40,12 +40,14 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.ParcelFileDescriptor;
+import android.os.PowerManager;
 import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -405,6 +407,9 @@ public class MainActivity extends AppCompatActivity {
         setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
         inferencing_device = LOCAL_DEVICE;
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
+
+        // stop screen from turning off
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
     }
 
