@@ -3,13 +3,15 @@ package org.portablecl.poclaisademo;
 
 import static android.hardware.camera2.CameraMetadata.LENS_FACING_BACK;
 import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
+import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
 import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
-import static org.portablecl.poclaisademo.BundleKeys.LOGFILEURIKEY;
+import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getProfilingStats;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getPrfilingStatsbytes;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessYUVImage;
 import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
+import static org.portablecl.poclaisademo.StartupActivity.TOTALLOGS;
 
 import android.Manifest;
 import android.content.Context;
@@ -200,17 +202,17 @@ public class MainActivity extends AppCompatActivity {
     /**
      * file descriptor needed to open logging file
      */
-    ParcelFileDescriptor parcelFileDescriptor;
+    private final ParcelFileDescriptor[] parcelFileDescriptors = new ParcelFileDescriptor[TOTALLOGS];
 
     /**
      * used to write to logging file
      */
-    FileOutputStream logStream;
+    private final FileOutputStream[] logStreams = new FileOutputStream[TOTALLOGS];
 
     /**
      * uri to the logging file
      */
-    private Uri uri;
+    private final Uri[] uris = new Uri[TOTALLOGS];
 
     /**
      * set how verbose the program should be
@@ -261,6 +263,11 @@ public class MainActivity extends AppCompatActivity {
      */
     private ScheduledFuture statUpdateFuture;
 
+    /**
+     * needed to stop the stat logging thread
+     */
+    private ScheduledFuture statLoggerFuture;
+
     // Used to load the 'poclaisademo' library on application startup.
     static {
         System.loadLibrary("poclaisademo");
@@ -294,19 +301,31 @@ public class MainActivity extends AppCompatActivity {
         Bundle bundle = getIntent().getExtras();
         IPAddress = bundle.getString(IPKEY);
         disableRemote = bundle.getBoolean(DISABLEREMOTEKEY);
-
         try {
-            uri = Uri.parse(bundle.getString(LOGFILEURIKEY, null));
+            enableLogging = bundle.getBoolean(ENABLELOGGINGKEY, false);
         } catch (Exception e) {
             if (verbose >= 2) {
-                Log.println(Log.INFO, "mainactivity:logging", "could not parse uri");
+                Log.println(Log.INFO, "mainactivity:logging", "could not read enablelogging");
             }
-            uri = null;
+            enableLogging = false;
         }
-        // todo: setup filewrite
-        enableLogging = null != uri;
-        parcelFileDescriptor = null;
-        logStream = null;
+
+        for (int i = 0; i < TOTALLOGS; i++) {
+            if (enableLogging) {
+
+                try {
+                    uris[i] = Uri.parse(bundle.getString(LOGKEYS[i], null));
+                } catch (Exception e) {
+                    if (verbose >= 2) {
+                        Log.println(Log.INFO, "mainactivity:logging", "could not parse uri");
+                    }
+                    uris[i] = null;
+                }
+            }
+            parcelFileDescriptors[i] = null;
+            logStreams[i] = null;
+
+        }
 
         // todo: make these configurable
         verbose = 1;
@@ -357,7 +376,7 @@ public class MainActivity extends AppCompatActivity {
         pingMonitor = new PingMonitor(IPAddress);
 
         counter = new FPSCounter();
-        statUpdateScheduler = Executors.newScheduledThreadPool(1);
+        statUpdateScheduler = Executors.newScheduledThreadPool(2);
 
         // TODO: remove this example
         // this is an example run
@@ -547,11 +566,18 @@ public class MainActivity extends AppCompatActivity {
             Log.println(Log.INFO, "MA flow", "preview available, setting up camera");
 
             if (enableLogging) {
-                logStream = openFileOutputStream(uri);
-            }
-            if (null == logStream) {
-                Log.println(Log.WARN, "Logging", "could not open file, disabling logging");
-                enableLogging = false;
+                boolean streamRes = openFileOutputStreams();
+
+                if (streamRes) {
+                    // todo: settle on desired period
+                    statLoggerFuture =
+                            statUpdateScheduler.scheduleAtFixedRate(new StatLogger(logStreams[1]),
+                                    1000, 500, TimeUnit.MILLISECONDS);
+                } else {
+                    Log.println(Log.WARN, "Logging", "could not open file, disabling logging");
+                    enableLogging = false;
+                }
+
             }
 
             setupCamera();
@@ -563,38 +589,43 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-    private FileOutputStream openFileOutputStream(Uri uri) {
-        try {
-            parcelFileDescriptor = getContentResolver().openFileDescriptor(uri, "wa");
-            return new FileOutputStream(parcelFileDescriptor.getFileDescriptor());
-
-        } catch (Exception e) {
-            Log.println(Log.WARN, "openFileOutputStream", "could not open log file");
-        }
-        return null;
-    }
-
-    private void closeFileOutputStream() {
-
-        if (null != logStream) {
+    private boolean openFileOutputStreams() {
+        for (int i = 0; i < TOTALLOGS; i++) {
             try {
-                logStream.close();
-            } catch (IOException e) {
-                Log.println(Log.WARN, "closeFileOutputStream", "could not close " +
-                        "fileoutputstream");
-            } finally {
-                logStream = null;
+                parcelFileDescriptors[i] = getContentResolver().openFileDescriptor(uris[i], "wa");
+                logStreams[i] = new FileOutputStream(parcelFileDescriptors[i].getFileDescriptor());
+
+            } catch (Exception e) {
+                Log.println(Log.WARN, "openFileOutputStreams", "could not open log file " + i);
+                logStreams[i] = null;
+                return false;
             }
         }
+        return true;
+    }
 
-        if (null != parcelFileDescriptor) {
-            try {
-                parcelFileDescriptor.close();
-            } catch (IOException e) {
-                Log.println(Log.WARN, "closeFileOutputStream", "could not close " +
-                        "parcelfiledescriptor");
-            } finally {
-                parcelFileDescriptor = null;
+    private void closeFileOutputStreams() {
+        for (int i = 0; i < TOTALLOGS; i++) {
+            if (null != logStreams[i]) {
+                try {
+                    logStreams[i].close();
+                } catch (IOException e) {
+                    Log.println(Log.WARN, "closeFileOutputStreams", "could not close " +
+                            "fileoutputstream " + i);
+                } finally {
+                    logStreams[i] = null;
+                }
+            }
+
+            if (null != parcelFileDescriptors[i]) {
+                try {
+                    parcelFileDescriptors[i].close();
+                } catch (IOException e) {
+                    Log.println(Log.WARN, "closeFileOutputStreams", "could not close " +
+                            "parcelfiledescriptor " + i);
+                } finally {
+                    parcelFileDescriptors[i] = null;
+                }
             }
         }
     }
@@ -650,6 +681,58 @@ public class MainActivity extends AppCompatActivity {
     };
 
     /**
+     * a custom implementation of a runnable that logs the values normally used to display
+     * overlay results.
+     */
+    private class StatLogger implements Runnable {
+
+        private final StringBuilder builder;
+        private final FileOutputStream stream;
+
+        public StatLogger(FileOutputStream stream) {
+            this.stream = stream;
+            builder = new StringBuilder();
+
+            builder.append("time_bandw, bandw_down, bandw_up, time_eng, amp, volt\n");
+            try {
+                stream.write(builder.toString().getBytes());
+            } catch (IOException e) {
+                Log.println(Log.WARN, "Mainactivity.java:statlogger", "could not write csv " +
+                        "header");
+            }
+        }
+
+        private long timeEnergy, timeBandw;
+        private int amp, volt;
+        private TrafficMonitor.DataPoint dataPoint;
+
+        @Override
+        public void run() {
+
+            builder.setLength(0);
+
+            dataPoint = trafficMonitor.pollTrafficStats();
+            timeBandw = System.currentTimeMillis();
+            builder.append(timeBandw).append(", ").append(dataPoint.rx_bytes_confirmed).append(",")
+                    .append(dataPoint.tx_bytes_confirmed).append(", ");
+
+            volt = energyMonitor.pollVoltage();
+            amp = energyMonitor.pollCurrent();
+            timeEnergy = System.currentTimeMillis();
+            builder.append(timeEnergy).append(", ").append(amp).append(", ").append(volt)
+                    .append("\n");
+
+            try {
+                stream.write(builder.toString().getBytes());
+            } catch (IOException e) {
+                Log.println(Log.WARN, "Mainactivity.java:statlogger", "could not write monitor " +
+                        "data");
+            }
+
+        }
+    }
+
+    /**
      * this is the first function is called when stopping an activity
      * <p>
      * see https://developer.android.com/guide/components/activities/activity-lifecycle
@@ -664,6 +747,10 @@ public class MainActivity extends AppCompatActivity {
 
         // used to stop the stat update scheduler.
         statUpdateFuture.cancel(true);
+        if (null != statLoggerFuture) {
+            statLoggerFuture.cancel(true);
+            statLoggerFuture = null;
+        }
 
         pingMonitor.stop();
 
@@ -672,7 +759,7 @@ public class MainActivity extends AppCompatActivity {
         closeCamera();
         stopBackgroundThreads();
 
-        closeFileOutputStream();
+        closeFileOutputStreams();
 
         super.onPause();
     }
@@ -692,7 +779,7 @@ public class MainActivity extends AppCompatActivity {
         Intent restartIntent = Intent.makeRestartActivityTask(intent.getComponent());
         restartIntent.putExtra(IPKEY, IPAddress );
         restartIntent.putExtra(DISABLEREMOTEKEY, disableRemote);
-        restartIntent.putExtra(LOGFILEURIKEY, (null == uri) ? null : uri.toString());
+        restartIntent.putExtra(ENABLELOGGINGKEY, enableLogging);
         applicationContext.startActivity(restartIntent);
         Runtime.getRuntime().exit(0);
 
@@ -918,11 +1005,23 @@ public class MainActivity extends AppCompatActivity {
 
         int detection_count = 1 + MAX_DETECTIONS * 6;
         int seg_postprocess_count = 4 * MASK_W * MASK_H;
-        
+
         int[] detection_results = new int[detection_count];
         byte[] segmentation_results = new byte[seg_postprocess_count];
 
         Image image = null;
+        StringBuilder logBuilder = new StringBuilder();
+        if (enableLogging) {
+            try {
+                logStreams[0].write(("start_time, stop_time, inferencing_device, do_segment, " +
+                        "do_compression, image_to_buffer, run_yolo, read_detections, " +
+                        "run_postprocess, read_segments, run_enc_y, run_enc_uv, run_dec_y, " +
+                        "run_dec_uv \n").getBytes());
+            } catch (IOException e) {
+                Log.println(Log.WARN, "Mainactivity.java:imageProcessLoop", "could not write csv " +
+                        "header");
+            }
+        }
         try {
 
             int status = initPoclImageProcessor(enableLogging, getAssets(), captureSize.getWidth(),
@@ -1000,23 +1099,29 @@ public class MainActivity extends AppCompatActivity {
 
                 int rotation = orientationsSwapped ? 90 : 0;
 
-                long currentTime = System.nanoTime();
+                long currentTime = System.currentTimeMillis();
                 poclProcessYUVImage(inferencing_device, do_segment, doCompression, rotation, Y,
                         YRowStride,
                         YPixelStride, U, V, UVRowStride, UVPixelStride, detection_results,
                         segmentation_results);
-                long poclTime = System.nanoTime() - currentTime;
+                long doneTime = System.currentTimeMillis();
+                long poclTime = doneTime - currentTime;
                 if (verbose >= 1) {
                     Log.println(Log.WARN, "imageprocessloop",
-                            "pocl compute time: " + poclTime / 1000000 + "ms");
+                            "pocl compute time: " + poclTime + "ms");
                 }
 
                 runOnUiThread(() -> overlayVisualizer.drawOverlay(do_segment, detection_results,
                         segmentation_results,
                         captureSize, orientationsSwapped, overlayView));
 
-                if(enableLogging){
-                    logStream.write(getProfilingStats().getBytes());
+                if (enableLogging) {
+                    // clear the stringbuilder
+                    logBuilder.setLength(0);
+                    logBuilder.append(currentTime).append(", ").append(doneTime).append(", ");
+                    logStreams[0].write(logBuilder.toString().getBytes());
+                    logStreams[0].write(getPrfilingStatsbytes());
+
                 }
 
                 // used to calculate the (avg) FPS

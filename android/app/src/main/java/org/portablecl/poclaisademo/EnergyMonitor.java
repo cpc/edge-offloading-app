@@ -160,12 +160,30 @@ public class EnergyMonitor {
     }
 
     /**
+     * query the voltage from the batterymanager in milli volts
+     *
+     * @return
+     */
+    public int pollVoltage() {
+        return receiver.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 3700);
+    }
+
+    /**
      * get the net current that is flowing through the battery
      *
      * @return the current in milli amps, negative numbers indicate a drainage.
      */
     public int getcurrent() {
         return current;
+    }
+
+    /**
+     * query the current from the batterymanager in milli amps
+     *
+     * @return
+     */
+    public int pollCurrent() {
+        return manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
     }
 
     /**

@@ -131,8 +131,8 @@ unsigned char enable_profiling = 0;
 
 char *c_log_string = nullptr;
 #define DATA_POINT_SIZE 22  // number of decimal digits for 2^64 + ', '
-// allows for 6 datapoints plus newline and term char
-#define LOG_BUFFER_SIZE (DATA_POINT_SIZE * 10 +2)
+// allows for 9 datapoints plus 3 single digit configs, newline and term char
+#define LOG_BUFFER_SIZE (DATA_POINT_SIZE * 9 + 9 +2)
 
 // enable this to print timing to logs
 //#define PRINT_PROFILE_TIME
@@ -847,6 +847,11 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
         strcpy(c_log_string, "\0");
         int chars_used;
 
+        // write config vars to log string
+        chars_used = sprintf(formated_string, "%d, %d, %d, ", device_index_copy, do_segment_copy,
+                             local_do_compression);
+        strncat(c_log_string, formated_string, chars_used);
+
         cl_ulong diff = getEventRuntime(enc_image_event);
         chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
         strncat(c_log_string, formated_string, chars_used);
@@ -889,7 +894,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                 "ns", (diff / 1000000), diff % 1000000);
 #endif
 
-            diff = getEventRuntime(postprocess_event);
+            diff = getEventRuntime(segment_event);
             chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
             strncat(c_log_string, formated_string, chars_used);
 
@@ -899,6 +904,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                 "%llu ns", (diff / 1000000), diff % 1000000);
 #endif
 
+        } else {
+            // if no segmentation, write zeros
+            strncat(c_log_string, "0, 0, ", 6);
         }
 
         if (2 == device_index_copy && (1 == local_do_compression)) {
@@ -917,6 +925,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
             diff = getEventRuntime(dec_uv_event);
             chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
             strncat(c_log_string, formated_string, chars_used);
+        } else {
+            // if no compression, write zeros
+            strncat(c_log_string, "0, 0, 0, 0, ", 12);
         }
 
         // finally add a new line to the end of it
@@ -972,6 +983,22 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getProfilingStats(JNIEnv 
                                                                          jclass clazz) {
 
     return env->NewStringUTF(c_log_string);
+}
+
+/**
+ * return a byte array with the results that can be directly written to a file instead of a
+ * string of which the bytes will need to be gotten for the streamwriter.
+ * @param env
+ * @param clazz
+ * @return new jbytearray with a log line
+ */
+JNIEXPORT jbyteArray JNICALL
+Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getPrfilingStatsbytes(JNIEnv *env,
+                                                                             jclass clazz) {
+    size_t c_str_leng = strlen(c_log_string);
+    jbyteArray res = env->NewByteArray(c_str_leng + 1);
+    env->SetByteArrayRegion(res, 0, c_str_leng + 1, (jbyte *) c_log_string);
+    return res;
 }
 
 #ifdef __cplusplus

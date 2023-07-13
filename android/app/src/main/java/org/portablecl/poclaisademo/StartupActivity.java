@@ -1,8 +1,10 @@
 package org.portablecl.poclaisademo;
 
 import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
+import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
 import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
-import static org.portablecl.poclaisademo.BundleKeys.LOGFILEURIKEY;
+import static org.portablecl.poclaisademo.BundleKeys.MONITORLOGFILEURIKEY;
+import static org.portablecl.poclaisademo.BundleKeys.POCLLOGFILEURIKEY;
 import static java.lang.Character.isDigit;
 
 import android.app.Activity;
@@ -35,7 +37,10 @@ import org.portablecl.poclaisademo.databinding.ActivityStartupBinding;
 
 public class StartupActivity extends AppCompatActivity {
 
-    private static final String URIPREFERENCEKEY = "org.portablecl.poclaisademo.logfile.urikey";
+    public static final int TOTALLOGS = 2;
+
+    private static final String[] preferencekeys = {"org.portablecl.poclaisademo.logfile.urikey",
+            "org.portablecl.poclaisademo.logfile.monitorurikey"};
 
     /**
      * static prefix to use with displaying the file name
@@ -55,12 +60,12 @@ public class StartupActivity extends AppCompatActivity {
     /**
      * used to display the name of the file chosen
      */
-    private TextView fileView;
+    private final TextView[] fileViews = new TextView[TOTALLOGS];
 
     /**
      * suggestion ip addresses
      */
-    private final static String[] IPAddresses = {"192.168.36.206", "10.1.200.5"};
+    private final static String[] IPAddresses = {"192.168.36.206", "192.168.50.112", "10.1.200.5"};
 
     /**
      * a boolean that is passed to the main activity disable remote
@@ -72,12 +77,12 @@ public class StartupActivity extends AppCompatActivity {
      * In newer android versions, you can not point to a file with paths.
      * Instead, you have to get/generate an URI which points to it.
      */
-    private Uri uri = null;
+    private final Uri[] uris = new Uri[TOTALLOGS];
 
     /**
      * boolean to set when a file is found
      */
-    private boolean fileExists;
+    private final boolean[] fileExistsChecks = new boolean[TOTALLOGS];
 
     /**
      * boolean to store user values
@@ -93,7 +98,7 @@ public class StartupActivity extends AppCompatActivity {
      * used to launch the document creation activity
      * and attach a callback to the result
      */
-    ActivityResultLauncher<Intent> resultLauncher;
+//    ActivityResultLauncher<Intent> resultLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -105,24 +110,36 @@ public class StartupActivity extends AppCompatActivity {
         // load uri from app preferences. This keeps the data between, app restarts.
         //https://developer.android.com/training/data-storage/shared-preferences
         sharedPreferences = getPreferences(Context.MODE_PRIVATE);
-        try {
-            uri = Uri.parse(sharedPreferences.getString(URIPREFERENCEKEY, null));
-
-        } catch (Exception e) {
-            Log.println(Log.INFO, "startupactivity", "could not parse stored uri");
-            uri = null;
+        for (int i = 0; i < TOTALLOGS; i++) {
+            try {
+                uris[i] = Uri.parse(sharedPreferences.getString(preferencekeys[i], null));
+            } catch (Exception e) {
+                Log.println(Log.INFO, "startupactivity",
+                        "could not parse stored" + preferencekeys[i] + " uri");
+                uris[i] = null;
+            }
         }
 
         // display file name
-        fileView = binding.fileNameView;
-        String fileName = getFileName(uri);
+        fileViews[0] = binding.poclFileNameView;
+        String fileName = getFileName(uris[0]);
         if (null == fileName) {
-            fileExists = false;
+            fileExistsChecks[0] = false;
             fileName = "no file";
         } else {
-            fileExists = true;
+            fileExistsChecks[0] = true;
         }
-        fileView.setText(fileTextPrefix + fileName);
+        fileViews[0].setText(fileTextPrefix + fileName);
+
+        fileViews[1] = binding.monitorFileNameView;
+        fileName = getFileName(uris[1]);
+        if (null == fileName) {
+            fileExistsChecks[1] = false;
+            fileName = "no file";
+        } else {
+            fileExistsChecks[1] = true;
+        }
+        fileViews[1].setText(fileTextPrefix + fileName);
 
         Bundle bundle = getIntent().getExtras();
 
@@ -155,17 +172,24 @@ public class StartupActivity extends AppCompatActivity {
         Switch loggingSwitch = binding.disableLoggingSwitch;
         loggingSwitch.setOnClickListener(URIListener);
 
-        enableLogging = (null != bundle && bundle.containsKey(LOGFILEURIKEY)
-                && (null != bundle.getString(LOGFILEURIKEY)));
-        Log.println(Log.INFO, "startupactivity", "setting disableRemote to: " + enableLogging);
+        enableLogging = (null != bundle && bundle.containsKey(ENABLELOGGINGKEY)
+                && (bundle.getBoolean(ENABLELOGGINGKEY)));
+        Log.println(Log.INFO, "startupactivity", "setting logging to: " + enableLogging);
         loggingSwitch.setChecked(enableLogging);
 
-        Button selectURI = binding.selectURI;
-        selectURI.setOnClickListener(selectURIListener);
-
+        ActivityResultLauncher<Intent> resultLauncher;
+        Button selectURI = binding.poclSelectURI;
         resultLauncher =
                 registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
-                handleActivityResultCallback);
+                new HandleActivityResultCallback(0));
+        selectURI.setOnClickListener(new SelectURIListener("pocl", resultLauncher));
+
+        selectURI = binding.monitorSelectURI;
+        resultLauncher =
+                registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
+                new HandleActivityResultCallback(1));
+        selectURI.setOnClickListener(new SelectURIListener("monitor", resultLauncher));
+
     }
 
     /**
@@ -237,17 +261,17 @@ public class StartupActivity extends AppCompatActivity {
                 return;
             }
 
+            // check if all files exist
+            boolean fileCheck = true;
+            for (int i = 0; i < TOTALLOGS; i++) {
+                fileCheck &= fileExistsChecks[i];
+            }
+
             // handle cases where logging is enabled but file does not exist
-            if (!fileExists && enableLogging) {
+            if (!fileCheck && enableLogging) {
                 Toast.makeText(StartupActivity.this, "log file doesn't exist",
                         Toast.LENGTH_SHORT).show();
                 return;
-            }
-
-            // get string if logging is enabled
-            String uriString = null;
-            if (enableLogging) {
-                uriString = uri.toString();
             }
 
             Toast.makeText(StartupActivity.this, "Starting demo, please wait",
@@ -257,7 +281,13 @@ public class StartupActivity extends AppCompatActivity {
             // pass ip to the main activity
             i.putExtra(IPKEY, value);
             i.putExtra(DISABLEREMOTEKEY, disableRemote);
-            i.putExtra(LOGFILEURIKEY, uriString);
+            i.putExtra(ENABLELOGGINGKEY, enableLogging);
+            if (enableLogging) {
+                String uriString = uris[0].toString();
+                i.putExtra(POCLLOGFILEURIKEY, uriString);
+                uriString = uris[1].toString();
+                i.putExtra(MONITORLOGFILEURIKEY, uriString);
+            }
 
             // start the main activity
             startActivity(i);
@@ -303,61 +333,79 @@ public class StartupActivity extends AppCompatActivity {
      * open a file create activity that lets
      * the user pick where to put the logging file.
      */
-    private final View.OnClickListener selectURIListener = new View.OnClickListener() {
+    private class SelectURIListener implements View.OnClickListener {
+
+        private final String filePrefix;
+
+        private final ActivityResultLauncher launcher;
+
+        public SelectURIListener(String filePrefix, ActivityResultLauncher launcher) {
+            this.filePrefix = filePrefix;
+            this.launcher = launcher;
+        }
+
         @Override
         public void onClick(View v) {
-
             if (DEBUGEXECUTION) {
-                Log.println(Log.INFO, "EXECUTIONFLOW", "started selectURIListener callback");
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started select" + filePrefix +
+                        "URIListener callback");
             }
 
             // https://developer.android.com/training/data-storage/shared/documents-files
             Intent fileIntent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
             fileIntent.addCategory(Intent.CATEGORY_OPENABLE);
             fileIntent.setType("text/plain");
-            fileIntent.putExtra(Intent.EXTRA_TITLE, "pocl_log_file.txt");
+            fileIntent.putExtra(Intent.EXTRA_TITLE, filePrefix + "_log_file.txt");
 
-            resultLauncher.launch(fileIntent);
-
+            launcher.launch(fileIntent);
         }
-    };
+    }
 
     /**
      * callback function that handles getting the uri from the document creation activity
      */
-    final ActivityResultCallback<ActivityResult> handleActivityResultCallback =
-            new ActivityResultCallback<ActivityResult>() {
-                @Override
-                public void onActivityResult(ActivityResult result) {
+    private class HandleActivityResultCallback implements ActivityResultCallback<ActivityResult> {
 
-                    if (DEBUGEXECUTION) {
-                        Log.println(Log.INFO, "EXECUTIONFLOW", "started " +
-                                "handleActivityResultCallback callback");
-                    }
+        int id;
 
-                    if (Activity.RESULT_OK == result.getResultCode()) {
+        /**
+         * constructor of activity result
+         * @param id the index of the file to be used
+         */
+        public HandleActivityResultCallback(int id) {
+            this.id = id;
+        }
 
-                        Intent resultIntent = result.getData();
+        @Override
+        public void onActivityResult(ActivityResult result) {
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started " +
+                        "handleActivityResultCallback callback");
+            }
 
-                        if (null != resultIntent) {
-                            uri = resultIntent.getData();
-                            // make permission to the file persist across phone reboots
-                            getContentResolver().takePersistableUriPermission(uri,
-                                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
-                                            Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            if (Activity.RESULT_OK == result.getResultCode()) {
 
-                            String fileName = getFileName(uri);
-                            fileView.setText(fileTextPrefix + fileName);
+                Intent resultIntent = result.getData();
 
-                            fileExists = true;
+                if (null != resultIntent) {
+                    uris[id] = resultIntent.getData();
+                    // make permission to the file persist across phone reboots
+                    getContentResolver().takePersistableUriPermission(uris[id],
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
-                            SharedPreferences.Editor editor = sharedPreferences.edit();
-                            editor.putString(URIPREFERENCEKEY, uri.toString());
-                            editor.apply();
-                        }
-                    }
+                    String fileName = getFileName(uris[id]);
+                    fileViews[id].setText(fileTextPrefix + fileName);
+
+                    fileExistsChecks[id] = true;
+
+                    SharedPreferences.Editor editor = sharedPreferences.edit();
+                    editor.putString(preferencekeys[id], uris[id].toString());
+                    editor.apply();
                 }
-            };
+            }
+        }
+    }
 
     /**
      * A listener that on the press of a button, will enable logging.

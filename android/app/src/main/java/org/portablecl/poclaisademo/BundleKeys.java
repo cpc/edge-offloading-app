@@ -17,5 +17,14 @@ public class BundleKeys {
     /**
      * Key to pass the uri to the main activity
      */
-    public static final String LOGFILEURIKEY = "logfileuri";
+    public static final String POCLLOGFILEURIKEY = "pocllogfileuri";
+
+    /**
+     * Key to pass the uri to the main activity
+     */
+    public static final String MONITORLOGFILEURIKEY = "monitorlogfileuri";
+
+    public static final String[] LOGKEYS = {POCLLOGFILEURIKEY, MONITORLOGFILEURIKEY};
+
+    public static final String ENABLELOGGINGKEY = "enablelogging";
 }
