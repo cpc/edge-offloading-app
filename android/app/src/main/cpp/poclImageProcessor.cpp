@@ -135,7 +135,7 @@ char *c_log_string = nullptr;
 #define LOG_BUFFER_SIZE (DATA_POINT_SIZE * 9 + 9 +2)
 
 // enable this to print timing to logs
-//#define PRINT_PROFILE_TIME
+#define PRINT_PROFILE_TIME
 
 // variable to check if everything is ready for execution
 int setup_success = 0;
@@ -914,17 +914,42 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
             chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
             strncat(c_log_string, formated_string, chars_used);
 
+#if defined(PRINT_PROFILE_TIME)
+            __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
+                                "encoding y buff took this long: %llu ms, "
+                                "%llu ns", (diff / 1000000), diff % 1000000);
+#endif
+
             diff = getEventRuntime(enc_uv_event);
             chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
             strncat(c_log_string, formated_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+            __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
+                                "encoding uv buff took this long: %llu ms, "
+                                "%llu ns", (diff / 1000000), diff % 1000000);
+#endif
 
             diff = getEventRuntime(dec_y_event);
             chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
             strncat(c_log_string, formated_string, chars_used);
 
+#if defined(PRINT_PROFILE_TIME)
+            __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
+                                "decoding y buff took this long: %llu ms, "
+                                "%llu ns", (diff / 1000000), diff % 1000000);
+#endif
+
             diff = getEventRuntime(dec_uv_event);
             chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
             strncat(c_log_string, formated_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+            __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
+                                "decoding uv buff took this long: %llu ms, "
+                                "%llu ns", (diff / 1000000), diff % 1000000);
+#endif
+
         } else {
             // if no compression, write zeros
             strncat(c_log_string, "0, 0, 0, 0, ", 12);
