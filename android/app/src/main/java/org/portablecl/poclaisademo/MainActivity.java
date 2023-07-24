@@ -6,6 +6,8 @@ import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
 import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
+import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
+import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getPrfilingStatsbytes;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
@@ -40,7 +42,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.ParcelFileDescriptor;
-import android.os.PowerManager;
 import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
@@ -217,16 +218,6 @@ public class MainActivity extends AppCompatActivity {
     private final Uri[] uris = new Uri[TOTALLOGS];
 
     /**
-     * set how verbose the program should be
-     */
-    private static int verbose;
-
-    /**
-     * if true, each function will print when they are being called
-     */
-    private static final boolean DEBUGEXECUTION = true;
-
-    /**
      * a list permissions to request
      */
     private static final String[] required_permissions = new String[]{
@@ -306,7 +297,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             enableLogging = bundle.getBoolean(ENABLELOGGINGKEY, false);
         } catch (Exception e) {
-            if (verbose >= 2) {
+            if (VERBOSITY >= 2) {
                 Log.println(Log.INFO, "mainactivity:logging", "could not read enablelogging");
             }
             enableLogging = false;
@@ -318,7 +309,7 @@ public class MainActivity extends AppCompatActivity {
                 try {
                     uris[i] = Uri.parse(bundle.getString(LOGKEYS[i], null));
                 } catch (Exception e) {
-                    if (verbose >= 2) {
+                    if (VERBOSITY >= 2) {
                         Log.println(Log.INFO, "mainactivity:logging", "could not parse uri");
                     }
                     uris[i] = null;
@@ -330,7 +321,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // todo: make these configurable
-        verbose = 1;
         captureSize = new Size(640, 480);
         imageBufferSize = 35;
 
@@ -431,7 +421,7 @@ public class MainActivity extends AppCompatActivity {
                 Log.println(Log.INFO, "EXECUTIONFLOW", "surfaceTextureListener " +
                         "onSurfaceTextureSizeChanged callback called");
             }
-            if (verbose >= 2) {
+            if (VERBOSITY >= 2) {
                 Log.println(Log.INFO, "previewfeed",
                         "callback with these params:" + width + "x" + height);
             }
@@ -900,7 +890,7 @@ public class MainActivity extends AppCompatActivity {
 
         try {
 
-            if (verbose >= 3) {
+            if (VERBOSITY >= 3) {
                 for (String cameraId : cameraManager.getCameraIdList()) {
                     printCameraCharacteristics(cameraManager, cameraId);
                 }
@@ -925,7 +915,7 @@ public class MainActivity extends AppCompatActivity {
 
                 Size[] sizes = map.getOutputSizes(captureFormat);
 
-                if (verbose >= 3) {
+                if (VERBOSITY >= 3) {
                     for (Size size : sizes) {
                         Log.println(Log.INFO, "MainActivity.java:setupCamera", "available size of" +
                                 " camera " + cameraId + ": " + size.toString());
@@ -933,7 +923,7 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 if (!Arrays.asList(sizes).contains(captureSize)) {
-                    if (verbose >= 2) {
+                    if (VERBOSITY >= 2) {
                         Log.println(Log.INFO, "MainActivity.java:setupCamera",
                                 "camera " + cameraId + " does not have requested size of " +
                                         captureSize.toString());
@@ -976,7 +966,7 @@ public class MainActivity extends AppCompatActivity {
             new ImageReader.OnImageAvailableListener() {
                 @Override
                 public void onImageAvailable(ImageReader reader) {
-                    if (DEBUGEXECUTION && verbose >= 3) {
+                    if (DEBUGEXECUTION && VERBOSITY >= 3) {
                         Log.println(Log.INFO, "EXECUTIONFLOW", "image available");
                     }
                     imageAvailableLock.release();
@@ -984,7 +974,7 @@ public class MainActivity extends AppCompatActivity {
                         Image image = imageReader.acquireLatestImage();
                         imageAvailableLock.drainPermits();
                         image.close();
-                        if(verbose >=2){
+                        if (VERBOSITY >= 2) {
                             Log.println(Log.WARN, "imageavailablelistener", "imagereader buffer " +
                                     "got really full");
                         }
@@ -1061,7 +1051,7 @@ public class MainActivity extends AppCompatActivity {
                     Log.println(Log.INFO, "EXECUTIONFLOW", "acquired image");
                 }
 
-                if (verbose >= 1) {
+                if (VERBOSITY >= 1) {
                     Log.println(Log.INFO, "imageprocessloop",
                             "drained permits: " + drainedPermits);
                 }
@@ -1084,7 +1074,7 @@ public class MainActivity extends AppCompatActivity {
                 int VPixelStride = planes[2].getPixelStride();
                 int VRowStride = planes[2].getRowStride();
 
-                if (verbose >= 3) {
+                if (VERBOSITY >= 3) {
 
                     Log.println(Log.WARN, "imagereader", "plane count: " + planes.length);
                     Log.println(Log.WARN, "imagereader",
@@ -1111,7 +1101,7 @@ public class MainActivity extends AppCompatActivity {
                         segmentation_results);
                 long doneTime = System.currentTimeMillis();
                 long poclTime = doneTime - currentTime;
-                if (verbose >= 1) {
+                if (VERBOSITY >= 1) {
                     Log.println(Log.WARN, "imageprocessloop",
                             "pocl compute time: " + poclTime + "ms");
                 }
@@ -1232,7 +1222,7 @@ public class MainActivity extends AppCompatActivity {
         previewSize = chooseOptimalPreviewSize(cameraId, rotatedPreviewWidth,
                 rotatedPreviewHeight, maxPreviewHeight, maxPreviewWidth);
 
-        if (verbose >= 2) {
+        if (VERBOSITY >= 2) {
             Log.println(Log.INFO, "previewfeed",
                     "optimal camera preview size is: " + previewSize.toString());
         }
@@ -1240,13 +1230,13 @@ public class MainActivity extends AppCompatActivity {
         // change the previewView size to fit our chosen aspect ratio from the chosen capture size
         int currentOrientation = getResources().getConfiguration().orientation;
         if (currentOrientation == Configuration.ORIENTATION_LANDSCAPE) {
-            if (verbose >= 2) {
+            if (VERBOSITY >= 2) {
                 Log.println(Log.INFO, "previewfeed", "set aspect ratio normal ");
             }
             previewView.setAspectRatio(previewSize.getWidth(), previewSize.getHeight());
         } else {
 
-            if (verbose >= 2) {
+            if (VERBOSITY >= 2) {
                 Log.println(Log.INFO, "previewfeed", "set aspect ratio rotated ");
             }
             previewView.setAspectRatio(previewSize.getHeight(), previewSize.getWidth());
@@ -1291,7 +1281,7 @@ public class MainActivity extends AppCompatActivity {
             transformMatrix.postScale(transformScale, transformScale, centerX, centerY);
             transformMatrix.postRotate(90 * (rotation - 2), centerX, centerY);
 
-            if (verbose >= 2) {
+            if (VERBOSITY >= 2) {
                 Log.println(Log.INFO, "MainActivity.java:configureTransform", "in rotated surface" +
                         " with scale: " + transformScale);
             }
@@ -1301,7 +1291,7 @@ public class MainActivity extends AppCompatActivity {
         } else if (rotation == Surface.ROTATION_180) {
             transformMatrix.postRotate(180, centerX, centerY);
 
-            if (verbose >= 2) {
+            if (VERBOSITY >= 2) {
                 Log.println(Log.INFO, "MainActivity.java:configureTransform", "in rotated 180 " +
                         "with scale: ");
             }
@@ -1461,7 +1451,7 @@ public class MainActivity extends AppCompatActivity {
             previewTexture.setDefaultBufferSize(previewSize.getWidth(), previewSize.getHeight());
             Surface previewSurface = new Surface(previewTexture);
 
-            if (verbose >= 2) {
+            if (VERBOSITY >= 2) {
                 Log.println(Log.ERROR, "previewfeed", "previewsizes: " + previewSize.toString());
                 Log.println(Log.ERROR, "previewfeed",
                         "previewviewsizes: " + previewView.getWidth() + "x" + previewView.getHeight());
@@ -1521,7 +1511,7 @@ public class MainActivity extends AppCompatActivity {
                     } catch (IllegalStateException e) {
                         // this exception can occur if a new preview is being made before the
                         // first one is done
-                        if (verbose >= 3) {
+                        if (VERBOSITY >= 3) {
                             Log.println(Log.ERROR, "MainActivity.java:previewStateCallback",
                                     "session no longer available");
                         }

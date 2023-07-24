@@ -5,6 +5,7 @@ import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
 import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static org.portablecl.poclaisademo.BundleKeys.MONITORLOGFILEURIKEY;
 import static org.portablecl.poclaisademo.BundleKeys.POCLLOGFILEURIKEY;
+import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static java.lang.Character.isDigit;
 
 import android.app.Activity;
@@ -46,11 +47,6 @@ public class StartupActivity extends AppCompatActivity {
      * static prefix to use with displaying the file name
      */
     private static final String fileTextPrefix = "file name: ";
-
-    /**
-     * enable execution debug prints
-     */
-    private static final boolean DEBUGEXECUTION = true;
 
     /**
      * textview where the user inputs the ip address
