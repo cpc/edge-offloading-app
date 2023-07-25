@@ -8,10 +8,6 @@ import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getPrfilingStatsbytes;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessYUVImage;
 import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 import static org.portablecl.poclaisademo.StartupActivity.TOTALLOGS;
 
@@ -61,7 +57,6 @@ import org.portablecl.poclaisademo.databinding.ActivityMainBinding;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -119,7 +114,7 @@ public class MainActivity extends AppCompatActivity {
     /**
      * used to indicate if the camera rotation is different from the display
      */
-    private static boolean orientationsSwapped = false;
+    private static boolean orientationsSwapped;
 
     /**
      * a semaphore to prevent the camera from being closed at the wrong time
@@ -176,26 +171,10 @@ public class MainActivity extends AppCompatActivity {
      */
     private Handler backgroundThreadHandler;
 
-    /**
-     * a thread to run pocl on
-     */
-    private Thread imageProcessThread;
-
-    /**
-     * which device to use for inferencing
-     */
-    private int inferencing_device;
     private final int LOCAL_DEVICE = 0;
 
     private final int PASSTHRU_DEVICE = 1;
     private final int REMOTE_DEVICE = 2;
-
-    private int do_segment;
-
-    /**
-     * value to indicate if the user wants compression enabled.
-     */
-    private int doCompression;
 
     /**
      * boolean to enable logging that gets set during creation
@@ -245,6 +224,8 @@ public class MainActivity extends AppCompatActivity {
      * object to keep track of ping times.
      */
     private static PingMonitor pingMonitor;
+
+    private static PoclImageProcessor poclImageProcessor;
 
     /**
      * used to schedule a thread to periodically update stats
@@ -349,11 +330,9 @@ public class MainActivity extends AppCompatActivity {
         modeSwitch.setOnClickListener(modeListener);
 
         Switch segmentationSwitch = binding.segmentSwitch;
-        do_segment = 1;
         segmentationSwitch.setOnClickListener(segmentListener);
 
         Switch comPressionSwitch = binding.CompressSwitch;
-        doCompression = 0;
         comPressionSwitch.setOnClickListener(compressListener);
 
         // setup overlay
@@ -370,16 +349,6 @@ public class MainActivity extends AppCompatActivity {
         counter = new FPSCounter();
         statUpdateScheduler = Executors.newScheduledThreadPool(2);
 
-        // TODO: remove this example
-        // this is an example run
-        // Running in separate thread to avoid UI hangs
-        Thread td = new Thread() {
-            public void run() {
-                doVectorAdd();
-            }
-        };
-        td.start();
-
         if (disableRemote) {
             // disable this switch when remote is disabled
             modeSwitch.setClickable(false);
@@ -391,15 +360,28 @@ public class MainActivity extends AppCompatActivity {
             setNativeEnv("POCL_REMOTE1_PARAMETERS", IPAddress + ":10998/1");
         }
 
-
         String cache_dir = getCacheDir().getAbsolutePath();
         // used to configure pocl
         setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
-        inferencing_device = LOCAL_DEVICE;
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
 
         // stop screen from turning off
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        poclImageProcessor = new PoclImageProcessor(this, captureSize, null,
+                imageAvailableLock, enableLogging, logStreams, counter, LOCAL_DEVICE,
+                segmentationSwitch.isChecked(), comPressionSwitch.isChecked());
+
+
+        // TODO: remove this example
+        // this is an example run
+        // Running in separate thread to avoid UI hangs
+        Thread td = new Thread() {
+            public void run() {
+                doVectorAdd();
+            }
+        };
+        td.start();
 
     }
 
@@ -458,17 +440,17 @@ public class MainActivity extends AppCompatActivity {
             if (((Switch) v).isChecked()) {
                 Toast.makeText(MainActivity.this, "Switching to remote device, please wait",
                         Toast.LENGTH_SHORT).show();
-                inferencing_device = REMOTE_DEVICE;
+                poclImageProcessor.setInferencingDevice(REMOTE_DEVICE);
             } else {
                 Toast.makeText(MainActivity.this, "Switching to local device, please wait",
                         Toast.LENGTH_SHORT).show();
-                inferencing_device = LOCAL_DEVICE;
+                poclImageProcessor.setInferencingDevice(LOCAL_DEVICE);
             }
 
             counter.reset();
             energyMonitor.reset();
             trafficMonitor.reset();
-            if (REMOTE_DEVICE == inferencing_device) {
+            if (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) {
                 pingMonitor.start();
             } else {
                 pingMonitor.stop();
@@ -487,11 +469,11 @@ public class MainActivity extends AppCompatActivity {
             if (((Switch) v).isChecked()) {
                 Toast.makeText(MainActivity.this, "enabling segmentation, please wait",
                         Toast.LENGTH_SHORT).show();
-                do_segment = 1;
+                poclImageProcessor.setDoSegment(true);
             } else {
                 Toast.makeText(MainActivity.this, "disabling segmentation, please wait",
                         Toast.LENGTH_SHORT).show();
-                do_segment = 0;
+                poclImageProcessor.setDoSegment(false);
             }
 
             counter.reset();
@@ -511,11 +493,11 @@ public class MainActivity extends AppCompatActivity {
             if (((Switch) v).isChecked()) {
                 Toast.makeText(MainActivity.this, "enabling compression, please wait",
                         Toast.LENGTH_SHORT).show();
-                doCompression = 1;
+                poclImageProcessor.setDoCompression(true);
             } else {
                 Toast.makeText(MainActivity.this, "disabling compression, please wait",
                         Toast.LENGTH_SHORT).show();
-                doCompression = 0;
+                poclImageProcessor.setDoCompression(false);
             }
 
             counter.reset();
@@ -545,7 +527,7 @@ public class MainActivity extends AppCompatActivity {
         energyMonitor.reset();
         trafficMonitor.reset();
 
-        if (REMOTE_DEVICE == inferencing_device) {
+        if (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) {
             pingMonitor.start();
         }
         pingMonitor.reset();
@@ -576,7 +558,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
             setupCamera();
-            startImageProcessThread();
+            poclImageProcessor.start();
 
         } else {
             Log.println(Log.INFO, "MA flow", "preview not available, not setting up camera");
@@ -656,8 +638,10 @@ public class MainActivity extends AppCompatActivity {
                         epf, avgepf,
                         trafficMonitor.getRXBandwidthString(),
                         trafficMonitor.getTXBandwidthString(),
-                        (REMOTE_DEVICE == inferencing_device) ? pingMonitor.getPing() : 0,
-                        (REMOTE_DEVICE == inferencing_device) ? pingMonitor.getAveragePing() : 0
+                        (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) ?
+                                pingMonitor.getPing() : 0,
+                        (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) ?
+                                pingMonitor.getAveragePing() : 0
                 );
 
                 // needed since only the uithread is allowed to make changes to the textview
@@ -674,6 +658,12 @@ public class MainActivity extends AppCompatActivity {
 
         }
     };
+
+    public void drawOverlay(int doSegment, int[] detectionResults, byte[] segmentationResults
+            , Size captureSize, boolean orientationsSwapped) {
+        runOnUiThread(() -> overlayVisualizer.drawOverlay(doSegment, detectionResults,
+                segmentationResults, captureSize, orientationsSwapped, overlayView));
+    }
 
     /**
      * a custom implementation of a runnable that logs the values normally used to display
@@ -750,7 +740,7 @@ public class MainActivity extends AppCompatActivity {
         pingMonitor.stop();
 
         // imageprocessthread depends on camera and background threads, so close this first
-        stopImageProcessThread();
+        poclImageProcessor.stop();
         closeCamera();
         stopBackgroundThreads();
 
@@ -830,7 +820,6 @@ public class MainActivity extends AppCompatActivity {
         printLog(ocl_text, "\ndestroy opencl resources... ");
         destroyCL();
     }
-
 
     void printLog(TextView tv, final String str) {
         // UI updates should happen only in UI thread
@@ -938,6 +927,11 @@ public class MainActivity extends AppCompatActivity {
 
                     setupImageReader();
                     setupCameraOutput(cameraId, previewView.getWidth(), previewView.getHeight());
+
+                    // orientation is only known after setupcameraoutput, so set it now
+                    poclImageProcessor.setOrientation(orientationsSwapped);
+                    poclImageProcessor.setImageReader(imageReader);
+
                     // finally get the camera
                     cameraManager.openCamera(cameraId, cameraStateCallback,
                             backgroundThreadHandler);
@@ -981,178 +975,6 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
             };
-
-    /**
-     * Method to call pocl. This method contains a while loop that exits
-     * when an interrupt is sent to the thread running this method.
-     * This method makes sure to start and destroy needed opencl objects.
-     * This method also makes sure to queue an image capture for the next iteration.
-     */
-    private void imageProcessLoop() {
-
-        if (DEBUGEXECUTION) {
-            Log.println(Log.INFO, "EXECUTIONFLOW", "started image process loop");
-        }
-
-        int MAX_DETECTIONS = 10;
-        int MASK_W = 160;
-        int MASK_H = 120;
-
-        int detection_count = 1 + MAX_DETECTIONS * 6;
-        int seg_postprocess_count = 4 * MASK_W * MASK_H;
-
-        int[] detection_results = new int[detection_count];
-        byte[] segmentation_results = new byte[seg_postprocess_count];
-
-        Image image = null;
-        StringBuilder logBuilder = new StringBuilder();
-        if (enableLogging) {
-            try {
-                logStreams[0].write(("start_time, stop_time, inferencing_device, do_segment, " +
-                        "do_compression, image_to_buffer, run_yolo, read_detections, " +
-                        "run_postprocess, read_segments, run_enc_y, run_enc_uv, run_dec_y, " +
-                        "run_dec_uv \n").getBytes());
-            } catch (IOException e) {
-                Log.println(Log.WARN, "Mainactivity.java:imageProcessLoop", "could not write csv " +
-                        "header");
-            }
-        }
-        try {
-
-            int status = initPoclImageProcessor(enableLogging, getAssets(), captureSize.getWidth(),
-                    captureSize.getHeight());
-
-            if (-33 == status) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this,
-                        "could not connect to server, please check connection",
-                        Toast.LENGTH_SHORT).show());
-
-                return;
-            }
-
-            // the main loop, will continue until an interrupt is sent
-            while (!Thread.interrupted()) {
-
-                if (DEBUGEXECUTION) {
-                    Log.println(Log.INFO, "EXECUTIONFLOW", "started new image process" +
-                            " iteration");
-                }
-
-                // wait until image is available,
-                imageAvailableLock.acquire();
-                image = imageReader.acquireLatestImage();
-                // acquirelatestimage closes all other images,
-                // so release all permits related to those images
-                // like this, we will only acquire a lock when a
-                // new image is available
-                int drainedPermits = imageAvailableLock.drainPermits();
-
-                if (DEBUGEXECUTION) {
-                    Log.println(Log.INFO, "EXECUTIONFLOW", "acquired image");
-                }
-
-                if (VERBOSITY >= 1) {
-                    Log.println(Log.INFO, "imageprocessloop",
-                            "drained permits: " + drainedPermits);
-                }
-
-                if(null == image){
-                    continue;
-                }
-
-                Image.Plane[] planes = image.getPlanes();
-
-                ByteBuffer Y = planes[0].getBuffer();
-                int YPixelStride = planes[0].getPixelStride();
-                int YRowStride = planes[0].getRowStride();
-
-                ByteBuffer U = planes[1].getBuffer();
-                ByteBuffer V = planes[2].getBuffer();
-                int UVPixelStride = planes[1].getPixelStride();
-                int UVRowStride = planes[1].getRowStride();
-
-                int VPixelStride = planes[2].getPixelStride();
-                int VRowStride = planes[2].getRowStride();
-
-                if (VERBOSITY >= 3) {
-
-                    Log.println(Log.WARN, "imagereader", "plane count: " + planes.length);
-                    Log.println(Log.WARN, "imagereader",
-                            "Y pixel stride: " + YPixelStride);
-                    Log.println(Log.WARN, "imagereader",
-                            "Y row stride: " + YRowStride);
-                    Log.println(Log.WARN, "imagereader",
-                            "UV pixel stride: " + UVPixelStride);
-                    Log.println(Log.WARN, "imagereader",
-                            "UV row stride: " + UVRowStride);
-
-                    Log.println(Log.WARN, "imagereader",
-                            "V pixel stride: " + VPixelStride);
-                    Log.println(Log.WARN, "imagereader",
-                            "V row stride: " + VRowStride);
-                }
-
-                int rotation = orientationsSwapped ? 90 : 0;
-
-                long currentTime = System.currentTimeMillis();
-                poclProcessYUVImage(inferencing_device, do_segment, doCompression, rotation, Y,
-                        YRowStride,
-                        YPixelStride, U, V, UVRowStride, UVPixelStride, detection_results,
-                        segmentation_results);
-                long doneTime = System.currentTimeMillis();
-                long poclTime = doneTime - currentTime;
-                if (VERBOSITY >= 1) {
-                    Log.println(Log.WARN, "imageprocessloop",
-                            "pocl compute time: " + poclTime + "ms");
-                }
-
-                runOnUiThread(() -> overlayVisualizer.drawOverlay(do_segment, detection_results,
-                        segmentation_results,
-                        captureSize, orientationsSwapped, overlayView));
-
-                if (enableLogging) {
-                    // clear the stringbuilder
-                    logBuilder.setLength(0);
-                    logBuilder.append(currentTime).append(", ").append(doneTime).append(", ");
-                    logStreams[0].write(logBuilder.toString().getBytes());
-                    logStreams[0].write(getPrfilingStatsbytes());
-
-                }
-
-                // used to calculate the (avg) FPS
-                counter.tickFrame();
-
-                // don't forget to close the image when done
-                image.close();
-            }
-
-        } catch (InterruptedException e) {
-            // if an image was open, close it.
-            // can be null if the imagereader didn't have an image available
-            if (image != null) {
-                image.close();
-            }
-            Log.println(Log.INFO, "MainActivity.java:imageProcessLoop", "received " +
-                    "interrupt, closing down");
-
-        } catch (Exception e) {
-
-            if (image != null) {
-                image.close();
-            }
-            Log.println(Log.INFO, "MainActivity.java:imageProcessLoop", "error while " +
-                    "processing image");
-            e.printStackTrace();
-
-        } finally {
-            // always free pocl
-            destroyPoclImageProcessor();
-            if (DEBUGEXECUTION) {
-                Log.println(Log.INFO, "EXECUTIONFLOW", "finishing image process loop");
-            }
-        }
-
-    }
 
     /**
      * figure out the orientations of the camera and display and use that to setup the right
@@ -1527,7 +1349,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             };
 
-
     /**
      * close the chosen camera and everything related to it
      */
@@ -1556,7 +1377,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-
     /**
      * function to start the backgroundThread + handler
      */
@@ -1583,48 +1403,6 @@ public class MainActivity extends AppCompatActivity {
             backgroundThread = null;
             backgroundThreadHandler = null;
 
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * function to start the image process thread, and thereby the
-     * main image process loop
-     */
-    private void startImageProcessThread() {
-        if (DEBUGEXECUTION) {
-            Log.println(Log.INFO, "EXECUTIONFLOW", "started startImageProcessThread method");
-        }
-
-        imageProcessThread = new Thread() {
-            public void run() {
-                imageProcessLoop();
-            }
-        };
-
-        imageProcessThread.start();
-
-    }
-
-    /**
-     * function to safely stop the image process thread and
-     * ask it nicely to stop anything it is doing
-     */
-    private void stopImageProcessThread() {
-        if (DEBUGEXECUTION) {
-            Log.println(Log.INFO, "EXECUTIONFLOW", "started stopImageProcessThread method");
-        }
-        if (null == imageProcessThread) {
-            return;
-        }
-
-        // sending an interrupt will exit the while loop
-        imageProcessThread.interrupt();
-        try {
-            // wait for the last iteration to be done
-            imageProcessThread.join();
-            imageProcessThread = null;
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
