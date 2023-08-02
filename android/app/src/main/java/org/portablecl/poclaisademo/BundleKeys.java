@@ -26,5 +26,13 @@ public class BundleKeys {
 
     public static final String[] LOGKEYS = {POCLLOGFILEURIKEY, MONITORLOGFILEURIKEY};
 
+    public static final String VIDEOBENCHMARKKEY = "videobenchmarkkey";
+
+
+    public static final String[] BENCHMARKKEYS = {VIDEOBENCHMARKKEY};
+
     public static final String ENABLELOGGINGKEY = "enablelogging";
+
+    public static final String BENCHMARKVIDEOURI = "benchmarkvideouri";
+
 }
