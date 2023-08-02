@@ -20,7 +20,7 @@ import java.nio.ByteBuffer;
  */
 public class OverlayVisualizer {
 
-    private final String[] classes =
+    private static final String[] classes =
             {"person", "bicycle", "car",
                     "motorcycle", "airplane", "bus",
                     "train", "truck", "boat",
@@ -49,7 +49,7 @@ public class OverlayVisualizer {
                     "vase", "scissors", "teddy bear",
                     "hair drier", "toothbrush"};
 
-    private final int[] colors =
+    private static final int[] colors =
             {-1651865, -6634562, -5921894,
                     -9968734, -1277957, -2838283,
                     -9013359, -9634954, -470042,
@@ -162,5 +162,9 @@ public class OverlayVisualizer {
             Log.println(Log.WARN, "drawOverlay", "draw objects are already freed");
         }
 
+    }
+
+    public static String getDetectionName(int id){
+        return classes[id];
     }
 }

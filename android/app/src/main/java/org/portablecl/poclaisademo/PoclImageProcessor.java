@@ -358,7 +358,10 @@ public class PoclImageProcessor {
                 }
 
                 // used to calculate the (avg) FPS
-                counter.tickFrame();
+                if(null != counter){
+                    counter.tickFrame();
+                }
+
 
                 // don't forget to close the image when done
                 image.close();
