@@ -39,7 +39,11 @@ import android.view.Surface;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 public class BenchmarkService extends Service {
 
@@ -140,6 +144,8 @@ public class BenchmarkService extends Service {
      * camerareader releases a permit.
      */
     private final Semaphore imageAvailableLock = new Semaphore(0);
+
+    private ScheduledFuture statLoggerFuture;
 
     /**
      * needed to call native pocl functions
@@ -264,6 +270,13 @@ public class BenchmarkService extends Service {
 
         }
 
+        // log energy and traffic statistics
+        EnergyMonitor energyMonitor = new EnergyMonitor(getApplicationContext());
+        StatLogger statLogger = new StatLogger(logStreams[1], new TrafficMonitor(), energyMonitor);
+        ScheduledExecutorService statLoggerScheduler = Executors.newScheduledThreadPool(1);
+        statLoggerFuture = statLoggerScheduler.scheduleAtFixedRate(statLogger, 1000, 500,
+                TimeUnit.MILLISECONDS);
+
         backgroundThread = new HandlerThread("BenchmarkServiceBackgroundThread");
         backgroundThread.start();
         backgroundThreadHandler = new Handler(backgroundThread.getLooper());
@@ -386,6 +399,8 @@ public class BenchmarkService extends Service {
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
+
+        statLoggerFuture.cancel(true);
 
         closeFileOutputStreams();
 

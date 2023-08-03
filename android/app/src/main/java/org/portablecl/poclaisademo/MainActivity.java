@@ -548,7 +548,8 @@ public class MainActivity extends AppCompatActivity {
                 if (streamRes) {
                     // todo: settle on desired period
                     statLoggerFuture =
-                            statUpdateScheduler.scheduleAtFixedRate(new StatLogger(logStreams[1]),
+                            statUpdateScheduler.scheduleAtFixedRate(new StatLogger(logStreams[1],
+                                            trafficMonitor, energyMonitor),
                                     1000, 500, TimeUnit.MILLISECONDS);
                 } else {
                     Log.println(Log.WARN, "Logging", "could not open file, disabling logging");
@@ -663,58 +664,6 @@ public class MainActivity extends AppCompatActivity {
             , Size captureSize, boolean orientationsSwapped) {
         runOnUiThread(() -> overlayVisualizer.drawOverlay(doSegment, detectionResults,
                 segmentationResults, captureSize, orientationsSwapped, overlayView));
-    }
-
-    /**
-     * a custom implementation of a runnable that logs the values normally used to display
-     * overlay results.
-     */
-    private class StatLogger implements Runnable {
-
-        private final StringBuilder builder;
-        private final FileOutputStream stream;
-
-        public StatLogger(FileOutputStream stream) {
-            this.stream = stream;
-            builder = new StringBuilder();
-
-            builder.append("time_bandw, bandw_down, bandw_up, time_eng, amp, volt\n");
-            try {
-                stream.write(builder.toString().getBytes());
-            } catch (IOException e) {
-                Log.println(Log.WARN, "Mainactivity.java:statlogger", "could not write csv " +
-                        "header");
-            }
-        }
-
-        private long timeEnergy, timeBandw;
-        private int amp, volt;
-        private TrafficMonitor.DataPoint dataPoint;
-
-        @Override
-        public void run() {
-
-            builder.setLength(0);
-
-            dataPoint = trafficMonitor.pollTrafficStats();
-            timeBandw = System.currentTimeMillis();
-            builder.append(timeBandw).append(", ").append(dataPoint.rx_bytes_confirmed).append(",")
-                    .append(dataPoint.tx_bytes_confirmed).append(", ");
-
-            volt = energyMonitor.pollVoltage();
-            amp = energyMonitor.pollCurrent();
-            timeEnergy = System.currentTimeMillis();
-            builder.append(timeEnergy).append(", ").append(amp).append(", ").append(volt)
-                    .append("\n");
-
-            try {
-                stream.write(builder.toString().getBytes());
-            } catch (IOException e) {
-                Log.println(Log.WARN, "Mainactivity.java:statlogger", "could not write monitor " +
-                        "data");
-            }
-
-        }
     }
 
     /**
