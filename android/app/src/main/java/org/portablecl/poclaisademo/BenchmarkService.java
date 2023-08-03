@@ -6,7 +6,9 @@ package org.portablecl.poclaisademo;
 
 import static org.portablecl.poclaisademo.BundleKeys.BENCHMARKVIDEOURI;
 import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
+import static org.portablecl.poclaisademo.BundleKeys.ENABLECOMPRESSIONKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
+import static org.portablecl.poclaisademo.BundleKeys.ENABLESEGMENTATIONKEY;
 import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
@@ -171,8 +173,9 @@ public class BenchmarkService extends Service {
         String IPAddress = bundle.getString(IPKEY);
         boolean disableRemote = bundle.getBoolean(DISABLEREMOTEKEY);
         deviceIndex = disableRemote ? 0 : 2;
-        boolean enableSegmentation = true;
-        boolean enableCompression = false;
+        boolean enableSegmentation = bundle.getBoolean(ENABLESEGMENTATIONKEY, true);
+        boolean enableCompression = bundle.getBoolean(ENABLECOMPRESSIONKEY, false);
+
         boolean enableLogging;
         try {
             enableLogging = bundle.getBoolean(ENABLELOGGINGKEY, false);
@@ -199,6 +202,7 @@ public class BenchmarkService extends Service {
             logStreams[i] = null;
 
         }
+        openFileOutputStreams();
 
         try {
             videoUri = Uri.parse(bundle.getString(BENCHMARKVIDEOURI, null));
@@ -236,7 +240,7 @@ public class BenchmarkService extends Service {
 
         // foreground apps only work on api version 26 and up
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Intent notificationIntent = new Intent(this, StartupActivity.class);
+            Intent notificationIntent = new Intent(this, BenchmarkConfigurationActivity.class);
             PendingIntent pendingIntent = PendingIntent.getActivity(this, 0,
                     notificationIntent, PendingIntent.FLAG_IMMUTABLE);
 
@@ -272,6 +276,7 @@ public class BenchmarkService extends Service {
     /**
      * create imagereader and mediaplayer and connect objects to each other.
      * This function also starts the playback of the mediaplayer and the poclimageprocessor.
+     * These functions may take a while, therefore, run on a different thread.
      */
     private void setupBenchmark() {
 
@@ -364,6 +369,8 @@ public class BenchmarkService extends Service {
         if (null != mediaPlayer) {
             mediaPlayer.release();
         }
+        
+        poclImageProcessor.stop();
 
         // there might be some warnings like:
         // detachBuffer: slot 0 is not owned by the producer (state = FREE)
@@ -380,7 +387,7 @@ public class BenchmarkService extends Service {
             e.printStackTrace();
         }
 
-        poclImageProcessor.stop();
+        closeFileOutputStreams();
 
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "BenchmarkService", "done destroying service");
@@ -388,4 +395,54 @@ public class BenchmarkService extends Service {
 
         super.onDestroy();
     }
+
+    /**
+     * open all the log files for writing
+     *
+     * @return true if successful
+     */
+    private boolean openFileOutputStreams() {
+        for (int i = 0; i < TOTALLOGS; i++) {
+            try {
+                parcelFileDescriptors[i] = getContentResolver().openFileDescriptor(uris[i], "wa");
+                logStreams[i] = new FileOutputStream(parcelFileDescriptors[i].getFileDescriptor());
+
+            } catch (Exception e) {
+                Log.println(Log.WARN, "openFileOutputStreams", "could not open log file " + i);
+                logStreams[i] = null;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * close all the log files
+     */
+    private void closeFileOutputStreams() {
+        for (int i = 0; i < TOTALLOGS; i++) {
+            if (null != logStreams[i]) {
+                try {
+                    logStreams[i].close();
+                } catch (IOException e) {
+                    Log.println(Log.WARN, "closeFileOutputStreams", "could not close " +
+                            "fileoutputstream " + i);
+                } finally {
+                    logStreams[i] = null;
+                }
+            }
+
+            if (null != parcelFileDescriptors[i]) {
+                try {
+                    parcelFileDescriptors[i].close();
+                } catch (IOException e) {
+                    Log.println(Log.WARN, "closeFileOutputStreams", "could not close " +
+                            "parcelfiledescriptor " + i);
+                } finally {
+                    parcelFileDescriptors[i] = null;
+                }
+            }
+        }
+    }
+
 }

@@ -85,16 +85,12 @@ public class StartupActivity extends AppCompatActivity {
      */
     private boolean enableLogging;
 
+    private Switch enableLoggingSwitch;
+
     /**
      * value store that persists across app life cycles
      */
     private SharedPreferences sharedPreferences;
-
-    /**
-     * used to launch the document creation activity
-     * and attach a callback to the result
-     */
-//    ActivityResultLauncher<Intent> resultLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -148,7 +144,7 @@ public class StartupActivity extends AppCompatActivity {
         IPAddressView.setAdapter(adapter);
         IPAddressView.setOnEditorActionListener(editorActionListener);
 
-        if (null != bundle && bundle.containsKey("IP")){
+        if (null != bundle && bundle.containsKey("IP")) {
             IPAddressView.setText(bundle.getString("IP"));
         }
 
@@ -165,26 +161,29 @@ public class StartupActivity extends AppCompatActivity {
         }
 
 
-        Switch loggingSwitch = binding.disableLoggingSwitch;
-        loggingSwitch.setOnClickListener(URIListener);
+        enableLoggingSwitch = binding.disableLoggingSwitch;
+        enableLoggingSwitch.setOnClickListener(URIListener);
 
         enableLogging = (null != bundle && bundle.containsKey(ENABLELOGGINGKEY)
                 && (bundle.getBoolean(ENABLELOGGINGKEY)));
         Log.println(Log.INFO, "startupactivity", "setting logging to: " + enableLogging);
-        loggingSwitch.setChecked(enableLogging);
+        enableLoggingSwitch.setChecked(enableLogging);
 
         ActivityResultLauncher<Intent> resultLauncher;
         Button selectURI = binding.poclSelectURI;
         resultLauncher =
                 registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
-                new HandleActivityResultCallback(0));
+                        new HandleActivityResultCallback(0));
         selectURI.setOnClickListener(new SelectURIListener("pocl", resultLauncher));
 
         selectURI = binding.monitorSelectURI;
         resultLauncher =
                 registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
-                new HandleActivityResultCallback(1));
+                        new HandleActivityResultCallback(1));
         selectURI.setOnClickListener(new SelectURIListener("monitor", resultLauncher));
+
+        Button benchmarkButton = binding.BenchmarkButton;
+        benchmarkButton.setOnClickListener(startBenchmarkListener);
 
     }
 
@@ -241,32 +240,8 @@ public class StartupActivity extends AppCompatActivity {
 
             String value = IPAddressView.getText().toString();
 
-            // check that the input is ipv4
-            boolean numeric = true;
-            for (int i = 0; i < value.length(); i++) {
-                char curChar = value.charAt(i);
-                if (!isDigit(curChar) && curChar != '.') {
-                    numeric = false;
-                    break;
-                }
-            }
-
-            if (!numeric) {
-                Toast.makeText(StartupActivity.this, "Not a valid IP address, please check input",
-                        Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            // check if all files exist
-            boolean fileCheck = true;
-            for (int i = 0; i < TOTALLOGS; i++) {
-                fileCheck &= fileExistsChecks[i];
-            }
-
-            // handle cases where logging is enabled but file does not exist
-            if (!fileCheck && enableLogging) {
-                Toast.makeText(StartupActivity.this, "log file doesn't exist",
-                        Toast.LENGTH_SHORT).show();
+            boolean validInput = validateInput(value);
+            if (!validInput) {
                 return;
             }
 
@@ -290,11 +265,50 @@ public class StartupActivity extends AppCompatActivity {
         }
     };
 
+    private final View.OnClickListener startBenchmarkListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started startBenchmarkListener callback");
+            }
+
+            if (!enableLogging) {
+                enableLogging = true;
+                enableLoggingSwitch.setChecked(true);
+            }
+
+            String value = IPAddressView.getText().toString();
+
+            boolean validInput = validateInput(value);
+            if (!validInput) {
+                return;
+            }
+
+            Toast.makeText(StartupActivity.this, "Starting demo, please wait",
+                    Toast.LENGTH_SHORT).show();
+            Intent i = new Intent(getApplicationContext(), BenchmarkConfigurationActivity.class);
+
+            // pass ip to the activity
+            i.putExtra(IPKEY, value);
+            i.putExtra(DISABLEREMOTEKEY, disableRemote);
+            i.putExtra(ENABLELOGGINGKEY, enableLogging);
+            String uriString = uris[0].toString();
+            i.putExtra(POCLLOGFILEURIKEY, uriString);
+            uriString = uris[1].toString();
+            i.putExtra(MONITORLOGFILEURIKEY, uriString);
+
+            // start the main activity
+            startActivity(i);
+        }
+    };
+
     /**
      * listener that causes the ip textview to lose focus once the
      * user presses done.
      */
-    private final TextView.OnEditorActionListener editorActionListener = new TextView.OnEditorActionListener() {
+    private final TextView.OnEditorActionListener editorActionListener =
+            new TextView.OnEditorActionListener() {
         @Override
         public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
 
@@ -366,6 +380,7 @@ public class StartupActivity extends AppCompatActivity {
 
         /**
          * constructor of activity result
+         *
          * @param id the index of the file to be used
          */
         public HandleActivityResultCallback(int id) {
@@ -401,6 +416,40 @@ public class StartupActivity extends AppCompatActivity {
                 }
             }
         }
+    }
+
+
+    private boolean validateInput(String value) {
+        // check that the input is ipv4
+        boolean numeric = true;
+        for (int i = 0; i < value.length(); i++) {
+            char curChar = value.charAt(i);
+            if (!isDigit(curChar) && curChar != '.') {
+                numeric = false;
+                break;
+            }
+        }
+
+        if (!numeric) {
+            Toast.makeText(StartupActivity.this, "Not a valid IP address, please check input",
+                    Toast.LENGTH_SHORT).show();
+            return false;
+        }
+
+        // check if all files exist
+        boolean fileCheck = true;
+        for (int i = 0; i < TOTALLOGS; i++) {
+            fileCheck &= fileExistsChecks[i];
+        }
+
+        // handle cases where logging is enabled but file does not exist
+        if (!fileCheck && enableLogging) {
+            Toast.makeText(StartupActivity.this, "log file doesn't exist",
+                    Toast.LENGTH_SHORT).show();
+            return false;
+        }
+
+        return true;
     }
 
     /**

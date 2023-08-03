@@ -24,10 +24,15 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PoCLAISADemo"
         tools:targetApi="31">
+        <activity
+            android:name=".BenchmarkConfigurationActivity"
+            android:exported="false" />
+
         <service
             android:name=".BenchmarkService"
             android:enabled="true"
-            android:exported="true"></service>
+            android:exported="true" />
+
         <activity
             android:name=".StartupActivity"
             android:screenOrientation="portrait"

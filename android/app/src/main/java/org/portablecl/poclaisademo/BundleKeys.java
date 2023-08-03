@@ -35,4 +35,8 @@ public class BundleKeys {
 
     public static final String BENCHMARKVIDEOURI = "benchmarkvideouri";
 
+    public static final String ENABLECOMPRESSIONKEY = "enablecompression";
+
+    public static final String ENABLESEGMENTATIONKEY = "enablesegmentation";
+
 }
