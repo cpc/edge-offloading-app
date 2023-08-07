@@ -38,6 +38,16 @@ Android constantly updates packages and libraries that can break with newer vers
 ## Installation
 
 
+## Check that phone exposes the OpenCL library
+Some phones provide a OpenCL library that can be used in C. This library needs to be whitelisted by the vendor. This can be checked like so:
+1. adb into the phone
+2. run:
+    ```
+    cat /vendor/etc/public.libraries.txt  
+    ```
+    and check that `libOpenCL.so` is there
+
+
 ### Android Studio
 
 1. install Android Studio
