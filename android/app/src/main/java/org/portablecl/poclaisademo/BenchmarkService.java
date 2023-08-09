@@ -9,6 +9,7 @@ import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLECOMPRESSIONKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLESEGMENTATIONKEY;
+import static org.portablecl.poclaisademo.BundleKeys.IMAGECAPTUREFRAMETIMEKEY;
 import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
@@ -145,7 +146,22 @@ public class BenchmarkService extends Service {
      */
     private final Semaphore imageAvailableLock = new Semaphore(0);
 
+    /**
+     * a future to stop the logger
+     */
     private ScheduledFuture statLoggerFuture;
+
+    /**
+     *  used to schedule runnables
+     */
+    private ScheduledExecutorService schedulerService;
+
+    /**
+     * a future to stop the image release runnable
+     */
+    private ScheduledFuture imageReleaseFuture;
+
+    private int imageFrameTime;
 
     /**
      * needed to call native pocl functions
@@ -181,6 +197,7 @@ public class BenchmarkService extends Service {
         deviceIndex = disableRemote ? 0 : 2;
         boolean enableSegmentation = bundle.getBoolean(ENABLESEGMENTATIONKEY, true);
         boolean enableCompression = bundle.getBoolean(ENABLECOMPRESSIONKEY, false);
+        imageFrameTime = bundle.getInt(IMAGECAPTUREFRAMETIMEKEY, 0);
 
         boolean enableLogging;
         try {
@@ -273,9 +290,10 @@ public class BenchmarkService extends Service {
         // log energy and traffic statistics
         EnergyMonitor energyMonitor = new EnergyMonitor(getApplicationContext());
         StatLogger statLogger = new StatLogger(logStreams[1], new TrafficMonitor(), energyMonitor);
-        ScheduledExecutorService statLoggerScheduler = Executors.newScheduledThreadPool(1);
-        statLoggerFuture = statLoggerScheduler.scheduleAtFixedRate(statLogger, 1000, 500,
+        schedulerService = Executors.newScheduledThreadPool(2);
+        statLoggerFuture = schedulerService.scheduleAtFixedRate(statLogger, 1000, 500,
                 TimeUnit.MILLISECONDS);
+        imageReleaseFuture = null;
 
         backgroundThread = new HandlerThread("BenchmarkServiceBackgroundThread");
         backgroundThread.start();
@@ -295,8 +313,17 @@ public class BenchmarkService extends Service {
 
         imageReader = ImageReader.newInstance(captureSize.getWidth(), captureSize.getHeight(),
                 captureFormat, imageBufferSize);
-        imageReader.setOnImageAvailableListener(imageAvailableListener, backgroundThreadHandler);
         Surface imageReaderSurface = imageReader.getSurface();
+
+        // if the frametime is set, use that to release an image lock, which in turn
+        // starts a new iteration for the pocl image processor.
+        if (0 == imageFrameTime) {
+            imageReader.setOnImageAvailableListener(imageAvailableListener,
+                    backgroundThreadHandler);
+        } else {
+            imageReleaseFuture = schedulerService.scheduleAtFixedRate(frameRateRunnable, 1000,
+                    imageFrameTime, TimeUnit.MILLISECONDS);
+        }
 
         mediaPlayer = new MediaPlayer();
         mediaPlayer.setOnCompletionListener(onCompletionListener);
@@ -326,6 +353,11 @@ public class BenchmarkService extends Service {
                     if (DEBUGEXECUTION && VERBOSITY >= 3) {
                         Log.println(Log.INFO, "EXECUTIONFLOW", "image available");
                     }
+
+                    if (0 == imageFrameTime) {
+                        return;
+                    }
+
                     imageAvailableLock.release();
                     if (imageAvailableLock.availablePermits() > 33) {
                         Image image = imageReader.acquireLatestImage();
@@ -339,6 +371,21 @@ public class BenchmarkService extends Service {
                 }
 
             };
+
+    /**
+     * This runnable releases the imageAvailableLock. This is useful to limit the
+     * poclImageProcessorLoop to a fixed rate.
+     */
+    private final Runnable frameRateRunnable = new Runnable() {
+
+        @Override
+        public void run() {
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "releasing scheduled image lock");
+            }
+            imageAvailableLock.release();
+        }
+    };
 
     /**
      * callback to stop service after video is done playing
@@ -382,7 +429,7 @@ public class BenchmarkService extends Service {
         if (null != mediaPlayer) {
             mediaPlayer.release();
         }
-        
+
         poclImageProcessor.stop();
 
         // there might be some warnings like:
@@ -401,6 +448,10 @@ public class BenchmarkService extends Service {
         }
 
         statLoggerFuture.cancel(true);
+        // unlike the statlogger, this future is optional.
+        if (null != imageReleaseFuture) {
+            imageReleaseFuture.cancel(true);
+        }
 
         closeFileOutputStreams();
 

@@ -3,6 +3,7 @@ package org.portablecl.poclaisademo;
 import static org.portablecl.poclaisademo.BundleKeys.BENCHMARKVIDEOURI;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLECOMPRESSIONKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLESEGMENTATIONKEY;
+import static org.portablecl.poclaisademo.BundleKeys.IMAGECAPTUREFRAMETIMEKEY;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 
 import android.app.Activity;
@@ -15,7 +16,11 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
+import android.widget.ArrayAdapter;
+import android.widget.AutoCompleteTextView;
 import android.widget.Button;
 import android.widget.Switch;
 import android.widget.TextView;
@@ -42,6 +47,8 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
 
     private final TextView[] benchmarkFileViews = new TextView[TOTALBENCHMARKS];
 
+    private AutoCompleteTextView framerateTextView;
+
     private final boolean[] benchmarkFileExistsChecks = new boolean[TOTALBENCHMARKS];
 
     private boolean enableCompression;
@@ -60,6 +67,12 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
     };
 
     private Bundle bundle;
+
+    /**
+     * default options for the framerate
+     */
+    private final static String[] frameRates = {"0", "100", "200", "300", "400", "500", "600",
+            "700", "800", "900", "1000", "1100", "1200", "2000"};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -114,6 +127,12 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
         // setup start benchmark button
         Button startBenchmarkButton = binding.startBenchmarkButton;
         startBenchmarkButton.setOnClickListener(startBenchmarkButtonListener);
+
+        framerateTextView = binding.framerateTextView;
+        ArrayAdapter adapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1,
+                frameRates);
+        framerateTextView.setAdapter(adapter);
+        framerateTextView.setOnEditorActionListener(editorActionListener);
 
     }
 
@@ -212,6 +231,15 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
                         "callback");
             }
 
+            int frameRate;
+            try {
+                frameRate = Integer.parseInt(framerateTextView.getText().toString());
+            } catch (NumberFormatException e) {
+                Toast.makeText(BenchmarkConfigurationActivity.this, "framerate could not be parsed",
+                        Toast.LENGTH_SHORT).show();
+                return;
+            }
+
             // check if all files exist
             boolean fileCheck = true;
             for (int i = 0; i < TOTALBENCHMARKS; i++) {
@@ -241,6 +269,7 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
                 serviceIntent.putExtra(BENCHMARKVIDEOURI, benchmarkUris[0].toString());
                 serviceIntent.putExtra(ENABLECOMPRESSIONKEY, enableCompression);
                 serviceIntent.putExtra(ENABLESEGMENTATIONKEY, enableSegmentation);
+                serviceIntent.putExtra(IMAGECAPTUREFRAMETIMEKEY, frameRate);
 
                 // when everything works, set to foregroundservice
                 getApplicationContext().startForegroundService(serviceIntent);
@@ -253,6 +282,23 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
         }
     };
 
+    /**
+     * lose focus once you press done on the keyboard
+     */
+    private final TextView.OnEditorActionListener editorActionListener =
+            new TextView.OnEditorActionListener() {
+        @Override
+        public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started editorActionListener callback");
+            }
+
+            if (EditorInfo.IME_ACTION_DONE == actionId) {
+                v.clearFocus();
+            }
+            return false;
+        }
+    };
 
     /**
      * get the name of the file pointed to by the uri.

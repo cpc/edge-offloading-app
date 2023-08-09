@@ -39,4 +39,6 @@ public class BundleKeys {
 
     public static final String ENABLESEGMENTATIONKEY = "enablesegmentation";
 
+    public static final String IMAGECAPTUREFRAMETIMEKEY = "imagecaptureframetime";
+
 }
