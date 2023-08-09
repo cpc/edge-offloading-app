@@ -361,8 +361,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         String cache_dir = getCacheDir().getAbsolutePath();
-        // used to configure pocl
-        setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
+
+        // disable pocl logs if verbosity is 0
+        if(VERBOSITY >= 1) {
+            setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
+        }
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
 
         // stop screen from turning off
