@@ -3,6 +3,7 @@ package org.portablecl.poclaisademo;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getCSVHeader;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getPrfilingStatsbytes;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessYUVImage;
@@ -237,10 +238,7 @@ public class PoclImageProcessor {
         StringBuilder logBuilder = new StringBuilder();
         if (enableLogging) {
             try {
-                logStreams[0].write(("start_time, stop_time, inferencing_device, do_segment, " +
-                        "do_compression, image_to_buffer, run_yolo, read_detections, " +
-                        "run_postprocess, read_segments, run_enc_y, run_enc_uv, run_dec_y, " +
-                        "run_dec_uv \n").getBytes());
+                logStreams[0].write((getCSVHeader()).getBytes());
             } catch (IOException e) {
                 Log.println(Log.WARN, "Mainactivity.java:imageProcessLoop", "could not write csv " +
                         "header");

@@ -17,4 +17,9 @@
         return ret;                                                         \
     }
 
+#define  PRINT_DIFF(diff, msg)                                              \
+    __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",                  \
+        "%s took this long: %llu ms, %llu ns\n",                              \
+        msg, (diff / 1000000), diff % 1000000);                            \
+
 #endif //POCL_AISA_DEMO_SHAREDUTILS_H

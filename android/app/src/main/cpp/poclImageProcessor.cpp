@@ -137,6 +137,9 @@ char *c_log_string = nullptr;
 // enable this to print timing to logs
 #define PRINT_PROFILE_TIME
 
+#define CSV_HEADER "start_time, stop_time, inferencing_device, do_segment, do_compression, \
+image_to_buffer, run_enc_y, run_enc_uv, run_dec_y, run_dec_uv, run_yolo, read_detections, run_postprocess, read_segments \n"
+
 // variable to check if everything is ready for execution
 int setup_success = 0;
 
@@ -160,7 +163,8 @@ bool smuggleONNXAsset(JNIEnv *env, jobject jAssetManager, const char *filename) 
     AAsset_close(a);
     if (read_bytes != num_bytes) {
         delete[] tmp;
-        __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager", "Failed to read asset contents");
+        __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager",
+                            "Failed to read asset contents");
         return false;
     }
 
@@ -359,7 +363,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
         __android_log_print(ANDROID_LOG_INFO, LOGTAG, "enabling profiling");
         cq_properties = CL_QUEUE_PROFILING_ENABLE;
     }
-    
+
     for (unsigned i = 0; i < devices_found; ++i) {
         commandQueue[i] = clCreateCommandQueue(context, devices[i], cq_properties, &status);
         CHECK_AND_RETURN(status, "creating command queue failed");
@@ -372,7 +376,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     std::string dnn_kernel_name = "pocl.dnn.detection.u8";
     std::string postprocess_kernel_name = "pocl.dnn.segmentation_postprocess.u8";
     std::string kernel_names = dnn_kernel_name + ";" + postprocess_kernel_name;
-    
+
     if (1 == devices_found) {
         program = clCreateProgramWithBuiltInKernels(context, 1, devices, kernel_names
                 .c_str(), &status);
@@ -412,13 +416,13 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     inp_h = height;
     tot_pixels = inp_w * inp_h;
     // yuv420 so 6 bytes for every 4 pixels
-    img_buf_size = (tot_pixels * 3) / 2 ;
+    img_buf_size = (tot_pixels * 3) / 2;
     img_buf[0] = clCreateBuffer(context, (CL_MEM_READ_ONLY),
-                                    img_buf_size, NULL, &status);
+                                img_buf_size, NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the image buffer");
 
     out_buf[0] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, total_out_count * sizeof(cl_int),
-                                    NULL, &status);
+                                NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the output buffer");
 
     out_mask_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE,
@@ -476,7 +480,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     // string to write values to for logging
     c_log_string = (char *) malloc(LOG_BUFFER_SIZE * sizeof(char));
 
-    if(devices_found > 1){
+    if (devices_found > 1) {
         status = init_codecs(env, jAssetManager, devices);
         CHECK_AND_RETURN(status, "init of codec kernels failed");
     }
@@ -513,12 +517,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
             img_buf[i] = nullptr;
         }
 
-        if (nullptr != out_buf[i]){
+        if (nullptr != out_buf[i]) {
             clReleaseMemObject(out_buf[i]);
             out_buf[i] = nullptr;
         }
 
-        if (nullptr != out_mask_buf[i]){
+        if (nullptr != out_mask_buf[i]) {
             clReleaseMemObject(out_mask_buf[i]);
             out_mask_buf[i] = nullptr;
         }
@@ -592,7 +596,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
     return 0;
 }
 
-cl_ulong getEventRuntime(cl_event event){
+cl_ulong getEventRuntime(cl_event event) {
     int status;
     cl_ulong event_start, event_end;
 
@@ -627,6 +631,347 @@ void printTime(timespec start, timespec stop, char message[256]) {
     __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing", display_message, ms, ns);
 }
 #endif
+
+/**
+ * a struct to store all events related to object detection
+ */
+typedef struct {
+    cl_event ndrange_event;
+    cl_event read_event;
+    cl_event postprocess_event;
+    cl_event segment_event;
+} dnn_events_t;
+
+/**
+ * release all events related to object detection
+ * @param events dnn_event_t to free
+ */
+void
+release_dnn_events(dnn_events_t events) {
+    clReleaseEvent(events.ndrange_event);
+    clReleaseEvent(events.read_event);
+
+    if(NULL == events.postprocess_event){
+        clReleaseEvent(events.postprocess_event);
+    }
+    if(NULL == events.segment_event){
+        clReleaseEvent(events.segment_event);
+    }
+}
+
+/**
+ * Function to enqueue the opencl commands related to object detection.
+ * @param wait_event event to wait on before starting these commands
+ * @param device_index index of device doing object detection
+ * @param do_segment bool to enable/disable segmentation
+ * @param detection_array array of bounding boxes of detected objects
+ * @param segmentation_array bitmap of segments of detected objects
+ * @param events struct of events of these commands
+ * @return 0 if everything went well, otherwise a cl error number
+ */
+cl_int
+enqueue_dnn(const cl_event *wait_event, const int device_index, const int do_segment, cl_int
+*detection_array, cl_char *segmentation_array, dnn_events_t *events) {
+
+    cl_int status;
+
+#if defined(PRINT_PROFILE_TIME)
+    struct timespec timespec_a, timespec_b;
+    clock_gettime(CLOCK_MONOTONIC, &timespec_a);
+#endif
+
+    status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &img_buf[device_index]);
+    status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &out_buf[device_index]);
+    status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &out_mask_buf[device_index]);
+    CHECK_AND_RETURN(status, "could not assign buffers to DNN kernel");
+
+    status = clSetKernelArg(postprocess_kernel, 0, sizeof(cl_mem), &out_buf[device_index]);
+    status |= clSetKernelArg(postprocess_kernel, 1, sizeof(cl_mem),
+                             &out_mask_buf[device_index]);
+    status |= clSetKernelArg(postprocess_kernel, 2, sizeof(cl_mem),
+                             &postprocess_buf[device_index]);
+    CHECK_AND_RETURN(status, "could not assign buffers to postprocess kernel");
+
+#if defined(PRINT_PROFILE_TIME)
+    clock_gettime(CLOCK_MONOTONIC, &timespec_b);
+    printTime(timespec_a, timespec_b, "assigning kernel params");
+#endif
+
+    status = clEnqueueNDRangeKernel(commandQueue[device_index], dnn_kernel, 1, NULL,
+                                    &global_size, &local_size, 1,
+                                    wait_event, &(events->ndrange_event));
+    CHECK_AND_RETURN(status, "failed to enqueue ND range DNN kernel");
+
+    status = clEnqueueReadBuffer(commandQueue[device_index], out_buf[device_index],
+                                 CL_FALSE, 0,
+                                 detection_count * sizeof(cl_int), detection_array, 1,
+                                 &(events->ndrange_event), &(events->read_event));
+    CHECK_AND_RETURN(status, "failed to read detection result buffer");
+
+    if (do_segment) {
+
+        status = clEnqueueNDRangeKernel(commandQueue[device_index], postprocess_kernel, 1,
+                                        NULL,
+                                        &global_size, &local_size, 1,
+                                        &(events->ndrange_event), &(events->postprocess_event));
+        CHECK_AND_RETURN(status, "failed to enqueue ND range postprocess kernel");
+
+        status = clEnqueueReadBuffer(commandQueue[device_index],
+                                     postprocess_buf[device_index], CL_FALSE, 0,
+                                     seg_postprocess_count * sizeof(cl_char), segmentation_array, 1,
+                                     &(events->postprocess_event), &(events->segment_event));
+        CHECK_AND_RETURN(status, "failed to read segmentation postprocess result buffer");
+
+    } else {
+        // since segmentation is optional, set these to null
+        // so we know we don't have to release them.
+        events->postprocess_event = NULL;
+        events->segment_event = NULL;
+
+    }
+    return 0;
+}
+
+/**
+ * function to copy raw buffers from the image to a local array and make sure the result is in
+ * nv21 format.
+ * @param y_ptr
+ * @param yrow_stride
+ * @param ypixel_stride
+ * @param u_ptr
+ * @param v_ptr
+ * @param uvpixel_stride
+ * @param dest_buf
+ */
+void
+copy_yuv_to_array(const cl_char *y_ptr, const jint yrow_stride, const jint ypixel_stride,
+                  const cl_char *u_ptr, const cl_char *v_ptr, const jint uvpixel_stride,
+                  cl_uchar *dest_buf) {
+
+#if defined(PRINT_PROFILE_TIME)
+    struct timespec timespec_a, timespec_b;
+    clock_gettime(CLOCK_MONOTONIC, &timespec_a);
+#endif
+
+    // copy y plane into buffer
+    for (int i = 0; i < inp_h; i++) {
+        // row_stride is in bytes
+        for (int j = 0; j < yrow_stride; j++) {
+            dest_buf[i * yrow_stride + j] = y_ptr[(i * yrow_stride + j) * ypixel_stride];
+        }
+    }
+
+    int uv_start_index = inp_h * yrow_stride;
+    // interleave u and v regardless of if planar or semiplanar
+    // divided by 4 since u and v are subsampled by 2
+    for (int i = 0; i < (inp_h * inp_w) / 4; i++) {
+
+        dest_buf[uv_start_index + 2 * i] = v_ptr[i * uvpixel_stride];
+
+        dest_buf[uv_start_index + 1 + 2 * i] = u_ptr[i * uvpixel_stride];
+    }
+
+#if defined(PRINT_PROFILE_TIME)
+    clock_gettime(CLOCK_MONOTONIC, &timespec_b);
+    printTime(timespec_a, timespec_b, "copying image to array");
+#endif
+
+}
+
+/**
+ * a struct that holds all events related to the yuv compression stages
+ */
+typedef struct {
+    cl_event enc_image_event;
+    cl_event enc_y_event;
+    cl_event dec_y_event;
+    cl_event enc_uv_event;
+    cl_event dec_uv_event;
+} yuv_events_t;
+
+/**
+ * Release all events in the yuv_event_t struct
+ * @param events
+ */
+void
+release_yuv_events( yuv_events_t events) {
+    clReleaseEvent(events.enc_image_event);
+    clReleaseEvent(events.enc_y_event);
+    clReleaseEvent(events.dec_y_event);
+    clReleaseEvent(events.enc_uv_event);
+    clReleaseEvent(events.dec_uv_event);
+}
+
+/**
+ * enqueue the required opencl commands needed for YUV compression.
+ * @param input_img the array holding the image data
+ * @param buf_size the size size of the input_img
+ * @param enc_index the index of the compressing device
+ * @param dec_index the index of the decompressing device
+ * @param events the struct to log events to
+ * @param result_event a return event that can be used to wait for compression to be done.
+ * @return
+ */
+cl_int
+enqueue_yuv_compression(const cl_uchar *input_img, const size_t buf_size, const int enc_index,
+                        const int dec_index, yuv_events_t *events, cl_event *result_event) {
+    cl_int status;
+
+    status = clEnqueueWriteBuffer(commandQueue[enc_index], img_buf[enc_index], CL_FALSE, 0,
+                                  buf_size, input_img, 0, NULL, &(events->enc_image_event));
+    CHECK_AND_RETURN(status, "failed to write image to enc buffers");
+
+
+    status = clEnqueueNDRangeKernel(commandQueue[enc_index], enc_y_kernel, 2, NULL, enc_y_global,
+                                    NULL, 1, &(events->enc_image_event), &(events->enc_y_event));
+    CHECK_AND_RETURN(status, "failed to enqueue enc_y_kernel");
+
+    status = clEnqueueNDRangeKernel(commandQueue[enc_index], enc_uv_kernel, 2, NULL, enc_uv_global,
+                                    NULL, 1, &(events->enc_image_event), &(events->enc_uv_event));
+    CHECK_AND_RETURN(status, "failed to enqueue enc_uv_kernel");
+
+    status = clEnqueueNDRangeKernel(commandQueue[dec_index], dec_y_kernel, 2, NULL, dec_y_global,
+                                    NULL, 1, &(events->enc_y_event), &(events->dec_y_event));
+    CHECK_AND_RETURN(status, "failed to enqueue dec_y_kernel");
+
+    // we have to wait for both since dec_y and dec_uv write to the same buffer and there is
+    // no guarantee what happens if both dec_y and dec_uv write at the same time.
+    cl_event dec_uv_wait_events[] = {events->enc_uv_event, events->dec_y_event};
+    status = clEnqueueNDRangeKernel(commandQueue[dec_index], dec_uv_kernel, 2, NULL, dec_uv_global,
+                                    NULL, 2, dec_uv_wait_events, &(events->dec_uv_event));
+    CHECK_AND_RETURN(status, "failed to enqueue dec_uv_kernel");
+
+    // move the intermediate buffers back to the phone after decompression.
+    // Since we don't care about the contents, the latest state of the buffer is not moved
+    // back from the remote.
+    // https://man.opencl.org/clEnqueueMigrateMemObjects.html
+    cl_mem migrate_bufs[] = {out_enc_y_buf, out_enc_uv_buf};
+    status = clEnqueueMigrateMemObjects(commandQueue[enc_index], 2, migrate_bufs,
+                                        CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, 1,
+                                        &(events->dec_uv_event), NULL);
+    CHECK_AND_RETURN(status, "failed to migrate buffers back");
+
+    // set the event that other ocl commands can wait for
+    *result_event = events->dec_uv_event;
+
+    return 0;
+}
+
+// todo: possibly inline this function
+/**
+ * write the duration of each event in events to the out_string.
+ * if PRINT_PROFILE_TIME is defined, this function also prints to the terminal.
+ * @param events dnn_events_t with events of interest
+ * @param do_segment needed to know if segmentation events should be logged
+ * @param out_string the string to write to. no checks are made that there is enough room
+ * @return
+ */
+cl_int
+log_dnn_events(const dnn_events_t *events, const int do_segment, char *out_string) {
+
+    int chars_used;
+    char formatted_string[DATA_POINT_SIZE + 1];
+    cl_ulong diff;
+
+    diff = getEventRuntime(events->ndrange_event);
+    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
+    strncat(out_string, formatted_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+    PRINT_DIFF(diff, "detecting")
+#endif
+
+    diff = getEventRuntime(events->read_event);
+    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
+    strncat(out_string, formatted_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+    PRINT_DIFF(diff, "reading back")
+#endif
+
+    // if segmentation is also done, log this
+    if (do_segment) {
+
+        diff = getEventRuntime(events->postprocess_event);
+        chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
+        strncat(out_string, formatted_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+        PRINT_DIFF(diff, "post process")
+#endif
+
+        diff = getEventRuntime(events->segment_event);
+        chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
+        strncat(out_string, formatted_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+        PRINT_DIFF(diff, "reading segs")
+#endif
+
+    } else {
+        // if no segmentation, write zeros
+        strncat(out_string, "0, 0, ", 6);
+    }
+
+    return 0;
+}
+
+/**
+ * write the duration of each event in events to the out_string.
+ * if PRINT_PROFILE_TIME is defined, this function also prints to the terminal.
+ * @param events yuv_events_t with events of interest
+ * @param out_string the string to write to. no checks are made that there is enough room
+ * @return
+ */
+cl_int
+log_yuv_events(const yuv_events_t *events, char *out_string) {
+
+    int chars_used;
+    char formatted_string[DATA_POINT_SIZE + 1];
+    cl_ulong diff;
+
+    diff = getEventRuntime(events->enc_image_event);
+    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
+    strncat(out_string, formatted_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+    PRINT_DIFF(diff, "writing from host img buf")
+#endif
+
+    diff = getEventRuntime(events->enc_y_event);
+    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
+    strncat(out_string, formatted_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+    PRINT_DIFF(diff, "encoding y buff")
+#endif
+
+    diff = getEventRuntime(events->enc_uv_event);
+    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
+    strncat(out_string, formatted_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+    PRINT_DIFF(diff, "encoding uv buff")
+#endif
+
+    diff = getEventRuntime(events->dec_y_event);
+    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
+    strncat(out_string, formatted_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+    PRINT_DIFF(diff, "decoding y buff")
+#endif
+
+    diff = getEventRuntime(events->dec_uv_event);
+    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
+    strncat(out_string, formatted_string, chars_used);
+
+#if defined(PRINT_PROFILE_TIME)
+    PRINT_DIFF(diff, "decoding uv buff")
+#endif
+
+    return 0;
+}
 
 /**
  * process the image with PoCL.
@@ -672,29 +1017,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     do_segment_copy = do_segment;
     local_do_compression = doCompression;
 
-#if defined(PRINT_PROFILE_TIME)
-    struct timespec timespec_a, timespec_b;
-    clock_gettime(CLOCK_MONOTONIC, &timespec_a);
-#endif
-
     cl_int status;
-
-    status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &img_buf[device_index_copy]);
-    status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &out_buf[device_index_copy]);
-    status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &out_mask_buf[device_index_copy]);
-    CHECK_AND_RETURN(status, "could not assign buffers to DNN kernel");
-
-    status = clSetKernelArg(postprocess_kernel, 0, sizeof(cl_mem), &out_buf[device_index_copy]);
-    status |= clSetKernelArg(postprocess_kernel, 1, sizeof(cl_mem),
-                             &out_mask_buf[device_index_copy]);
-    status |= clSetKernelArg(postprocess_kernel, 2, sizeof(cl_mem),
-                             &postprocess_buf[device_index_copy]);
-    CHECK_AND_RETURN(status, "could not assign buffers to postprocess kernel");
-
-#if defined(PRINT_PROFILE_TIME)
-    clock_gettime(CLOCK_MONOTONIC, &timespec_b);
-    printTime(timespec_a, timespec_b, "assigning kernel params");
-#endif
 
     // todo: look into if iscopy=true works on android
     cl_int *detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
@@ -707,130 +1030,39 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     // todo: remove this variable, since the phone is always kept in portrait mode.
     rotate_cw_degrees = rotation;
 
-    // copy y plane into buffer
-    for(int i = 0; i < inp_h; i++){
-        // row_stride is in bytes
-        for(int j = 0; j < yrow_stride ; j++){
-            host_img_buf[i*yrow_stride + j] = y_ptr[(i*yrow_stride + j)*ypixel_stride];
-        }
-    }
+    // copy the yuv image data over to the host_img_buf and make sure it's semiplanar.
+    copy_yuv_to_array(y_ptr, yrow_stride, ypixel_stride, u_ptr, v_ptr, uvpixel_stride,
+                      host_img_buf);
 
-    int uv_start_index = inp_h * yrow_stride;
-    // interleave u and v regardless of if planar or semiplanar
-    // divided by 4 since u and v are subsampled by 2
-    for (int i = 0; i < (inp_h * inp_w) / 4; i++) {
-
-        host_img_buf[uv_start_index + 2 * i] = v_ptr[i * uvpixel_stride];
-
-        host_img_buf[uv_start_index + 1 + 2 * i] = u_ptr[i * uvpixel_stride];
-    }
 #if defined(PRINT_PROFILE_TIME)
+    struct timespec timespec_a, timespec_b;
     clock_gettime(CLOCK_MONOTONIC, &timespec_a);
-    printTime(timespec_b, timespec_a, "copying image to array");
 #endif
 
-    // compression:
-    // 1. write raw image to buffer
-    // 2. compress on proxy device
-    // 3. write compressed image buffer to remote
-    // 4. decompress image on remote pthread
-    // 5. run yolo on remote basic
-    // 6. read detections back
-
-    // milestone 2:
-    // 7. post process on remote basic
-    // 8. compress segments
-    // 9. read segments back
-    // 10. decompress segments
-    // 11.? scale segments
-
-
-    // the dnn_kernel will wait for this event to be done
     cl_event dnn_wait_event;
-
-    cl_event enc_image_event;
-    cl_event enc_y_event, enc_uv_event;
-    cl_event dec_y_event, dec_uv_event;
+    yuv_events_t yuv_events;
 
     // do compression
     if (2 == device_index_copy && (1 == local_do_compression)) {
 
-        status = clEnqueueWriteBuffer(commandQueue[1], img_buf[1], CL_FALSE, 0,
-                                      img_buf_size, host_img_buf, 0, NULL, &enc_image_event);
-        CHECK_AND_RETURN(status, "failed to write image to enc buffers");
-
-
-        status = clEnqueueNDRangeKernel(commandQueue[1], enc_y_kernel, 2, NULL, enc_y_global,
-                                        NULL, 1, &enc_image_event, &enc_y_event);
-        CHECK_AND_RETURN(status, "failed to enqueue enc_y_kernel");
-
-        status = clEnqueueNDRangeKernel(commandQueue[1], enc_uv_kernel, 2, NULL, enc_uv_global,
-                                        NULL, 1, &enc_image_event, &enc_uv_event);
-        CHECK_AND_RETURN(status, "failed to enqueue enc_uv_kernel");
-
-        status = clEnqueueNDRangeKernel(commandQueue[3], dec_y_kernel, 2, NULL, dec_y_global,
-                                        NULL, 1, &enc_y_event, &dec_y_event);
-        CHECK_AND_RETURN(status, "failed to enqueue dec_y_kernel");
-
-        // we have to wait for both since dec_y and dec_uv write to the same buffer and there is
-        // no guarantee what happens if both dec_y and dec_uv write at the same time.
-        cl_event dec_uv_wait_events[] = {enc_uv_event, dec_y_event};
-        status = clEnqueueNDRangeKernel(commandQueue[3], dec_uv_kernel, 2, NULL, dec_uv_global,
-                                        NULL, 2, dec_uv_wait_events, &dec_uv_event);
-        CHECK_AND_RETURN(status, "failed to enqueue dec_uv_kernel");
-
-        // move the intermediate buffers back to the phone after decompression.
-        // Since we don't care about the contents, the latest state of the buffer is not moved
-        // back from the remote.
-        // https://man.opencl.org/clEnqueueMigrateMemObjects.html
-        cl_mem migrate_bufs[] = {out_enc_y_buf, out_enc_uv_buf};
-        status = clEnqueueMigrateMemObjects(commandQueue[1], 2, migrate_bufs,
-                                            CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, 1,
-                                            &dec_uv_event, NULL);
-        CHECK_AND_RETURN(status, "failed to migrate buffers back");
-
-        dnn_wait_event = dec_uv_event;
+        status = enqueue_yuv_compression(host_img_buf, img_buf_size, 1, 3, &yuv_events,
+                                         &dnn_wait_event);
+        CHECK_AND_RETURN(status, "could enqueue yuv compression work");
 
     } else {
         // normal execution
         status = clEnqueueWriteBuffer(commandQueue[device_index_copy], img_buf[device_index_copy],
                                       CL_FALSE, 0,
                                       img_buf_size, host_img_buf,
-                                      0, NULL, &enc_image_event);
+                                      0, NULL, &dnn_wait_event);
         CHECK_AND_RETURN(status, "failed to write image to ocl buffers");
 
-        dnn_wait_event = enc_image_event;
     }
 
-    cl_event ndrange_event;
-    status = clEnqueueNDRangeKernel(commandQueue[device_index_copy], dnn_kernel, 1, NULL,
-                                    &global_size, &local_size, 1,
-                                    &dnn_wait_event, &ndrange_event);
-    CHECK_AND_RETURN(status, "failed to enqueue ND range DNN kernel");
-
-    cl_event read_event;
-    status = clEnqueueReadBuffer(commandQueue[device_index_copy], out_buf[device_index_copy],
-                                 CL_FALSE, 0,
-                                 detection_count * sizeof(cl_int), detection_array, 1,
-                                 &ndrange_event, &read_event);
-    CHECK_AND_RETURN(status, "failed to read detection result buffer");
-
-    cl_event postprocess_event = NULL, segment_event = NULL;
-    if (do_segment_copy) {
-
-        status = clEnqueueNDRangeKernel(commandQueue[device_index_copy], postprocess_kernel, 1,
-                                        NULL,
-                                        &global_size, &local_size, 1,
-                                        &ndrange_event, &postprocess_event);
-        CHECK_AND_RETURN(status, "failed to enqueue ND range postprocess kernel");
-
-        status = clEnqueueReadBuffer(commandQueue[device_index_copy],
-                                     postprocess_buf[device_index_copy], CL_FALSE, 0,
-                                     seg_postprocess_count * sizeof(cl_char), segmentation_array, 1,
-                                     &postprocess_event, &segment_event);
-        CHECK_AND_RETURN(status, "failed to read segmentation postprocess result buffer");
-
-    }
+    dnn_events_t dnn_events;
+    status = enqueue_dnn(&dnn_wait_event, device_index_copy, do_segment_copy, detection_array,
+                         segmentation_array, &dnn_events);
+    CHECK_AND_RETURN(status, "could not enqueue dnn kernels");
 
     status = clFinish(commandQueue[device_index_copy]);
     CHECK_AND_RETURN(status, "failed to clfinish");
@@ -842,141 +1074,44 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
 
     if (enable_profiling) {
 
-        char formated_string[DATA_POINT_SIZE + 1];
+        char formatted_string[DATA_POINT_SIZE + 1];
         // clear the string
         strcpy(c_log_string, "\0");
         int chars_used;
 
         // write config vars to log string
-        chars_used = sprintf(formated_string, "%d, %d, %d, ", device_index_copy, do_segment_copy,
+        chars_used = sprintf(formatted_string, "%d, %d, %d, ", device_index_copy, do_segment_copy,
                              local_do_compression);
-        strncat(c_log_string, formated_string, chars_used);
+        strncat(c_log_string, formatted_string, chars_used);
 
-        cl_ulong diff = getEventRuntime(enc_image_event);
-        chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
-        strncat(c_log_string, formated_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-        __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
-                            "writing took this long: %llu ms, %llu ns",
-                            (diff / 1000000), diff % 1000000);
-#endif
-
-        diff = getEventRuntime(ndrange_event);
-        chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
-        strncat(c_log_string, formated_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-        __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
-                            "detections took this long: %llu ms, %llu ns",
-                            (diff / 1000000), diff % 1000000);
-#endif
-
-        diff = getEventRuntime(read_event);
-        chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
-        strncat(c_log_string, formated_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-        __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
-                            "reading back took this long: %llu ms, %llu ns",
-                            (diff / 1000000), diff % 1000000);
-#endif
-
-        if (do_segment_copy) {
-
-            diff = getEventRuntime(postprocess_event);
-            chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
-            strncat(c_log_string, formated_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-            __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
-                                "post process took this long: %llu ms, %llu "
-                                "ns", (diff / 1000000), diff % 1000000);
-#endif
-
-            diff = getEventRuntime(segment_event);
-            chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
-            strncat(c_log_string, formated_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-            __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
-                                "reading segs took this long: %llu ms, "
-                                "%llu ns", (diff / 1000000), diff % 1000000);
-#endif
-
-        } else {
-            // if no segmentation, write zeros
-            strncat(c_log_string, "0, 0, ", 6);
-        }
 
         if (2 == device_index_copy && (1 == local_do_compression)) {
-            diff = getEventRuntime(enc_y_event);
-            chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
-            strncat(c_log_string, formated_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-            __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
-                                "encoding y buff took this long: %llu ms, "
-                                "%llu ns", (diff / 1000000), diff % 1000000);
-#endif
-
-            diff = getEventRuntime(enc_uv_event);
-            chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
-            strncat(c_log_string, formated_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-            __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
-                                "encoding uv buff took this long: %llu ms, "
-                                "%llu ns", (diff / 1000000), diff % 1000000);
-#endif
-
-            diff = getEventRuntime(dec_y_event);
-            chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
-            strncat(c_log_string, formated_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-            __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
-                                "decoding y buff took this long: %llu ms, "
-                                "%llu ns", (diff / 1000000), diff % 1000000);
-#endif
-
-            diff = getEventRuntime(dec_uv_event);
-            chars_used = snprintf(formated_string, DATA_POINT_SIZE, "%llu, ", diff);
-            strncat(c_log_string, formated_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-            __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",
-                                "decoding uv buff took this long: %llu ms, "
-                                "%llu ns", (diff / 1000000), diff % 1000000);
-#endif
-
-        } else {
+            log_yuv_events(&yuv_events, c_log_string);
+        }else {
             // if no compression, write zeros
-            strncat(c_log_string, "0, 0, 0, 0, ", 12);
+            cl_ulong diff = getEventRuntime(dnn_wait_event);
+            chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
+            strncat(c_log_string, formatted_string, chars_used);
+            strncat(c_log_string,"0, 0, 0, 0, ", 12);
+
+#if defined(PRINT_PROFILE_TIME)
+            PRINT_DIFF(diff, "writing from host img buff")
+#endif
         }
+
+        log_dnn_events(&dnn_events, do_segment_copy, c_log_string);
 
         // finally add a new line to the end of it
         strncat(c_log_string, "\n", 1);
+
     }
 
     if (2 == device_index_copy && (1 == local_do_compression)) {
-        clReleaseEvent(enc_y_event);
-        clReleaseEvent(enc_uv_event);
-        clReleaseEvent(dec_y_event);
-        clReleaseEvent(dec_uv_event);
+        release_yuv_events(yuv_events);
+    } else {
+        clReleaseEvent(dnn_wait_event);
     }
-
-    clReleaseEvent(enc_image_event);
-    clReleaseEvent(ndrange_event);
-    clReleaseEvent(read_event);
-
-    if (NULL != postprocess_event) {
-        clReleaseEvent(postprocess_event);
-    }
-
-    if (NULL != segment_event) {
-        clReleaseEvent(segment_event);
-    }
+    release_dnn_events(dnn_events);
 
 #if defined(PRINT_PROFILE_TIME)
     clock_gettime(CLOCK_MONOTONIC, &timespec_a);
@@ -1008,6 +1143,17 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getProfilingStats(JNIEnv 
                                                                          jclass clazz) {
 
     return env->NewStringUTF(c_log_string);
+}
+
+/**
+ * Function to return the header for the csv when logging.
+ * @param env
+ * @param clazz
+ * @return string with names of each profiling stat
+ */
+JNIEXPORT jstring JNICALL
+Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getCSVHeader(JNIEnv *env, jclass clazz) {
+    return env->NewStringUTF(CSV_HEADER);
 }
 
 /**
