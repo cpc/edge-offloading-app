@@ -3,6 +3,9 @@
 
 # Sets the minimum version of CMake required to build the native library.
 
+# set the number of cores with which to build external projects
+set(EXTERNAL_PROJECT_CORES 8)
+
 cmake_minimum_required(VERSION 3.22.1)
 include(ExternalProject)
 
@@ -87,6 +90,7 @@ ExternalProject_Add(build_opencv
         SOURCE_DIR ${EXTERNAL_PATH}/opencv
         CMAKE_GENERATOR "Unix Makefiles"
         CMAKE_ARGS ${OPENCV_CMAKE_ARGS}
+        BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
         BUILD_BYPRODUCTS
         ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_dnn.so
         ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_imgproc.so
@@ -137,6 +141,7 @@ ExternalProject_Add(pocl
         SOURCE_DIR ${EXTERNAL_PATH}/pocl
         CMAKE_GENERATOR "Unix Makefiles"
         CMAKE_ARGS ${POCL_CMAKE_ARGS}
+        BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
         BUILD_ALWAYS True
         BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libpocl.a
         )
@@ -162,6 +167,7 @@ ExternalProject_Add(build_libyuv
         SOURCE_DIR ${EXTERNAL_PATH}/libyuv
         CMAKE_GENERATOR "Unix Makefiles"
         CMAKE_ARGS ${LIBYUV_CMAKE_ARGS}
+        BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
         BUILD_ALWAYS True
         BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/libyuv/lib/libyuv.so
         )
