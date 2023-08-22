@@ -5,7 +5,9 @@
 #ifndef POCL_AISA_DEMO_SHAREDUTILS_H
 #define POCL_AISA_DEMO_SHAREDUTILS_H
 
+// todo: provide macros for other platforms
 
+#ifdef __ANDROID__
 /**
  * when using this, don't forget to define LOGTAG before hand
  */
@@ -20,6 +22,9 @@
 #define  PRINT_DIFF(diff, msg)                                              \
     __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing",                  \
         "%s took this long: %llu ms, %llu ns\n",                              \
-        msg, (diff / 1000000), diff % 1000000);                            \
+        msg, (diff / 1000000), diff % 1000000);                             \
+
+#endif //__ANDROID__
+
 
 #endif //POCL_AISA_DEMO_SHAREDUTILS_H

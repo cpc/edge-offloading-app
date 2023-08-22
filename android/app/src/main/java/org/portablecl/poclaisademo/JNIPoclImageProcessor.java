@@ -26,7 +26,7 @@ public class JNIPoclImageProcessor {
 
     public static native String getCSVHeader();
 
-    public static native byte[] getPrfilingStatsbytes();
+    public static native byte[] getProfilingStatsbytes();
 
     public static native TrafficMonitor.DataPoint getRemoteTrafficStats();
 

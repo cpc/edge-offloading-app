@@ -1,31 +1,28 @@
 
 
-//#include <rename_opencl.h>
-
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
 
 #include <rename_opencl.h>
 #include <CL/cl.h>
-#include <android/asset_manager.h>
-#include <android/asset_manager_jni.h>
-#include <android/log.h>
+#include "poclImageProcessor.h"
 #include <string>
 #include <stdlib.h>
 #include <vector>
-#include <jni.h>
-#include <android/bitmap.h>
 #include "sharedUtils.h"
 #include <assert.h>
 
-#include <fstream>
+#ifdef __ANDROID__
 
+#include <android/log.h>
+
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define LOGTAG "poclimageprocessor"
+
 #define MAX_DETECTIONS 10
 #define MASK_W 160
 #define MASK_H 120
@@ -137,81 +134,9 @@ char *c_log_string = nullptr;
 // enable this to print timing to logs
 #define PRINT_PROFILE_TIME
 
-#define CSV_HEADER "start_time_ms, stop_time_ms, inferencing_device, do_segment, do_compression, \
-image_to_buffer_ns, run_enc_y_ns, run_enc_uv_ns, run_dec_y_ns, run_dec_uv_ns, run_yolo_ns, \
-read_detections_ns, run_postprocess_ns, read_segments_ns \n"
-
 // variable to check if everything is ready for execution
 int setup_success = 0;
 
-// Global variables for smuggling our blob into PoCL so we can pretend it is a builtin kernel.
-// Please don't ever actually do this in production code.
-const char *pocl_onnx_blob = NULL;
-uint64_t pocl_onnx_blob_size = 0;
-
-bool smuggleONNXAsset(JNIEnv *env, jobject jAssetManager, const char *filename) {
-    AAssetManager *assetManager = AAssetManager_fromJava(env, jAssetManager);
-    if (assetManager == nullptr) {
-        __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager", "Failed to get asset manager");
-        return false;
-    }
-
-    AAsset *a = AAssetManager_open(assetManager, "yolov8n-seg.onnx", AASSET_MODE_STREAMING);
-    auto num_bytes = AAsset_getLength(a);
-    char *tmp = new char[num_bytes + 1];
-    tmp[num_bytes] = 0;
-    int read_bytes = AAsset_read(a, tmp, num_bytes);
-    AAsset_close(a);
-    if (read_bytes != num_bytes) {
-        delete[] tmp;
-        __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager",
-                            "Failed to read asset contents");
-        return false;
-    }
-
-    __android_log_print(ANDROID_LOG_DEBUG, "NDK_Asset_Manager", "ONNX blob read successfully");
-
-    // Smuggling in progress
-    pocl_onnx_blob = tmp;
-    pocl_onnx_blob_size = num_bytes;
-    return true;
-}
-
-void destroySmugglingEvidence() {
-    char *tmp = (char *) pocl_onnx_blob;
-    pocl_onnx_blob_size = 0;
-    pocl_onnx_blob = nullptr;
-    delete[] tmp;
-}
-
-// Read contents of files
-static char *
-read_file(JNIEnv *env, jobject jAssetManager, const char *filename, size_t *bytes_read) {
-
-    AAssetManager *asset_manager = AAssetManager_fromJava(env, jAssetManager);
-    if (asset_manager == nullptr) {
-        __android_log_print(ANDROID_LOG_ERROR, LOGTAG "read_file", "Failed to get asset manager "
-                                                                   "to read file");
-        return nullptr;
-    }
-
-    AAsset *a_asset = AAssetManager_open(asset_manager, filename, AASSET_MODE_STREAMING);
-
-    const size_t asset_size = AAsset_getLength(a_asset);
-
-    char *contents = (char *) malloc(asset_size);
-
-    *bytes_read = AAsset_read(a_asset, contents, asset_size);
-
-    if (asset_size != *bytes_read) {
-        __android_log_print(ANDROID_LOG_ERROR, LOGTAG "read_file", "Failed to read file contents");
-        free(contents);
-        return nullptr;
-    }
-
-    return contents;
-
-}
 
 /**
  * @note height and width are rotated since the camera is rotated 90 degrees with respect to the
@@ -222,23 +147,17 @@ read_file(JNIEnv *env, jobject jAssetManager, const char *filename, size_t *byte
  * @return
  */
 static int
-init_codecs(JNIEnv *env, jobject jAssetManager, cl_device_id *devices) {
+init_codecs(cl_device_id enc_device, cl_device_id dec_device, const char *source, const size_t
+src_size) {
 
     int status;
 
-    cl_device_id codec_devices[] = {devices[1], devices[3]};
+    cl_device_id codec_devices[] = {enc_device, dec_device};
 
-    // create codec kernels from source files.
-    size_t src_size;
-    const char *source = read_file(env, jAssetManager, "kernels/copy.cl", &src_size);
-    if (nullptr == source) {
-        return -1;
-    }
     codec_program = clCreateProgramWithSource(context, 1, &source,
                                               &src_size,
                                               &status);
     CHECK_AND_RETURN(status, "creation of codec program failed");
-    free((void *) source);
 
     status = clBuildProgram(codec_program, 2, codec_devices, nullptr, nullptr, nullptr);
     CHECK_AND_RETURN(status, "building codec program failed");
@@ -311,17 +230,16 @@ init_codecs(JNIEnv *env, jobject jAssetManager, cl_device_id *devices) {
 /**
  * setup and create the objects needed for repeated PoCL calls.
  * PoCL can be configured by setting environment variables.
- * @param env
- * @param clazz
+ * @param width of the image
+ * @param height of the image
+ * @param enableProfiling enable
+ * @param codec_sources the kernel sources of the codecs
+ * @param src_size the size of the codec_sources
  * @return
  */
-JNIEXPORT jint JNICALL
-Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JNIEnv *env,
-                                                                              jclass clazz,
-                                                                              jboolean enableProfiling,
-                                                                              jobject jAssetManager,
-                                                                              jint width,
-                                                                              jint height) {
+int
+initPoclImageProcessor(const int width, const int height, const bool enableProfiling,
+                       const char *codec_sources, const size_t src_size) {
     cl_platform_id platform;
     cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
     cl_uint devices_found;
@@ -333,23 +251,30 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, MAX_NUM_CL_DEVICES, devices,
                             &devices_found);
     CHECK_AND_RETURN(status, "getting device id failed");
+#ifdef __ANDROID__
     __android_log_print(ANDROID_LOG_INFO, LOGTAG, "Platform has %d devices", devices_found);
+#endif
     assert(devices_found > 0);
 
     // some info
     char result_array[256];
     for (unsigned i = 0; i < devices_found; ++i) {
         clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
+#ifdef __ANDROID__
         __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DEVICE_NAME: %s", result_array);
-
+#endif
         clGetDeviceInfo(devices[i], CL_DEVICE_VERSION, 256 * sizeof(char), result_array, NULL);
+#ifdef __ANDROID__
         __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DEVICE_VERSION: %s", result_array);
-
+#endif
         clGetDeviceInfo(devices[i], CL_DRIVER_VERSION, 256 * sizeof(char), result_array, NULL);
+#ifdef __ANDROID__
         __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DRIVER_VERSION: %s", result_array);
-
+#endif
         clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
+#ifdef __ANDROID__
         __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DEVICE_NAME: %s", result_array);
+#endif
     }
 
     cl_context_properties cps[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
@@ -361,7 +286,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     enable_profiling = enableProfiling;
     cl_command_queue_properties cq_properties = 0;
     if (enable_profiling) {
+#ifdef __ANDROID__
         __android_log_print(ANDROID_LOG_INFO, LOGTAG, "enabling profiling");
+#endif
         cq_properties = CL_QUEUE_PROFILING_ENABLE;
     }
 
@@ -369,9 +296,6 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
         commandQueue[i] = clCreateCommandQueue(context, devices[i], cq_properties, &status);
         CHECK_AND_RETURN(status, "creating command queue failed");
     }
-
-    bool smuggling_ok = smuggleONNXAsset(env, jAssetManager, "yolov8n-seg.onnx");
-    assert(smuggling_ok);
 
     // Only create builtin kernel for basic and remote devices
     std::string dnn_kernel_name = "pocl.dnn.detection.u8";
@@ -403,8 +327,6 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
 
     postprocess_kernel = clCreateKernel(program, postprocess_kernel_name.c_str(), &status);
     CHECK_AND_RETURN(status, "creating postprocess kernel failed");
-
-    destroySmugglingEvidence();
 
     // set some default values;
     rotate_cw_degrees = 90;
@@ -482,7 +404,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     c_log_string = (char *) malloc(LOG_BUFFER_SIZE * sizeof(char));
 
     if (devices_found > 1) {
-        status = init_codecs(env, jAssetManager, devices);
+
+        status = init_codecs(devices[1], devices[3], codec_sources, src_size);
         CHECK_AND_RETURN(status, "init of codec kernels failed");
     }
 
@@ -497,14 +420,11 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
 }
 
 /**
- * release everything related to PoCL
- * @param env
- * @param clazz
+ * free all global variables
  * @return
  */
-JNIEXPORT jint JNICALL
-Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor(JNIEnv *env,
-                                                                                 jclass clazz) {
+int
+destroy_pocl_image_processor() {
 
     setup_success = 0;
     for (unsigned i = 0; i < MAX_NUM_CL_DEVICES; ++i) {
@@ -629,7 +549,9 @@ void printTime(timespec start, timespec stop, char message[256]) {
     char display_message[256 + 16];
     strcpy(display_message, message);
     strcat(display_message, ": %d ms, %d ns");
+#ifdef __ANDROID__
     __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing", display_message, ms, ns);
+#endif
 }
 #endif
 
@@ -652,10 +574,10 @@ release_dnn_events(dnn_events_t events) {
     clReleaseEvent(events.ndrange_event);
     clReleaseEvent(events.read_event);
 
-    if(NULL == events.postprocess_event){
+    if (NULL == events.postprocess_event) {
         clReleaseEvent(events.postprocess_event);
     }
-    if(NULL == events.segment_event){
+    if (NULL == events.segment_event) {
         clReleaseEvent(events.segment_event);
     }
 }
@@ -745,8 +667,8 @@ enqueue_dnn(const cl_event *wait_event, const int device_index, const int do_seg
  * @param dest_buf
  */
 void
-copy_yuv_to_array(const cl_char *y_ptr, const jint yrow_stride, const jint ypixel_stride,
-                  const cl_char *u_ptr, const cl_char *v_ptr, const jint uvpixel_stride,
+copy_yuv_to_array(const cl_char *y_ptr, const int yrow_stride, const int ypixel_stride,
+                  const cl_char *u_ptr, const cl_char *v_ptr, const int uvpixel_stride,
                   cl_uchar *dest_buf) {
 
 #if defined(PRINT_PROFILE_TIME)
@@ -795,7 +717,7 @@ typedef struct {
  * @param events
  */
 void
-release_yuv_events( yuv_events_t events) {
+release_yuv_events(yuv_events_t events) {
     clReleaseEvent(events.enc_image_event);
     clReleaseEvent(events.enc_y_event);
     clReleaseEvent(events.dec_y_event);
@@ -978,39 +900,34 @@ log_yuv_events(const yuv_events_t *events, char *out_string) {
 
 /**
  * process the image with PoCL.
- *  assumes that image format is YUV420_888
- * @param env
- * @param clazz
- * @param width
- * @param height
- * @param y
+ * assumes that image format is YUV420_888
+ * @param device_index
+ * @param do_segment
+ * @param do_compression
+ * @param rotation
+ * @param y_ptr
  * @param yrow_stride
  * @param ypixel_stride
- * @param u
- * @param v
+ * @param u_ptr
+ * @param v_ptr
  * @param uvrow_stride
  * @param uvpixel_stride
- * @param result
+ * @param detection_array
+ * @param segmentation_array
  * @return
  */
-JNIEXPORT jint JNICALL
-Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEnv *env,
-                                                                           jclass clazz,
-                                                                           jint device_index,
-                                                                           jint do_segment,
-                                                                           jint doCompression,
-                                                                           jint rotation, jobject y,
-                                                                           jint yrow_stride,
-                                                                           jint ypixel_stride,
-                                                                           jobject u, jobject v,
-                                                                           jint uvrow_stride,
-                                                                           jint uvpixel_stride,
-                                                                           jintArray detection_result,
-                                                                           jbyteArray segmentation_result) {
+int
+poclProcessYUVImage(const int device_index, const int do_segment, const int do_compression,
+                    const int rotation, const int8_t *y_ptr, const int yrow_stride,
+                    const int ypixel_stride, const int8_t *u_ptr, const int8_t *v_ptr,
+                    const int uvrow_stride, const int uvpixel_stride, int32_t *detection_array,
+                    int8_t *segmentation_array) {
 
     if (!setup_success) {
+#ifdef __ANDROID__
         __android_log_print(ANDROID_LOG_ERROR, LOGTAG,
                             "poclProcessYUVImage called but setup did not complete successfully");
+#endif
         return 1;
     }
 
@@ -1018,17 +935,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     // when the user presses a button.
     device_index_copy = device_index;
     do_segment_copy = do_segment;
-    local_do_compression = doCompression;
+    local_do_compression = do_compression;
 
     cl_int status;
-
-    // todo: look into if iscopy=true works on android
-    cl_int *detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
-    cl_char *segmentation_array = env->GetByteArrayElements(segmentation_result, JNI_FALSE);
-
-    cl_char *y_ptr = (cl_char *) env->GetDirectBufferAddress(y);
-    cl_char *u_ptr = (cl_char *) env->GetDirectBufferAddress(u);
-    cl_char *v_ptr = (cl_char *) env->GetDirectBufferAddress(v);
 
     // todo: remove this variable, since the phone is always kept in portrait mode.
     rotate_cw_degrees = rotation;
@@ -1079,7 +988,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
 
         char formatted_string[DATA_POINT_SIZE + 1];
         // clear the string
-        c_log_string[0]='\0';
+        c_log_string[0] = '\0';
         int chars_used;
 
         // write config vars to log string
@@ -1090,12 +999,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
 
         if (2 == device_index_copy && (1 == local_do_compression)) {
             log_yuv_events(&yuv_events, c_log_string);
-        }else {
+        } else {
             // if no compression, write zeros
             cl_ulong diff = getEventRuntime(dnn_wait_event);
             chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
             strncat(c_log_string, formatted_string, chars_used);
-            strncat(c_log_string,"0, 0, 0, 0, ", 12);
+            strncat(c_log_string, "0, 0, 0, 0, ", 12);
 
 #if defined(PRINT_PROFILE_TIME)
             PRINT_DIFF(diff, "writing from host img buff")
@@ -1121,80 +1030,17 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     printTime(timespec_b, timespec_a, "printing messages");
 #endif
 
-    // commit the results back
-    env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
-    env->ReleaseByteArrayElements(segmentation_result, segmentation_array, JNI_FALSE);
 //    __android_log_print(ANDROID_LOG_DEBUG, "DETECTION", "%d %d %d %d %d %d %d", result_array[0],result_array[1],result_array[2],result_array[3],result_array[4],result_array[5],result_array[6]);
-
-#if defined(PRINT_PROFILE_TIME)
-    clock_gettime(CLOCK_MONOTONIC, &timespec_b);
-    printTime(timespec_a, timespec_b, "releasing buffers");
-#endif
 
     return 0;
 }
 
-/**
- * return a string that contains log lines that can be written to a file.
- * This is a workaround to the fact that JNI makes strings immutable.
- * @param env
- * @param clazz
- * @return
- */
-JNIEXPORT jstring JNICALL
-Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getProfilingStats(JNIEnv *env,
-                                                                         jclass clazz) {
-
-    return env->NewStringUTF(c_log_string);
-}
-
-/**
- * Function to return the header for the csv when logging.
- * @param env
- * @param clazz
- * @return string with names of each profiling stat
- */
-JNIEXPORT jstring JNICALL
-Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getCSVHeader(JNIEnv *env, jclass clazz) {
-    return env->NewStringUTF(CSV_HEADER);
-}
-
-/**
- * return a byte array with the results that can be directly written to a file instead of a
- * string of which the bytes will need to be gotten for the streamwriter.
- * @param env
- * @param clazz
- * @return new jbytearray with a log line
- */
-JNIEXPORT jbyteArray JNICALL
-Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getPrfilingStatsbytes(JNIEnv *env,
-                                                                             jclass clazz) {
-    auto c_str_leng = (jsize) strlen(c_log_string);
-    jbyteArray res = env->NewByteArray(c_str_leng);
-    env->SetByteArrayRegion(res, 0, c_str_leng, (jbyte *) c_log_string);
-    return res;
+char *
+get_c_log_string_pocl() {
+    return c_log_string;
 }
 
 #ifdef __cplusplus
 }
 #endif
 
-extern "C"
-void pocl_remote_get_traffic_stats(uint64_t *out_buf, int server_num);
-
-extern "C"
-JNIEXPORT jobject JNICALL
-Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getRemoteTrafficStats(JNIEnv *env,
-                                                                             jclass clazz) {
-    jclass c = env->FindClass("org/portablecl/poclaisademo/TrafficMonitor$DataPoint");
-    assert (c != nullptr);
-
-    jmethodID datapoint_constructor = env->GetMethodID(c, "<init>", "(JJJJJJ)V");
-    assert (datapoint_constructor != nullptr);
-
-    uint64_t buf[6];
-    pocl_remote_get_traffic_stats(buf, 0);
-
-    return env->NewObject(c, datapoint_constructor, (jlong) buf[0], (jlong) buf[1], (jlong) buf[2],
-                          (jlong) buf[3], (jlong) buf[4], (jlong) buf[5]);
-}

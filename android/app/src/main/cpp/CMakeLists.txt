@@ -182,6 +182,7 @@ add_library(poclnative
         sharedUtils.h
         poclImageProcessor.cpp
         utils.cpp
+        jniWrapper.cpp
         )
 
 target_include_directories(poclnative

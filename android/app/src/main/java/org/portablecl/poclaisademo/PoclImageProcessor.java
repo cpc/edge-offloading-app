@@ -4,7 +4,7 @@ import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getCSVHeader;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getPrfilingStatsbytes;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getProfilingStatsbytes;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessYUVImage;
 
@@ -351,7 +351,7 @@ public class PoclImageProcessor {
                     logBuilder.setLength(0);
                     logBuilder.append(currentTime).append(", ").append(doneTime).append(", ");
                     logStreams[0].write(logBuilder.toString().getBytes());
-                    logStreams[0].write(getPrfilingStatsbytes());
+                    logStreams[0].write(getProfilingStatsbytes());
 
                 }
 
