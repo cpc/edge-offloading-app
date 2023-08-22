@@ -137,8 +137,9 @@ char *c_log_string = nullptr;
 // enable this to print timing to logs
 #define PRINT_PROFILE_TIME
 
-#define CSV_HEADER "start_time, stop_time, inferencing_device, do_segment, do_compression, \
-image_to_buffer, run_enc_y, run_enc_uv, run_dec_y, run_dec_uv, run_yolo, read_detections, run_postprocess, read_segments \n"
+#define CSV_HEADER "start_time_ms, stop_time_ms, inferencing_device, do_segment, do_compression, \
+image_to_buffer_ns, run_enc_y_ns, run_enc_uv_ns, run_dec_y_ns, run_dec_uv_ns, run_yolo_ns, \
+read_detections_ns, run_postprocess_ns, read_segments_ns \n"
 
 // variable to check if everything is ready for execution
 int setup_success = 0;
@@ -901,7 +902,8 @@ log_dnn_events(const dnn_events_t *events, const int do_segment, char *out_strin
 #endif
 
         diff = getEventRuntime(events->segment_event);
-        chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
+        // drop last comma
+        chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu", diff);
         strncat(out_string, formatted_string, chars_used);
 
 #if defined(PRINT_PROFILE_TIME)
@@ -909,8 +911,9 @@ log_dnn_events(const dnn_events_t *events, const int do_segment, char *out_strin
 #endif
 
     } else {
-        // if no segmentation, write zeros
-        strncat(out_string, "0, 0, ", 6);
+        // if no segmentation, write zeros.
+        // drop last comma
+        strncat(out_string, "0, 0", 6);
     }
 
     return 0;
@@ -1076,7 +1079,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
 
         char formatted_string[DATA_POINT_SIZE + 1];
         // clear the string
-        strcpy(c_log_string, "\0");
+        c_log_string[0]='\0';
         int chars_used;
 
         // write config vars to log string
@@ -1166,9 +1169,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getCSVHeader(JNIEnv *env,
 JNIEXPORT jbyteArray JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getPrfilingStatsbytes(JNIEnv *env,
                                                                              jclass clazz) {
-    size_t c_str_leng = strlen(c_log_string);
-    jbyteArray res = env->NewByteArray(c_str_leng + 1);
-    env->SetByteArrayRegion(res, 0, c_str_leng + 1, (jbyte *) c_log_string);
+    auto c_str_leng = (jsize) strlen(c_log_string);
+    jbyteArray res = env->NewByteArray(c_str_leng);
+    env->SetByteArrayRegion(res, 0, c_str_leng, (jbyte *) c_log_string);
     return res;
 }
 
