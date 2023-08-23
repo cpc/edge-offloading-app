@@ -3,6 +3,9 @@
 
 # Sets the minimum version of CMake required to build the native library.
 
+# set the number of cores with which to build external projects
+set(EXTERNAL_PROJECT_CORES 8)
+
 cmake_minimum_required(VERSION 3.22.1)
 include(ExternalProject)
 
@@ -25,7 +28,6 @@ add_library( # Sets the name of the library.
         # Provides a relative path to your source file(s).
         vectorAddExample.cpp
         vectorAddExample.h
-        utils.cpp
         )
 
 target_include_directories(poclaisademo PRIVATE
@@ -88,6 +90,7 @@ ExternalProject_Add(build_opencv
         SOURCE_DIR ${EXTERNAL_PATH}/opencv
         CMAKE_GENERATOR "Unix Makefiles"
         CMAKE_ARGS ${OPENCV_CMAKE_ARGS}
+        BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
         BUILD_BYPRODUCTS
         ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_dnn.so
         ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_imgproc.so
@@ -103,6 +106,7 @@ set_target_properties(opencv_core PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_B
 
 # build pocl project
 set(POCL_CMAKE_ARGS
+        -DDISABLE_PTHREAD=1
         -DENABLE_LLVM=0
         -DENABLE_LOADABLE_DRIVERS=0
         -DENABLE_ICD=0
@@ -137,12 +141,39 @@ ExternalProject_Add(pocl
         SOURCE_DIR ${EXTERNAL_PATH}/pocl
         CMAKE_GENERATOR "Unix Makefiles"
         CMAKE_ARGS ${POCL_CMAKE_ARGS}
+        BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
         BUILD_ALWAYS True
         BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libpocl.a
         )
+# some interesting parameters set during init
+#message(WARNING "-DANDROID_NDK=${ANDROID_NDK} ")
+#message(WARNING "-DANDROID_PLATFORM=${ANDROID_PLATFORM_LEVEL}")
+#message(WARNING "-DANDROID_ABI=${ANDROID_ABI}")
+#message(WARNING "-DANDROID_NATIVE_API_LEVEL=${ANDROID_PLATFORM_LEVEL}")
 
+set(LIBYUV_CMAKE_ARGS
+        -DCMAKE_MAKE_PROGRAM=${ANDROID_NDK}/prebuilt/linux-x86_64/bin/make
+        -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK}/build/cmake/android.toolchain.cmake
+        -DANDROID_NDK=${ANDROID_NDK}
+        -DANDROID_SDK=${ANDROID_NDK}/../..
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        -DANDROID_PLATFORM=${ANDROID_PLATFORM_LEVEL}
+        -DANDROID_ABI=${ANDROID_ABI}
+        -DANDROID_NATIVE_API_LEVEL=${ANDROID_PLATFORM_LEVEL}
+        -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/libyuv
+        )
 
+ExternalProject_Add(build_libyuv
+        SOURCE_DIR ${EXTERNAL_PATH}/libyuv
+        CMAKE_GENERATOR "Unix Makefiles"
+        CMAKE_ARGS ${LIBYUV_CMAKE_ARGS}
+        BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
+        BUILD_ALWAYS True
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/libyuv/lib/libyuv.so
+        )
 
+add_library(libyuv SHARED IMPORTED)
+set_target_properties(libyuv PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/libyuv/lib/libyuv.so)
 
 add_library(poclnative
         SHARED
@@ -150,12 +181,15 @@ add_library(poclnative
         poclRemoteExample.h
         sharedUtils.h
         poclImageProcessor.cpp
+        utils.cpp
+        jniWrapper.cpp
         )
 
 target_include_directories(poclnative
         PRIVATE
         ${EXTERNAL_PATH}/pocl/include
         ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/jni/include
+        ${EXTERNAL_PATH}/libyuv/include
         )
 
 target_link_libraries(
@@ -168,10 +202,12 @@ target_link_libraries(
         opencv_imgproc
         opencv_core
         ${ONNXRUNTIME_LIBRARIES}
+        libyuv
+
         )
 
 add_dependencies(pocl build_opencv)
-add_dependencies(poclnative pocl)
+add_dependencies(poclnative pocl build_libyuv)
 add_dependencies(poclaisademo poclnative)
 
 # Specifies libraries CMake should link to your target library. You
@@ -190,4 +226,6 @@ target_link_libraries( # Specifies the target library.
         opencv_imgproc
 
         opencv_core
+
+        libyuv
         )

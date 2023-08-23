@@ -93,4 +93,13 @@ public class TrafficMonitor {
 
         return String.format("%6.1f %-4s", bandwidth_tx, magnitudeToPrefix(mag) + "bps");
     }
+
+    /**
+     * poll the raw datapoint from pocl
+     *
+     * @return the datapoint with current values
+     */
+    public DataPoint pollTrafficStats() {
+        return getRemoteTrafficStats();
+    }
 }

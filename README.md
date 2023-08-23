@@ -38,6 +38,16 @@ Android constantly updates packages and libraries that can break with newer vers
 ## Installation
 
 
+## Check that phone exposes the OpenCL library
+Some phones provide a OpenCL library that can be used in C. This library needs to be whitelisted by the vendor. This can be checked like so:
+1. adb into the phone
+2. run:
+    ```
+    cat /vendor/etc/public.libraries.txt  
+    ```
+    and check that `libOpenCL.so` is there
+
+
 ### Android Studio
 
 1. install Android Studio
@@ -60,6 +70,11 @@ In order to build and run OpenCV and BiK, it is recommended to have the followin
 `LD_LIBRARY_PATH=/usr/local/cuda-11.7/lib64:/lib/x86_64-linux-gnu` 
 
 Of these `LD_LIBRARY_PATH` is the most important.
+
+## Development
+
+While developing, there are a number of logging and debug variables that can be set. For `poclImageProcessor.ccp`, "PRINT_PROFILE_TIME" can be defined.
+On the java side, the `DevelopmentVariables.java` contains variables that make the program more verbose
 
 
 ## Common trouble shootingshooting

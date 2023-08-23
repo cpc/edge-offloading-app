@@ -47,7 +47,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="25dp"
-        android:layout_marginBottom="25dp"
+        android:layout_marginBottom="10dp"
         android:checked="false"
         android:showText="true"
         android:text="Mode"
@@ -57,12 +57,21 @@
         app:layout_constraintStart_toStartOf="parent" />
 
     <Switch
+        android:id="@+id/CompressSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        android:text="Compress"
+        app:layout_constraintBottom_toTopOf="@+id/segmentSwitch"
+        app:layout_constraintEnd_toEndOf="@+id/segmentSwitch"
+        app:layout_constraintStart_toStartOf="@+id/segmentSwitch" />
+
+    <Switch
         android:id="@+id/segmentSwitch"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="25dp"
         android:layout_marginEnd="25dp"
-        android:layout_marginBottom="25dp"
+        android:layout_marginBottom="10dp"
         android:checked="true"
         android:showText="true"
         android:text="Segmentation"

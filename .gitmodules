@@ -8,3 +8,6 @@
 [submodule "external/opencv"]
 	path = external/opencv
 	url = https://github.com/opencv/opencv
+[submodule "external/libyuv"]
+	path = external/libyuv
+	url = https://chromium.googlesource.com/libyuv/libyuv
