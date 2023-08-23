@@ -71,6 +71,11 @@ In order to build and run OpenCV and BiK, it is recommended to have the followin
 
 Of these `LD_LIBRARY_PATH` is the most important.
 
+## Development
+
+While developing, there are a number of logging and debug variables that can be set. For `poclImageProcessor.ccp`, "PRINT_PROFILE_TIME" can be defined.
+On the java side, the `DevelopmentVariables.java` contains variables that make the program more verbose
+
 
 ## Common trouble shootingshooting
 

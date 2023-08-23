@@ -132,7 +132,7 @@ char *c_log_string = nullptr;
 #define LOG_BUFFER_SIZE (DATA_POINT_SIZE * 9 + 9 +2)
 
 // enable this to print timing to logs
-#define PRINT_PROFILE_TIME
+//#define PRINT_PROFILE_TIME
 
 // variable to check if everything is ready for execution
 int setup_success = 0;
