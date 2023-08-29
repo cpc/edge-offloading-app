@@ -5,13 +5,14 @@
 package org.portablecl.poclaisademo;
 import android.content.res.AssetManager;
 
+import java.io.FileDescriptor;
 import java.nio.ByteBuffer;
 
 public class JNIPoclImageProcessor {
 
     public static native int initPoclImageProcessor(boolean enableProfiling,
                                                     AssetManager jAssetManager,
-                                                    int width, int height);
+                                                    int width, int height, int fd);
 
     public static native int destroyPoclImageProcessor();
 

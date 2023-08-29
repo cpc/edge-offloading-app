@@ -184,7 +184,8 @@ public class MainActivity extends AppCompatActivity {
     /**
      * file descriptor needed to open logging file
      */
-    private final ParcelFileDescriptor[] parcelFileDescriptors = new ParcelFileDescriptor[TOTALLOGS];
+    private final ParcelFileDescriptor[] parcelFileDescriptors =
+            new ParcelFileDescriptor[TOTALLOGS];
 
     /**
      * used to write to logging file
@@ -363,7 +364,7 @@ public class MainActivity extends AppCompatActivity {
         String cache_dir = getCacheDir().getAbsolutePath();
 
         // disable pocl logs if verbosity is 0
-        if(VERBOSITY >= 1) {
+        if (VERBOSITY >= 1) {
             setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
         }
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
@@ -372,8 +373,8 @@ public class MainActivity extends AppCompatActivity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         poclImageProcessor = new PoclImageProcessor(this, captureSize, null,
-                imageAvailableLock, enableLogging, logStreams, counter, LOCAL_DEVICE,
-                segmentationSwitch.isChecked(), comPressionSwitch.isChecked());
+                imageAvailableLock, enableLogging, counter, LOCAL_DEVICE,
+                segmentationSwitch.isChecked(), comPressionSwitch.isChecked(), uris[0]);
 
 
         // TODO: remove this example
@@ -546,7 +547,7 @@ public class MainActivity extends AppCompatActivity {
             Log.println(Log.INFO, "MA flow", "preview available, setting up camera");
 
             if (enableLogging) {
-                boolean streamRes = openFileOutputStreams();
+                boolean streamRes = openFileOutputStream(1);
 
                 if (streamRes) {
                     // todo: settle on desired period
@@ -570,17 +571,16 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-    private boolean openFileOutputStreams() {
-        for (int i = 0; i < TOTALLOGS; i++) {
-            try {
-                parcelFileDescriptors[i] = getContentResolver().openFileDescriptor(uris[i], "wa");
-                logStreams[i] = new FileOutputStream(parcelFileDescriptors[i].getFileDescriptor());
+    private boolean openFileOutputStream(int i) {
+        assert (i < TOTALLOGS);
+        try {
+            parcelFileDescriptors[i] = getContentResolver().openFileDescriptor(uris[i], "wa");
+            logStreams[i] = new FileOutputStream(parcelFileDescriptors[i].getFileDescriptor());
 
-            } catch (Exception e) {
-                Log.println(Log.WARN, "openFileOutputStreams", "could not open log file " + i);
-                logStreams[i] = null;
-                return false;
-            }
+        } catch (Exception e) {
+            Log.println(Log.WARN, "openFileOutputStreams", "could not open log file " + i);
+            logStreams[i] = null;
+            return false;
         }
         return true;
     }
@@ -714,7 +714,7 @@ public class MainActivity extends AppCompatActivity {
                 applicationContext.getPackageManager().getLaunchIntentForPackage(
                         applicationContext.getPackageName());
         Intent restartIntent = Intent.makeRestartActivityTask(intent.getComponent());
-        restartIntent.putExtra(IPKEY, IPAddress );
+        restartIntent.putExtra(IPKEY, IPAddress);
         restartIntent.putExtra(DISABLEREMOTEKEY, disableRemote);
         restartIntent.putExtra(ENABLELOGGINGKEY, enableLogging);
         applicationContext.startActivity(restartIntent);
@@ -916,7 +916,7 @@ public class MainActivity extends AppCompatActivity {
                         Log.println(Log.INFO, "EXECUTIONFLOW", "image available");
                     }
                     imageAvailableLock.release();
-                    if(imageAvailableLock.availablePermits() > 33){
+                    if (imageAvailableLock.availablePermits() > 33) {
                         Image image = imageReader.acquireLatestImage();
                         imageAvailableLock.drainPermits();
                         image.close();

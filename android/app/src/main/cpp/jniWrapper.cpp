@@ -6,6 +6,7 @@
 #include <android/asset_manager_jni.h>
 #include <android/log.h>
 #include <assert.h>
+//#include <file_descriptor_jni.h>
 #include <jni.h>
 #include "poclImageProcessor.h"
 #include <stdlib.h>
@@ -98,7 +99,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
                                                                               jboolean enableProfiling,
                                                                               jobject jAssetManager,
                                                                               jint width,
-                                                                              jint height) {
+                                                                              jint height, jint fd) {
 
     bool smuggling_ok = smuggleONNXAsset(env, jAssetManager, "yolov8n-seg.onnx");
     assert(smuggling_ok);
@@ -107,7 +108,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     char *codec_sources = read_file(env, jAssetManager, "kernels/copy.cl", &src_size);
     assert((nullptr != codec_sources) && "could not read sources");
 
-    jint res = initPoclImageProcessor(width, height, enableProfiling, codec_sources, src_size);
+    jint res = initPoclImageProcessor(width, height, enableProfiling, codec_sources, src_size, fd);
 
     destroySmugglingEvidence();
 

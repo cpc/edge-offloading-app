@@ -183,6 +183,7 @@ add_library(poclnative
         poclImageProcessor.cpp
         utils.cpp
         jniWrapper.cpp
+        event_logger.c event_logger.h
         )
 
 target_include_directories(poclnative
