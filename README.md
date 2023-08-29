@@ -25,11 +25,11 @@ Android constantly updates packages and libraries that can break with newer vers
 | **What**                      | **Version**             | **where to check**                                                     |
 |-------------------------------|-------------------------|------------------------------------------------------------------------|
 | Android Studio                | Electric Eel (2022.1.1) | file > settings > appearance & behavior > system settings > updates    |
-| JDK                           | 11                      | file > project structure > SDK Location > gradle settings > gradle JDK |
+| JDK                           | 17                      | file > project structure > SDK Location > gradle settings > gradle JDK |
 | Minimum SDK version           | 24                      | android/app/build.gradle > minSdk                                      |
 | Targeted SDK version          | 33                      | android/app/build.gradle > targetSdk                                   |
-| Gradle                        | 7.5                     | file > project structure > project > gradle version                    |
-| Android Gradle plugin version | 7.4.2                   | file > project structure > project > android gradle plugin version     |
+| Gradle                        | 8.0                     | file > project structure > project > gradle version                    |
+| Android Gradle plugin version | 8.0.2                   | file > project structure > project > android gradle plugin version     |
 | CMake                         | 3.22.1                  | android/app/src/main/cpp/CMakeLists.txt > cmake_minimum_required       |
 | NDK                           | 23.1.7779620            | (android layout in project tab) app/cpp/inlcudes/NDK                   |
 | C++                           | 17                      | android/app/build.gradle > cppFlags '-std=c++\<version\>'              |
