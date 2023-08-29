@@ -152,7 +152,7 @@ public class BenchmarkService extends Service {
     private ScheduledFuture statLoggerFuture;
 
     /**
-     *  used to schedule runnables
+     * used to schedule runnables
      */
     private ScheduledExecutorService schedulerService;
 
@@ -225,7 +225,6 @@ public class BenchmarkService extends Service {
             logStreams[i] = null;
 
         }
-        openFileOutputStreams();
 
         try {
             videoUri = Uri.parse(bundle.getString(BENCHMARKVIDEOURI, null));
@@ -255,10 +254,10 @@ public class BenchmarkService extends Service {
         setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
 
-        // todo: enable again
+        // todo: set file descriptor
         poclImageProcessor = new PoclImageProcessor(this, captureSize, null,
-                imageAvailableLock, enableLogging, logStreams, null, deviceIndex,
-                enableSegmentation, enableCompression);
+                imageAvailableLock, enableLogging, null, deviceIndex,
+                enableSegmentation, enableCompression, uris[0]);
 //        poclImageProcessor.setOrientation(true);
 
         // foreground apps only work on api version 26 and up
@@ -289,6 +288,7 @@ public class BenchmarkService extends Service {
 
         // log energy and traffic statistics
         EnergyMonitor energyMonitor = new EnergyMonitor(getApplicationContext());
+        openFileOutputStream(1);
         StatLogger statLogger = new StatLogger(logStreams[1], new TrafficMonitor(), energyMonitor);
         schedulerService = Executors.newScheduledThreadPool(2);
         statLoggerFuture = schedulerService.scheduleAtFixedRate(statLogger, 1000, 500,
@@ -467,17 +467,15 @@ public class BenchmarkService extends Service {
      *
      * @return true if successful
      */
-    private boolean openFileOutputStreams() {
-        for (int i = 0; i < TOTALLOGS; i++) {
-            try {
-                parcelFileDescriptors[i] = getContentResolver().openFileDescriptor(uris[i], "wa");
-                logStreams[i] = new FileOutputStream(parcelFileDescriptors[i].getFileDescriptor());
+    private boolean openFileOutputStream(int i) {
+        try {
+            parcelFileDescriptors[i] = getContentResolver().openFileDescriptor(uris[i], "wa");
+            logStreams[i] = new FileOutputStream(parcelFileDescriptors[i].getFileDescriptor());
 
-            } catch (Exception e) {
-                Log.println(Log.WARN, "openFileOutputStreams", "could not open log file " + i);
-                logStreams[i] = null;
-                return false;
-            }
+        } catch (Exception e) {
+            Log.println(Log.WARN, "openFileOutputStreams", "could not open log file " + i);
+            logStreams[i] = null;
+            return false;
         }
         return true;
     }

@@ -12,10 +12,14 @@ import android.content.Context;
 import android.content.res.AssetManager;
 import android.media.Image;
 import android.media.ImageReader;
+import android.net.Uri;
+import android.os.ParcelFileDescriptor;
 import android.util.Log;
 import android.util.Size;
 import android.widget.Toast;
 
+import java.io.FileDescriptor;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -69,7 +73,10 @@ public class PoclImageProcessor {
     /**
      * used to write to logging file
      */
-    private final FileOutputStream[] logStreams;
+//    private final FileOutputStream[] logStreams;
+    private final Uri uri;
+
+//    private ParcelFileDescriptor parcelFileDescriptor;
 
     private boolean orientationsSwapped;
 
@@ -88,7 +95,6 @@ public class PoclImageProcessor {
      * @param imageReader
      * @param imageAvailableLock
      * @param enableLogging
-     * @param logStreams
      * @param fpsCounter
      * @param inferencingDevice
      * @param doSegment
@@ -96,11 +102,10 @@ public class PoclImageProcessor {
      */
     public PoclImageProcessor(Context context, Size captureSize, ImageReader imageReader,
                               Semaphore imageAvailableLock, boolean enableLogging,
-                              FileOutputStream[] logStreams, FPSCounter fpsCounter,
-                              int inferencingDevice, boolean doSegment, boolean doCompression) {
+                              FPSCounter fpsCounter,
+                              int inferencingDevice, boolean doSegment, boolean doCompression, Uri uri) {
         this(null, context, captureSize, imageReader, imageAvailableLock, enableLogging,
-                logStreams,
-                fpsCounter, inferencingDevice, doSegment, doCompression);
+                fpsCounter, inferencingDevice, doSegment, doCompression, uri);
     }
 
     /**
@@ -111,7 +116,6 @@ public class PoclImageProcessor {
      * @param imageReader
      * @param imageAvailableLock
      * @param enableLogging
-     * @param logStreams
      * @param fpsCounter
      * @param inferencingDevice
      * @param doSegment
@@ -119,11 +123,10 @@ public class PoclImageProcessor {
      */
     public PoclImageProcessor(MainActivity activity, Size captureSize, ImageReader imageReader,
                               Semaphore imageAvailableLock, boolean enableLogging,
-                              FileOutputStream[] logStreams, FPSCounter fpsCounter,
-                              int inferencingDevice, boolean doSegment, boolean doCompression) {
+                              FPSCounter fpsCounter,
+                              int inferencingDevice, boolean doSegment, boolean doCompression, Uri uri) {
         this(activity, activity, captureSize, imageReader, imageAvailableLock, enableLogging,
-                logStreams,
-                fpsCounter, inferencingDevice, doSegment, doCompression);
+                fpsCounter, inferencingDevice, doSegment, doCompression, uri);
     }
 
     /**
@@ -135,7 +138,6 @@ public class PoclImageProcessor {
      * @param imageReader
      * @param imageAvailableLock
      * @param enableLogging
-     * @param logStreams
      * @param fpsCounter
      * @param inferencingDevice
      * @param doSegment
@@ -144,21 +146,21 @@ public class PoclImageProcessor {
     private PoclImageProcessor(MainActivity activity, Context context, Size captureSize,
                                ImageReader imageReader,
                                Semaphore imageAvailableLock, boolean enableLogging,
-                               FileOutputStream[] logStreams, FPSCounter fpsCounter,
-                               int inferencingDevice, boolean doSegment, boolean doCompression) {
+                               FPSCounter fpsCounter,
+                               int inferencingDevice, boolean doSegment, boolean doCompression, Uri uri) {
         this.activity = activity;
         this.context = context;
         this.captureSize = captureSize;
         this.imageReader = imageReader;
         this.imageAvailableLock = imageAvailableLock;
         this.enableLogging = enableLogging;
-        this.logStreams = logStreams;
 
         counter = fpsCounter;
         this.inferencingDevice = inferencingDevice;
         this.doSegment = doSegment;
         this.doCompression = doCompression;
         this.orientationsSwapped = false;
+        this.uri = uri;
     }
 
     /**
@@ -235,20 +237,25 @@ public class PoclImageProcessor {
         long currentTime, doneTime, poclTime;
 
         Image image = null;
-        StringBuilder logBuilder = new StringBuilder();
-        if (enableLogging) {
+
+        ParcelFileDescriptor parcelFileDescriptor = null;
+
+        int nativeFd = -1;
+        if(enableLogging) {
             try {
-                logStreams[0].write((getCSVHeader()).getBytes());
-            } catch (IOException e) {
-                Log.println(Log.WARN, "Mainactivity.java:imageProcessLoop", "could not write csv " +
-                        "header");
+                parcelFileDescriptor = context.getContentResolver().openFileDescriptor(uri, "wa");
+            } catch (FileNotFoundException e) {
+                Log.println(Log.WARN, "PoclImageProcessor.java:imageProcessLoop",
+                        "could not open log filedescriptor");
+                return;
             }
+            nativeFd = parcelFileDescriptor.getFd();
         }
         try {
             AssetManager assetManager = context.getAssets();
             int status = initPoclImageProcessor(enableLogging, assetManager,
                     captureSize.getWidth(),
-                    captureSize.getHeight());
+                    captureSize.getHeight(), nativeFd);
 
             if (-33 == status) {
                 if (null != activity) {
@@ -345,16 +352,6 @@ public class PoclImageProcessor {
                             captureSize, orientationsSwapped);
                 }
 
-
-                if (enableLogging) {
-                    // clear the stringbuilder
-                    logBuilder.setLength(0);
-                    logBuilder.append(currentTime).append(", ").append(doneTime).append(", ");
-                    logStreams[0].write(logBuilder.toString().getBytes());
-                    logStreams[0].write(getProfilingStatsbytes());
-
-                }
-
                 // used to calculate the (avg) FPS
                 if(null != counter){
                     counter.tickFrame();
@@ -386,6 +383,15 @@ public class PoclImageProcessor {
         } finally {
             // always free pocl
             destroyPoclImageProcessor();
+
+            if(null != parcelFileDescriptor){
+                try {
+                    parcelFileDescriptor.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+
             if (DEBUGEXECUTION) {
                 Log.println(Log.INFO, "EXECUTIONFLOW", "finishing image process loop");
             }

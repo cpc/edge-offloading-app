@@ -1,10 +1,11 @@
 
 
-#define CL_HPP_MINIMUM_OPENCL_VERSION 120
-#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_MINIMUM_OPENCL_VERSION 300
+#define CL_HPP_TARGET_OPENCL_VERSION 300
 
 #include <rename_opencl.h>
 #include <CL/cl.h>
+#include "event_logger.h"
 #include "poclImageProcessor.h"
 #include <string>
 #include <stdlib.h>
@@ -130,9 +131,17 @@ char *c_log_string = nullptr;
 #define DATA_POINT_SIZE 22  // number of decimal digits for 2^64 + ', '
 // allows for 9 datapoints plus 3 single digit configs, newline and term char
 #define LOG_BUFFER_SIZE (DATA_POINT_SIZE * 9 + 9 +2)
+#define MAX_EVENTS 9
+int file_descriptor;
+int frame_index;
+// used to both log and free events
+event_array_t event_array;
 
-// enable this to print timing to logs
-//#define PRINT_PROFILE_TIME
+// names of compression types, used for logging
+static const char *compression_names[] = {
+        "none",
+        "yuv"
+};
 
 // variable to check if everything is ready for execution
 int setup_success = 0;
@@ -239,7 +248,7 @@ src_size) {
  */
 int
 initPoclImageProcessor(const int width, const int height, const bool enableProfiling,
-                       const char *codec_sources, const size_t src_size) {
+                       const char *codec_sources, const size_t src_size, const int fd) {
     cl_platform_id platform;
     cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
     cl_uint devices_found;
@@ -415,6 +424,15 @@ initPoclImageProcessor(const int width, const int height, const bool enableProfi
         }
     }
 
+    // setup profiling
+    if (enableProfiling) {
+        file_descriptor = fd;
+        status = dprintf(file_descriptor, CSV_HEADER);
+        CHECK_AND_RETURN((status < 0), "could not write csv header");
+    }
+    frame_index = 0;
+    event_array = create_event_array(MAX_EVENTS);
+
     setup_success = 1;
     return 0;
 }
@@ -514,25 +532,9 @@ destroy_pocl_image_processor() {
         c_log_string = nullptr;
     }
 
+    free_event_array(&event_array);
+
     return 0;
-}
-
-cl_ulong getEventRuntime(cl_event event) {
-    int status;
-    cl_ulong event_start, event_end;
-
-    status = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong),
-                                     &event_start, NULL);
-    CHECK_AND_RETURN(status, "could not read event start date");
-
-    status = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong),
-                                     &event_end, NULL);
-    CHECK_AND_RETURN(status, "could not read event end date");
-
-    // useful for debugging
-//    __android_log_print(ANDROID_LOG_WARN, LOGTAG, "timestampe values: %ld, %ld", event_end, event_start );
-
-    return event_end - event_start;
 }
 
 #if defined(PRINT_PROFILE_TIME)
@@ -556,33 +558,6 @@ void printTime(timespec start, timespec stop, char message[256]) {
 #endif
 
 /**
- * a struct to store all events related to object detection
- */
-typedef struct {
-    cl_event ndrange_event;
-    cl_event read_event;
-    cl_event postprocess_event;
-    cl_event segment_event;
-} dnn_events_t;
-
-/**
- * release all events related to object detection
- * @param events dnn_event_t to free
- */
-void
-release_dnn_events(dnn_events_t events) {
-    clReleaseEvent(events.ndrange_event);
-    clReleaseEvent(events.read_event);
-
-    if (NULL == events.postprocess_event) {
-        clReleaseEvent(events.postprocess_event);
-    }
-    if (NULL == events.segment_event) {
-        clReleaseEvent(events.segment_event);
-    }
-}
-
-/**
  * Function to enqueue the opencl commands related to object detection.
  * @param wait_event event to wait on before starting these commands
  * @param device_index index of device doing object detection
@@ -594,7 +569,7 @@ release_dnn_events(dnn_events_t events) {
  */
 cl_int
 enqueue_dnn(const cl_event *wait_event, const int device_index, const int do_segment, cl_int
-*detection_array, cl_char *segmentation_array, dnn_events_t *events) {
+*detection_array, cl_char *segmentation_array) {
 
     cl_int status;
 
@@ -620,38 +595,40 @@ enqueue_dnn(const cl_event *wait_event, const int device_index, const int do_seg
     printTime(timespec_a, timespec_b, "assigning kernel params");
 #endif
 
+    cl_event run_dnn_event, read_detection_event;
+
     status = clEnqueueNDRangeKernel(commandQueue[device_index], dnn_kernel, 1, NULL,
                                     &global_size, &local_size, 1,
-                                    wait_event, &(events->ndrange_event));
+                                    wait_event, &run_dnn_event);
     CHECK_AND_RETURN(status, "failed to enqueue ND range DNN kernel");
+    append_to_event_array(&event_array, run_dnn_event, VAR_NAME(dnn_event));
 
     status = clEnqueueReadBuffer(commandQueue[device_index], out_buf[device_index],
                                  CL_FALSE, 0,
                                  detection_count * sizeof(cl_int), detection_array, 1,
-                                 &(events->ndrange_event), &(events->read_event));
+                                 &run_dnn_event, &read_detection_event);
     CHECK_AND_RETURN(status, "failed to read detection result buffer");
+    append_to_event_array(&event_array, read_detection_event, VAR_NAME(detect_event));
 
     if (do_segment) {
+        cl_event run_postprocess_event, read_segment_event;
 
         status = clEnqueueNDRangeKernel(commandQueue[device_index], postprocess_kernel, 1,
                                         NULL,
                                         &global_size, &local_size, 1,
-                                        &(events->ndrange_event), &(events->postprocess_event));
+                                        &run_dnn_event, &run_postprocess_event);
         CHECK_AND_RETURN(status, "failed to enqueue ND range postprocess kernel");
+        append_to_event_array(&event_array, run_postprocess_event, VAR_NAME(postprocess_event));
 
         status = clEnqueueReadBuffer(commandQueue[device_index],
                                      postprocess_buf[device_index], CL_FALSE, 0,
                                      seg_postprocess_count * sizeof(cl_char), segmentation_array, 1,
-                                     &(events->postprocess_event), &(events->segment_event));
+                                     &run_postprocess_event, &read_segment_event);
         CHECK_AND_RETURN(status, "failed to read segmentation postprocess result buffer");
-
-    } else {
-        // since segmentation is optional, set these to null
-        // so we know we don't have to release them.
-        events->postprocess_event = NULL;
-        events->segment_event = NULL;
+        append_to_event_array(&event_array, read_segment_event, VAR_NAME(segment_event));
 
     }
+
     return 0;
 }
 
@@ -702,30 +679,6 @@ copy_yuv_to_array(const cl_char *y_ptr, const int yrow_stride, const int ypixel_
 }
 
 /**
- * a struct that holds all events related to the yuv compression stages
- */
-typedef struct {
-    cl_event enc_image_event;
-    cl_event enc_y_event;
-    cl_event dec_y_event;
-    cl_event enc_uv_event;
-    cl_event dec_uv_event;
-} yuv_events_t;
-
-/**
- * Release all events in the yuv_event_t struct
- * @param events
- */
-void
-release_yuv_events(yuv_events_t events) {
-    clReleaseEvent(events.enc_image_event);
-    clReleaseEvent(events.enc_y_event);
-    clReleaseEvent(events.dec_y_event);
-    clReleaseEvent(events.enc_uv_event);
-    clReleaseEvent(events.dec_uv_event);
-}
-
-/**
  * enqueue the required opencl commands needed for YUV compression.
  * @param input_img the array holding the image data
  * @param buf_size the size size of the input_img
@@ -737,32 +690,38 @@ release_yuv_events(yuv_events_t events) {
  */
 cl_int
 enqueue_yuv_compression(const cl_uchar *input_img, const size_t buf_size, const int enc_index,
-                        const int dec_index, yuv_events_t *events, cl_event *result_event) {
+                        const int dec_index, cl_event *result_event) {
     cl_int status;
+    cl_event enc_image_event, enc_y_event, enc_uv_event,
+            dec_y_event, dec_uv_event;
 
     status = clEnqueueWriteBuffer(commandQueue[enc_index], img_buf[enc_index], CL_FALSE, 0,
-                                  buf_size, input_img, 0, NULL, &(events->enc_image_event));
+                                  buf_size, input_img, 0, NULL, &enc_image_event);
     CHECK_AND_RETURN(status, "failed to write image to enc buffers");
-
+    append_to_event_array(&event_array, enc_image_event, VAR_NAME(enc_image_event));
 
     status = clEnqueueNDRangeKernel(commandQueue[enc_index], enc_y_kernel, 2, NULL, enc_y_global,
-                                    NULL, 1, &(events->enc_image_event), &(events->enc_y_event));
+                                    NULL, 1, &enc_image_event, &enc_y_event);
     CHECK_AND_RETURN(status, "failed to enqueue enc_y_kernel");
+    append_to_event_array(&event_array, enc_y_event, VAR_NAME(enc_y_event));
 
     status = clEnqueueNDRangeKernel(commandQueue[enc_index], enc_uv_kernel, 2, NULL, enc_uv_global,
-                                    NULL, 1, &(events->enc_image_event), &(events->enc_uv_event));
+                                    NULL, 1, &enc_image_event, &enc_uv_event);
     CHECK_AND_RETURN(status, "failed to enqueue enc_uv_kernel");
+    append_to_event_array(&event_array, enc_uv_event, VAR_NAME(enc_uv_event));
 
     status = clEnqueueNDRangeKernel(commandQueue[dec_index], dec_y_kernel, 2, NULL, dec_y_global,
-                                    NULL, 1, &(events->enc_y_event), &(events->dec_y_event));
+                                    NULL, 1, &enc_y_event, &dec_y_event);
     CHECK_AND_RETURN(status, "failed to enqueue dec_y_kernel");
+    append_to_event_array(&event_array, dec_y_event, VAR_NAME(dec_y_event));
 
     // we have to wait for both since dec_y and dec_uv write to the same buffer and there is
     // no guarantee what happens if both dec_y and dec_uv write at the same time.
-    cl_event dec_uv_wait_events[] = {events->enc_uv_event, events->dec_y_event};
+    cl_event dec_uv_wait_events[] = {enc_uv_event, dec_y_event};
     status = clEnqueueNDRangeKernel(commandQueue[dec_index], dec_uv_kernel, 2, NULL, dec_uv_global,
-                                    NULL, 2, dec_uv_wait_events, &(events->dec_uv_event));
+                                    NULL, 2, dec_uv_wait_events, &dec_uv_event);
     CHECK_AND_RETURN(status, "failed to enqueue dec_uv_kernel");
+    append_to_event_array(&event_array, dec_uv_event, VAR_NAME(dec_uv_event));
 
     // move the intermediate buffers back to the phone after decompression.
     // Since we don't care about the contents, the latest state of the buffer is not moved
@@ -771,129 +730,11 @@ enqueue_yuv_compression(const cl_uchar *input_img, const size_t buf_size, const 
     cl_mem migrate_bufs[] = {out_enc_y_buf, out_enc_uv_buf};
     status = clEnqueueMigrateMemObjects(commandQueue[enc_index], 2, migrate_bufs,
                                         CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, 1,
-                                        &(events->dec_uv_event), NULL);
+                                        &dec_uv_event, NULL);
     CHECK_AND_RETURN(status, "failed to migrate buffers back");
 
     // set the event that other ocl commands can wait for
-    *result_event = events->dec_uv_event;
-
-    return 0;
-}
-
-// todo: possibly inline this function
-/**
- * write the duration of each event in events to the out_string.
- * if PRINT_PROFILE_TIME is defined, this function also prints to the terminal.
- * @param events dnn_events_t with events of interest
- * @param do_segment needed to know if segmentation events should be logged
- * @param out_string the string to write to. no checks are made that there is enough room
- * @return
- */
-cl_int
-log_dnn_events(const dnn_events_t *events, const int do_segment, char *out_string) {
-
-    int chars_used;
-    char formatted_string[DATA_POINT_SIZE + 1];
-    cl_ulong diff;
-
-    diff = getEventRuntime(events->ndrange_event);
-    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
-    strncat(out_string, formatted_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-    PRINT_DIFF(diff, "detecting")
-#endif
-
-    diff = getEventRuntime(events->read_event);
-    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
-    strncat(out_string, formatted_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-    PRINT_DIFF(diff, "reading back")
-#endif
-
-    // if segmentation is also done, log this
-    if (do_segment) {
-
-        diff = getEventRuntime(events->postprocess_event);
-        chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
-        strncat(out_string, formatted_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-        PRINT_DIFF(diff, "post process")
-#endif
-
-        diff = getEventRuntime(events->segment_event);
-        // drop last comma
-        chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu", diff);
-        strncat(out_string, formatted_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-        PRINT_DIFF(diff, "reading segs")
-#endif
-
-    } else {
-        // if no segmentation, write zeros.
-        // drop last comma
-        strncat(out_string, "0, 0", 6);
-    }
-
-    return 0;
-}
-
-/**
- * write the duration of each event in events to the out_string.
- * if PRINT_PROFILE_TIME is defined, this function also prints to the terminal.
- * @param events yuv_events_t with events of interest
- * @param out_string the string to write to. no checks are made that there is enough room
- * @return
- */
-cl_int
-log_yuv_events(const yuv_events_t *events, char *out_string) {
-
-    int chars_used;
-    char formatted_string[DATA_POINT_SIZE + 1];
-    cl_ulong diff;
-
-    diff = getEventRuntime(events->enc_image_event);
-    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
-    strncat(out_string, formatted_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-    PRINT_DIFF(diff, "writing from host img buf")
-#endif
-
-    diff = getEventRuntime(events->enc_y_event);
-    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
-    strncat(out_string, formatted_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-    PRINT_DIFF(diff, "encoding y buff")
-#endif
-
-    diff = getEventRuntime(events->enc_uv_event);
-    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
-    strncat(out_string, formatted_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-    PRINT_DIFF(diff, "encoding uv buff")
-#endif
-
-    diff = getEventRuntime(events->dec_y_event);
-    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
-    strncat(out_string, formatted_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-    PRINT_DIFF(diff, "decoding y buff")
-#endif
-
-    diff = getEventRuntime(events->dec_uv_event);
-    chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
-    strncat(out_string, formatted_string, chars_used);
-
-#if defined(PRINT_PROFILE_TIME)
-    PRINT_DIFF(diff, "decoding uv buff")
-#endif
+    *result_event = dec_uv_event;
 
     return 0;
 }
@@ -931,6 +772,9 @@ poclProcessYUVImage(const int device_index, const int do_segment, const int do_c
         return 1;
     }
 
+    struct timespec timespec_start, timespec_stop;
+    clock_gettime(CLOCK_MONOTONIC, &timespec_start);
+
     // make local copies so that they don't change during execution
     // when the user presses a button.
     device_index_copy = device_index;
@@ -946,18 +790,13 @@ poclProcessYUVImage(const int device_index, const int do_segment, const int do_c
     copy_yuv_to_array(y_ptr, yrow_stride, ypixel_stride, u_ptr, v_ptr, uvpixel_stride,
                       host_img_buf);
 
-#if defined(PRINT_PROFILE_TIME)
-    struct timespec timespec_a, timespec_b;
-    clock_gettime(CLOCK_MONOTONIC, &timespec_a);
-#endif
-
     cl_event dnn_wait_event;
-    yuv_events_t yuv_events;
+    reset_event_array(&event_array);
 
     // do compression
     if (2 == device_index_copy && (1 == local_do_compression)) {
 
-        status = enqueue_yuv_compression(host_img_buf, img_buf_size, 1, 3, &yuv_events,
+        status = enqueue_yuv_compression(host_img_buf, img_buf_size, 1, 3,
                                          &dnn_wait_event);
         CHECK_AND_RETURN(status, "could enqueue yuv compression work");
 
@@ -968,70 +807,51 @@ poclProcessYUVImage(const int device_index, const int do_segment, const int do_c
                                       img_buf_size, host_img_buf,
                                       0, NULL, &dnn_wait_event);
         CHECK_AND_RETURN(status, "failed to write image to ocl buffers");
+        append_to_event_array(&event_array, dnn_wait_event, "enc_image_event");
 
     }
 
-    dnn_events_t dnn_events;
     status = enqueue_dnn(&dnn_wait_event, device_index_copy, do_segment_copy, detection_array,
-                         segmentation_array, &dnn_events);
+                         segmentation_array);
     CHECK_AND_RETURN(status, "could not enqueue dnn kernels");
 
     status = clFinish(commandQueue[device_index_copy]);
     CHECK_AND_RETURN(status, "failed to clfinish");
 
 #if defined(PRINT_PROFILE_TIME)
+    timespec timespec_b;
     clock_gettime(CLOCK_MONOTONIC, &timespec_b);
-    printTime(timespec_a, timespec_b, "total cl stuff");
+    printTime(timespec_start, timespec_b, "total cl stuff");
 #endif
 
     if (enable_profiling) {
 
-        char formatted_string[DATA_POINT_SIZE + 1];
-        // clear the string
-        c_log_string[0] = '\0';
-        int chars_used;
+        print_events(file_descriptor, frame_index, &event_array);
 
-        // write config vars to log string
-        chars_used = sprintf(formatted_string, "%d, %d, %d, ", device_index_copy, do_segment_copy,
-                             local_do_compression);
-        strncat(c_log_string, formatted_string, chars_used);
-
-
-        if (2 == device_index_copy && (1 == local_do_compression)) {
-            log_yuv_events(&yuv_events, c_log_string);
-        } else {
-            // if no compression, write zeros
-            cl_ulong diff = getEventRuntime(dnn_wait_event);
-            chars_used = snprintf(formatted_string, DATA_POINT_SIZE, "%llu, ", diff);
-            strncat(c_log_string, formatted_string, chars_used);
-            strncat(c_log_string, "0, 0, 0, 0, ", 12);
-
-#if defined(PRINT_PROFILE_TIME)
-            PRINT_DIFF(diff, "writing from host img buff")
-#endif
-        }
-
-        log_dnn_events(&dnn_events, do_segment_copy, c_log_string);
-
-        // finally add a new line to the end of it
-        strncat(c_log_string, "\n", 1);
+        dprintf(file_descriptor, "%d,device,index,%d\n", frame_index, device_index_copy);
+        dprintf(file_descriptor, "%d,config,segment,%d\n", frame_index, do_segment_copy);
+        dprintf(file_descriptor, "%d,compression,name,%s\n", frame_index,
+                compression_names[local_do_compression]);
 
     }
 
-    if (2 == device_index_copy && (1 == local_do_compression)) {
-        release_yuv_events(yuv_events);
-    } else {
-        clReleaseEvent(dnn_wait_event);
-    }
-    release_dnn_events(dnn_events);
-
-#if defined(PRINT_PROFILE_TIME)
-    clock_gettime(CLOCK_MONOTONIC, &timespec_a);
-    printTime(timespec_b, timespec_a, "printing messages");
-#endif
+    release_events(&event_array);
 
 //    __android_log_print(ANDROID_LOG_DEBUG, "DETECTION", "%d %d %d %d %d %d %d", result_array[0],result_array[1],result_array[2],result_array[3],result_array[4],result_array[5],result_array[6]);
 
+    clock_gettime(CLOCK_MONOTONIC, &timespec_stop);
+#if defined(PRINT_PROFILE_TIME)
+    printTime(timespec_b, timespec_stop, "printing messages");
+#endif
+
+    if (enable_profiling) {
+        dprintf(file_descriptor, "%d,frame_time,start_ns,%lu\n", frame_index,
+                (timespec_start.tv_sec * 1000000000) + timespec_start.tv_nsec);
+        dprintf(file_descriptor, "%d,frame_time,stop_ns,%lu\n", frame_index,
+                (timespec_stop.tv_sec * 1000000000) + timespec_stop.tv_nsec);
+    }
+
+    frame_index++;
     return 0;
 }
 

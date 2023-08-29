@@ -364,8 +364,8 @@ public class StartupActivity extends AppCompatActivity {
             // https://developer.android.com/training/data-storage/shared/documents-files
             Intent fileIntent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
             fileIntent.addCategory(Intent.CATEGORY_OPENABLE);
-            fileIntent.setType("text/plain");
-            fileIntent.putExtra(Intent.EXTRA_TITLE, filePrefix + "_log_file.txt");
+            fileIntent.setType("text/csv");
+            fileIntent.putExtra(Intent.EXTRA_TITLE, filePrefix + "_log_file.csv");
 
             launcher.launch(fileIntent);
         }

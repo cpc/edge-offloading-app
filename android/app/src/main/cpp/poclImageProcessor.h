@@ -9,9 +9,7 @@
 
 #define LOGTAG "poclimageprocessor"
 
-#define CSV_HEADER "start_time_ms, stop_time_ms, inferencing_device, do_segment, do_compression, \
-image_to_buffer_ns, run_enc_y_ns, run_enc_uv_ns, run_dec_y_ns, run_dec_uv_ns, run_yolo_ns, \
-read_detections_ns, run_postprocess_ns, read_segments_ns \n"
+#define CSV_HEADER "frameindex,tag,parameter,value\n"
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,7 +17,7 @@ extern "C" {
 
 int
 initPoclImageProcessor(const int width, const int height, const bool enableProfiling,
-                       const char *codec_sources, const size_t src_size);
+                       const char *codec_sources, const size_t src_size, const int fd);
 
 int
 destroy_pocl_image_processor();

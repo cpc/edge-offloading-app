@@ -29,7 +29,8 @@ public class StatLogger implements Runnable {
 
         builder = new StringBuilder();
 
-        builder.append("time_bandw, bandw_down, bandw_up, time_eng, amp, volt\n");
+        builder.append("time_bandw_ns, bandw_down_B, bandw_up_B, time_eng_ns, current_mA, " +
+                "voltage_mV\n");
         try {
             stream.write(builder.toString().getBytes());
         } catch (IOException e) {
@@ -46,14 +47,14 @@ public class StatLogger implements Runnable {
         builder.setLength(0);
 
         dataPoint = trafficMonitor.pollTrafficStats();
-        timeBandw = System.currentTimeMillis();
-        builder.append(timeBandw).append(", ").append(dataPoint.rx_bytes_confirmed).append(",")
-                .append(dataPoint.tx_bytes_confirmed).append(", ");
+        timeBandw = System.nanoTime();
+        builder.append(timeBandw).append(",").append(dataPoint.rx_bytes_confirmed).append(",")
+                .append(dataPoint.tx_bytes_confirmed).append(",");
 
         volt = energyMonitor.pollVoltage();
         amp = energyMonitor.pollCurrent();
-        timeEnergy = System.currentTimeMillis();
-        builder.append(timeEnergy).append(", ").append(amp).append(", ").append(volt)
+        timeEnergy = System.nanoTime();
+        builder.append(timeEnergy).append(",").append(amp).append(",").append(volt)
                 .append("\n");
 
         try {
