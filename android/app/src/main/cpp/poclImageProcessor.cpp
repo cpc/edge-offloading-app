@@ -12,6 +12,7 @@
 #include <vector>
 #include "sharedUtils.h"
 #include <assert.h>
+#include <ctime>
 
 #ifdef __ANDROID__
 
@@ -429,6 +430,9 @@ initPoclImageProcessor(const int width, const int height, const bool enableProfi
         file_descriptor = fd;
         status = dprintf(file_descriptor, CSV_HEADER);
         CHECK_AND_RETURN((status < 0), "could not write csv header");
+        std::time_t t = std::time(nullptr);
+        status = dprintf(file_descriptor, "-1,unix_timestamp,time_s,%d\n", t);
+        CHECK_AND_RETURN((status < 0), "could not write timestamp");
     }
     frame_index = 0;
     event_array = create_event_array(MAX_EVENTS);
@@ -863,4 +867,3 @@ get_c_log_string_pocl() {
 #ifdef __cplusplus
 }
 #endif
-
