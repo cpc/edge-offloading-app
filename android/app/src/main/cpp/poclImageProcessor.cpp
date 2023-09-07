@@ -132,7 +132,7 @@ char *c_log_string = nullptr;
 #define DATA_POINT_SIZE 22  // number of decimal digits for 2^64 + ', '
 // allows for 9 datapoints plus 3 single digit configs, newline and term char
 #define LOG_BUFFER_SIZE (DATA_POINT_SIZE * 9 + 9 +2)
-#define MAX_EVENTS 9
+#define MAX_EVENTS 99
 int file_descriptor;
 int frame_index;
 // used to both log and free events
@@ -696,21 +696,21 @@ cl_int
 enqueue_yuv_compression(const cl_uchar *input_img, const size_t buf_size, const int enc_index,
                         const int dec_index, cl_event *result_event) {
     cl_int status;
-    cl_event enc_image_event, enc_y_event, enc_uv_event,
-            dec_y_event, dec_uv_event;
+    cl_event write_img_event, enc_y_event, enc_uv_event,
+            dec_y_event, dec_uv_event, migrate_event;
 
     status = clEnqueueWriteBuffer(commandQueue[enc_index], img_buf[enc_index], CL_FALSE, 0,
-                                  buf_size, input_img, 0, NULL, &enc_image_event);
+                                  buf_size, input_img, 0, NULL, &write_img_event);
     CHECK_AND_RETURN(status, "failed to write image to enc buffers");
-    append_to_event_array(&event_array, enc_image_event, VAR_NAME(enc_image_event));
+    append_to_event_array(&event_array, write_img_event, VAR_NAME(write_img_event));
 
     status = clEnqueueNDRangeKernel(commandQueue[enc_index], enc_y_kernel, 2, NULL, enc_y_global,
-                                    NULL, 1, &enc_image_event, &enc_y_event);
+                                    NULL, 1, &write_img_event, &enc_y_event);
     CHECK_AND_RETURN(status, "failed to enqueue enc_y_kernel");
     append_to_event_array(&event_array, enc_y_event, VAR_NAME(enc_y_event));
 
     status = clEnqueueNDRangeKernel(commandQueue[enc_index], enc_uv_kernel, 2, NULL, enc_uv_global,
-                                    NULL, 1, &enc_image_event, &enc_uv_event);
+                                    NULL, 1, &write_img_event, &enc_uv_event);
     CHECK_AND_RETURN(status, "failed to enqueue enc_uv_kernel");
     append_to_event_array(&event_array, enc_uv_event, VAR_NAME(enc_uv_event));
 
@@ -734,8 +734,9 @@ enqueue_yuv_compression(const cl_uchar *input_img, const size_t buf_size, const 
     cl_mem migrate_bufs[] = {out_enc_y_buf, out_enc_uv_buf};
     status = clEnqueueMigrateMemObjects(commandQueue[enc_index], 2, migrate_bufs,
                                         CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, 1,
-                                        &dec_uv_event, NULL);
+                                        &dec_uv_event, &migrate_event);
     CHECK_AND_RETURN(status, "failed to migrate buffers back");
+    append_to_event_array(&event_array, migrate_event, VAR_NAME(migrate_event));
 
     // set the event that other ocl commands can wait for
     *result_event = dec_uv_event;
@@ -811,7 +812,7 @@ poclProcessYUVImage(const int device_index, const int do_segment, const int do_c
                                       img_buf_size, host_img_buf,
                                       0, NULL, &dnn_wait_event);
         CHECK_AND_RETURN(status, "failed to write image to ocl buffers");
-        append_to_event_array(&event_array, dnn_wait_event, "enc_image_event");
+        append_to_event_array(&event_array, dnn_wait_event, "write_img_event");
 
     }
 
