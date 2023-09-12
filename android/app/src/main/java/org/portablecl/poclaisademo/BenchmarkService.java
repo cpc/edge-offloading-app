@@ -14,6 +14,8 @@ import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 import static org.portablecl.poclaisademo.StartupActivity.TOTALLOGS;
 
@@ -163,6 +165,8 @@ public class BenchmarkService extends Service {
 
     private int imageFrameTime;
 
+    private int configFlags;
+
     /**
      * needed to call native pocl functions
      */
@@ -254,9 +258,10 @@ public class BenchmarkService extends Service {
         setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
 
-        // todo: set file descriptor
+        ConfigStore configStore = new ConfigStore(this);
+        configFlags = configStore.getConfigFlags();
         poclImageProcessor = new PoclImageProcessor(this, captureSize, null,
-                imageAvailableLock, enableLogging, null, deviceIndex,
+                imageAvailableLock, configFlags, null, deviceIndex,
                 enableSegmentation, enableCompression, uris[0]);
 //        poclImageProcessor.setOrientation(true);
 

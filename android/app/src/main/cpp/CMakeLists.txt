@@ -77,7 +77,7 @@ set (OPENCV_CMAKE_ARGS
         -DOPENCV_DNN_OPENCL=1
         -DOPENCL_INCLUDE_DIR=${EXTERNAL_PATH}/libopencl-stub/include
         -DOPENCL_LIBRARY=${CMAKE_CURRENT_BINARY_DIR}/libopencl-stub-dir/libOpenCL.a
-        -DBUILD_LIST=core,dnn,imgproc
+        -DBUILD_LIST=core,dnn,imgproc,imgcodecs
         -DBUILD_ANDROID_EXAMPLES=0
         -DBUILD_ANDROID_PROJECTS=0
         -DWITH_QUIRC=0
@@ -94,6 +94,7 @@ ExternalProject_Add(build_opencv
         BUILD_BYPRODUCTS
         ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_dnn.so
         ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_imgproc.so
+        ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_imgcodecs.so
         ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_core.so
         )
 
@@ -101,8 +102,14 @@ add_library(opencv_dnn SHARED IMPORTED)
 set_target_properties(opencv_dnn PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_dnn.so)
 add_library(opencv_imgproc SHARED IMPORTED)
 set_target_properties(opencv_imgproc PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_imgproc.so)
+add_library(opencv_imgcodecs SHARED IMPORTED)
+set_target_properties(opencv_imgcodecs PROPERTIES IMPORTED_LOCATION
+        ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_imgcodecs.so)
 add_library(opencv_core SHARED IMPORTED)
 set_target_properties(opencv_core PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_core.so)
+
+add_library(libturbojpeg SHARED IMPORTED)
+set_target_properties(libturbojpeg PROPERTIES IMPORTED_LOCATION ${EXTERNAL_PATH}/android-texcomp/TexcompApp/app/src/main/cpp/libturbojpeg/${ANDROID_ABI}/libturbojpeg.a)
 
 # build pocl project
 set(POCL_CMAKE_ARGS
@@ -133,8 +140,10 @@ set(POCL_CMAKE_ARGS
         -DANDROID_NATIVE_API_LEVEL=${ANDROID_PLATFORM_LEVEL}
         -DVISIBILITY_HIDDEN=0
         -DOpenCV_DIR=${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/jni
+        -DENABLE_OPENCV_ONNX=YES
         -DONNXRUNTIME_INCLUDE_DIRS=${ONNXRUNTIME_INCLUDE_DIRS}
         -DONNXRUNTIME_LIBRARIES=${ONNXRUNTIME_LIBRARIES}
+        -DENABLE_ANDROID_COMPRESSION=YES
         )
 
 ExternalProject_Add(pocl
@@ -201,10 +210,11 @@ target_link_libraries(
         OpenCL
         opencv_dnn
         opencv_imgproc
+        opencv_imgcodecs
         opencv_core
         ${ONNXRUNTIME_LIBRARIES}
         libyuv
-
+        -ljnigraphics
         )
 
 add_dependencies(pocl build_opencv)
@@ -225,6 +235,8 @@ target_link_libraries( # Specifies the target library.
         poclnative
 
         opencv_imgproc
+
+        opencv_imgcodecs
 
         opencv_core
 

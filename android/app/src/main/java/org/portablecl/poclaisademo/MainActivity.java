@@ -8,6 +8,12 @@ import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_DEVICE;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.REMOTE_DEVICE;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 import static org.portablecl.poclaisademo.StartupActivity.TOTALLOGS;
 
@@ -40,11 +46,14 @@ import android.os.HandlerThread;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 import android.util.Size;
+import android.view.KeyEvent;
 import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.widget.EditText;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -171,15 +180,14 @@ public class MainActivity extends AppCompatActivity {
      */
     private Handler backgroundThreadHandler;
 
-    private final int LOCAL_DEVICE = 0;
 
-    private final int PASSTHRU_DEVICE = 1;
-    private final int REMOTE_DEVICE = 2;
 
     /**
      * boolean to enable logging that gets set during creation
      */
     private boolean enableLogging;
+
+    private int configFlags;
 
     /**
      * file descriptor needed to open logging file
@@ -243,6 +251,8 @@ public class MainActivity extends AppCompatActivity {
      */
     private ScheduledFuture statLoggerFuture;
 
+    private ConfigStore configStore;
+
     // Used to load the 'poclaisademo' library on application startup.
     static {
         System.loadLibrary("poclaisademo");
@@ -271,6 +281,9 @@ public class MainActivity extends AppCompatActivity {
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started onCreate method");
         }
+
+        // used to retrieve settings set by the StartupActivity
+        configStore = new ConfigStore(this);
 
         // get bundle with variables set during startup activity
         Bundle bundle = getIntent().getExtras();
@@ -350,13 +363,26 @@ public class MainActivity extends AppCompatActivity {
         counter = new FPSCounter();
         statUpdateScheduler = Executors.newScheduledThreadPool(2);
 
+
+        configFlags = configStore.getConfigFlags();
+
         if (disableRemote) {
             // disable this switch when remote is disabled
             modeSwitch.setClickable(false);
             setNativeEnv("POCL_DEVICES", "basic");
         } else {
             modeSwitch.setClickable(true);
-            setNativeEnv("POCL_DEVICES", "basic remote remote proxy");
+
+            // todo: remove this statement once init in poclimageprocessor.cpp is refactored
+            if ((YUV_COMPRESSION &  configFlags) > 1) {
+                setNativeEnv("POCL_DEVICES", "basic remote remote proxy");
+            }else if ((JPEG_COMPRESSION & configFlags) > 1) {
+                setNativeEnv("POCL_DEVICES", "basic basic remote remote");
+            }else {
+                Log.println(Log.ERROR, "mainActivity.java", "could not determince which " +
+                        "pocl devices are required");
+            }
+
             setNativeEnv("POCL_REMOTE0_PARAMETERS", IPAddress + ":10998/0");
             setNativeEnv("POCL_REMOTE1_PARAMETERS", IPAddress + ":10998/1");
         }
@@ -365,7 +391,7 @@ public class MainActivity extends AppCompatActivity {
 
         // disable pocl logs if verbosity is 0
         if (VERBOSITY >= 1) {
-            setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
+            setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error,debug,warning");
         }
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
 
@@ -373,8 +399,13 @@ public class MainActivity extends AppCompatActivity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         poclImageProcessor = new PoclImageProcessor(this, captureSize, null,
-                imageAvailableLock, enableLogging, counter, LOCAL_DEVICE,
+                imageAvailableLock, configFlags, counter, LOCAL_DEVICE,
                 segmentationSwitch.isChecked(), comPressionSwitch.isChecked(), uris[0]);
+
+        // code to handle the quality input
+        DropEditText qualityText = binding.compressionEditText;
+        qualityText.setOnEditorActionListener(qualityTextListener);
+        qualityText.setOnFocusChangeListener(qualityFocusListener);
 
 
         // TODO: remove this example
@@ -388,6 +419,63 @@ public class MainActivity extends AppCompatActivity {
         td.start();
 
     }
+
+    /**
+     * A callback that handles the quality edittext on screen when it loses focus.
+     * This callback checks the input and sets it within the bounds of 0 - 100.
+     * It also passes this input to the poclimageprocessor
+     */
+    private final View.OnFocusChangeListener qualityFocusListener = new View.OnFocusChangeListener() {
+        @Override
+        public void onFocusChange(View v, boolean hasFocus) {
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started qualityTextListener callback");
+            }
+
+            if(!hasFocus) {
+                TextView textView = (DropEditText) v;
+                int qualityInput;
+                try {
+                    qualityInput = Integer.parseInt(textView.getText().toString());
+                }catch (Exception e) {
+                    if (VERBOSITY >=3) {
+                        Log.println(Log.INFO, "MainActivity.java", "could not parse quality, " +
+                                "defaulting to 80");
+                    }
+                    qualityInput = 80;
+                    textView.setText(Integer.toString(qualityInput));
+                }
+
+                if(qualityInput < 0) {
+                    qualityInput = 0;
+                    textView.setText(Integer.toString(qualityInput));
+                }else if( qualityInput >100) {
+                    qualityInput = 100;
+                    textView.setText(Integer.toString(qualityInput));
+                }
+
+                poclImageProcessor.setQuality(qualityInput);
+            }
+        }
+    };
+
+    /**
+     * A callback that loses focus when the done button is pressed on a TextView.
+     */
+    private final TextView.OnEditorActionListener qualityTextListener =
+            new TextView.OnEditorActionListener() {
+                @Override
+                public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "started qualityTextListener callback");
+                    }
+
+                    if (EditorInfo.IME_ACTION_DONE == actionId) {
+                        v.clearFocus();
+                    }
+                    return false;
+                }
+            };
 
     /**
      * a listener to do things when the previewview changes

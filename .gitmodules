@@ -11,3 +11,6 @@
 [submodule "external/libyuv"]
 	path = external/libyuv
 	url = https://chromium.googlesource.com/libyuv/libyuv
+[submodule "external/android-texcomp"]
+	path = external/android-texcomp
+	url = git@gitlab.tuni.fi:cs/cpc/android-texcomp.git
