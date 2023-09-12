@@ -2,9 +2,11 @@ package org.portablecl.poclaisademo;
 
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getCSVHeader;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getProfilingStatsbytes;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessYUVImage;
 
@@ -18,9 +20,7 @@ import android.util.Log;
 import android.util.Size;
 import android.widget.Toast;
 
-import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.Semaphore;
@@ -68,7 +68,7 @@ public class PoclImageProcessor {
     /**
      * used to indicate if logging is enabled
      */
-    private final boolean enableLogging;
+//    private final boolean enableLogging;
 
     /**
      * used to write to logging file
@@ -84,7 +84,13 @@ public class PoclImageProcessor {
 
     private boolean doCompression;
 
+    private int compressionType;
+
     public int inferencingDevice;
+
+    private int quality;
+
+    private int configFlags;
 
 
     /**
@@ -94,17 +100,17 @@ public class PoclImageProcessor {
      * @param captureSize
      * @param imageReader
      * @param imageAvailableLock
-     * @param enableLogging
+     * @param configFlags
      * @param fpsCounter
      * @param inferencingDevice
      * @param doSegment
      * @param doCompression
      */
     public PoclImageProcessor(Context context, Size captureSize, ImageReader imageReader,
-                              Semaphore imageAvailableLock, boolean enableLogging,
+                              Semaphore imageAvailableLock, int configFlags,
                               FPSCounter fpsCounter,
                               int inferencingDevice, boolean doSegment, boolean doCompression, Uri uri) {
-        this(null, context, captureSize, imageReader, imageAvailableLock, enableLogging,
+        this(null, context, captureSize, imageReader, imageAvailableLock, configFlags,
                 fpsCounter, inferencingDevice, doSegment, doCompression, uri);
     }
 
@@ -115,17 +121,17 @@ public class PoclImageProcessor {
      * @param captureSize
      * @param imageReader
      * @param imageAvailableLock
-     * @param enableLogging
+     * @param configFlags
      * @param fpsCounter
      * @param inferencingDevice
      * @param doSegment
      * @param doCompression
      */
     public PoclImageProcessor(MainActivity activity, Size captureSize, ImageReader imageReader,
-                              Semaphore imageAvailableLock, boolean enableLogging,
+                              Semaphore imageAvailableLock, int configFlags,
                               FPSCounter fpsCounter,
                               int inferencingDevice, boolean doSegment, boolean doCompression, Uri uri) {
-        this(activity, activity, captureSize, imageReader, imageAvailableLock, enableLogging,
+        this(activity, activity, captureSize, imageReader, imageAvailableLock, configFlags,
                 fpsCounter, inferencingDevice, doSegment, doCompression, uri);
     }
 
@@ -137,7 +143,7 @@ public class PoclImageProcessor {
      * @param captureSize
      * @param imageReader
      * @param imageAvailableLock
-     * @param enableLogging
+     * @param configFlags
      * @param fpsCounter
      * @param inferencingDevice
      * @param doSegment
@@ -145,7 +151,7 @@ public class PoclImageProcessor {
      */
     private PoclImageProcessor(MainActivity activity, Context context, Size captureSize,
                                ImageReader imageReader,
-                               Semaphore imageAvailableLock, boolean enableLogging,
+                               Semaphore imageAvailableLock, int configFlags,
                                FPSCounter fpsCounter,
                                int inferencingDevice, boolean doSegment, boolean doCompression, Uri uri) {
         this.activity = activity;
@@ -153,7 +159,7 @@ public class PoclImageProcessor {
         this.captureSize = captureSize;
         this.imageReader = imageReader;
         this.imageAvailableLock = imageAvailableLock;
-        this.enableLogging = enableLogging;
+//        this.enableLogging = enableLogging;
 
         counter = fpsCounter;
         this.inferencingDevice = inferencingDevice;
@@ -161,6 +167,20 @@ public class PoclImageProcessor {
         this.doCompression = doCompression;
         this.orientationsSwapped = false;
         this.uri = uri;
+
+        this.configFlags = configFlags;
+        // default value
+        this.quality = 80;
+
+        // default to the first configured compression type
+        if((YUV_COMPRESSION & configFlags) > 0) {
+            compressionType = YUV_COMPRESSION;
+        }else if((JPEG_COMPRESSION & configFlags) > 0) {
+            compressionType = JPEG_COMPRESSION;
+        }else {
+            compressionType = NO_COMPRESSION;
+        }
+
     }
 
     /**
@@ -199,6 +219,8 @@ public class PoclImageProcessor {
         this.doCompression = doCompression;
     }
 
+    public void setCompressionType(int compressionType) { this.compressionType = compressionType;}
+
     /**
      * Set the imageReader to use
      *
@@ -207,6 +229,8 @@ public class PoclImageProcessor {
     public void setImageReader(ImageReader imageReader) {
         this.imageReader = imageReader;
     }
+
+    public void setQuality(int quality) { this.quality = quality; }
 
     /**
      * Method to call pocl. This method contains a while loop that exits
@@ -233,7 +257,7 @@ public class PoclImageProcessor {
         int YPixelStride, YRowStride;
         int UVPixelStride, UVRowStride;
         int VPixelStride, VRowStride;
-        int rotation, do_segment, do_compression;
+        int rotation, do_segment, compressionParam;
         long currentTime, doneTime, poclTime;
 
         Image image = null;
@@ -241,7 +265,7 @@ public class PoclImageProcessor {
         ParcelFileDescriptor parcelFileDescriptor = null;
 
         int nativeFd = -1;
-        if(enableLogging) {
+        if((ENABLE_PROFILING & configFlags) > 0) {
             try {
                 parcelFileDescriptor = context.getContentResolver().openFileDescriptor(uri, "wa");
             } catch (FileNotFoundException e) {
@@ -253,7 +277,7 @@ public class PoclImageProcessor {
         }
         try {
             AssetManager assetManager = context.getAssets();
-            int status = initPoclImageProcessor(enableLogging, assetManager,
+            int status = initPoclImageProcessor(configFlags, assetManager,
                     captureSize.getWidth(),
                     captureSize.getHeight(), nativeFd);
 
@@ -334,10 +358,12 @@ public class PoclImageProcessor {
 
                 rotation = orientationsSwapped ? 90 : 0;
                 do_segment = doSegment ? 1 : 0;
-                do_compression = doCompression ? 1 : 0;
+
+                // pick the right compression value
+                compressionParam = doCompression ? compressionType : NO_COMPRESSION;
 
                 currentTime = System.currentTimeMillis();
-                poclProcessYUVImage(inferencingDevice, do_segment, do_compression,
+                poclProcessYUVImage(inferencingDevice, do_segment, compressionParam, quality,
                         rotation, Y, YRowStride, YPixelStride, U, V, UVRowStride, UVPixelStride,
                         detection_results, segmentation_results);
                 doneTime = System.currentTimeMillis();

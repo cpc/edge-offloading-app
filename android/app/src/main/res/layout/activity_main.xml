@@ -60,7 +60,7 @@
         android:id="@+id/CompressSwitch"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
+        android:layout_marginBottom="25dp"
         android:text="Compress"
         app:layout_constraintBottom_toTopOf="@+id/segmentSwitch"
         app:layout_constraintEnd_toEndOf="@+id/segmentSwitch"
@@ -78,5 +78,20 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@+id/modeSwitch" />
+
+    <org.portablecl.poclaisademo.DropEditText
+        android:id="@+id/compressionEditText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="25dp"
+        android:ems="3"
+        android:inputType="number"
+        android:selectAllOnFocus="true"
+        android:text="80"
+        android:textAlignment="textEnd"
+        app:layout_constraintBottom_toTopOf="@+id/modeSwitch"
+        app:layout_constraintEnd_toEndOf="@+id/modeSwitch"
+        app:layout_constraintStart_toStartOf="@+id/modeSwitch" />
+
 
 </androidx.constraintlayout.widget.ConstraintLayout>

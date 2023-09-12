@@ -6,6 +6,7 @@
 #include <rename_opencl.h>
 #include <CL/cl.h>
 #include "event_logger.h"
+#include <libyuv/convert_argb.h>
 #include "poclImageProcessor.h"
 #include <string>
 #include <stdlib.h>
@@ -91,7 +92,12 @@ static size_t img_buf_size;
 static cl_int inp_w;
 static cl_int inp_h;
 static cl_int rotate_cw_degrees;
-static cl_int inp_format;
+//static cl_int inp_format;
+//static int compression_type;
+
+//static int compression_flags;
+static int config_flags;
+
 /**
  * the contents of the image, non compressed
  */
@@ -123,10 +129,10 @@ static cl_mem out_enc_y_buf = nullptr, out_enc_uv_buf = nullptr;
 
 // make these variables global, just in case
 // they don't get set properly during processing.
-int device_index_copy = 0;
-int do_segment_copy = 0;
-int local_do_compression = 0;
-unsigned char enable_profiling = 0;
+//int device_index_copy = 0;
+//int do_segment_copy = 0;
+//int local_do_compression = 0;
+//unsigned char enable_profiling = 0;
 
 char *c_log_string = nullptr;
 #define DATA_POINT_SIZE 22  // number of decimal digits for 2^64 + ', '
@@ -137,12 +143,6 @@ int file_descriptor;
 int frame_index;
 // used to both log and free events
 event_array_t event_array;
-
-// names of compression types, used for logging
-static const char *compression_names[] = {
-        "none",
-        "yuv"
-};
 
 // variable to check if everything is ready for execution
 int setup_success = 0;
@@ -236,24 +236,98 @@ src_size) {
     return 0;
 }
 
+static int
+init_jpeg_codecs(cl_device_id * enc_device, cl_device_id *dec_device, cl_int quality) {
 
-/**
- * setup and create the objects needed for repeated PoCL calls.
- * PoCL can be configured by setting environment variables.
- * @param width of the image
- * @param height of the image
- * @param enableProfiling enable
- * @param codec_sources the kernel sources of the codecs
- * @param src_size the size of the codec_sources
- * @return
- */
+    int status;
+    cl_program enc_program = clCreateProgramWithBuiltInKernels(context, 1, enc_device,
+                                                               "pocl.compress.to.jpeg.argb8888", &status);
+    CHECK_AND_RETURN(status, "could not create enc program");
+
+    status = clBuildProgram(enc_program, 1, enc_device, nullptr, nullptr, nullptr);
+    CHECK_AND_RETURN(status, "could not build enc program");
+
+    cl_program dec_program = clCreateProgramWithBuiltInKernels(context, 1, dec_device,
+                                                               "pocl.decompress.from.jpeg.rgb888", &status);
+    CHECK_AND_RETURN(status, "could not create dec program");
+
+    status = clBuildProgram(dec_program, 1, dec_device, nullptr, nullptr, nullptr);
+    CHECK_AND_RETURN(status, "could not build dec program");
+
+    img_buf[1] = clCreateBuffer(context, CL_MEM_READ_ONLY, tot_pixels * 4, NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the input buffer");
+
+    // overprovision this buffer since the compressed output size can vary
+    out_enc_y_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, tot_pixels * 4, NULL, &status );
+    CHECK_AND_RETURN(status, "failed to create the output buffer");
+
+    // needed to indicate how big the compressed image is
+    out_enc_uv_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(cl_int), NULL, &status );
+    CHECK_AND_RETURN(status, "failed to create the output size buffer");
+
+    enc_y_kernel = clCreateKernel(enc_program, "pocl.compress.to.jpeg.argb8888", &status);
+    CHECK_AND_RETURN(status, "failed to create enc kernel");
+
+    dec_y_kernel = clCreateKernel(dec_program, "pocl.decompress.from.jpeg.rgb888", &status);
+    CHECK_AND_RETURN(status, "failed to create dec kernel");
+
+    status = clSetKernelArg(enc_y_kernel, 0, sizeof(cl_mem), &img_buf[1]);
+    status |= clSetKernelArg(enc_y_kernel, 1, sizeof(cl_int), &inp_w);
+    status |= clSetKernelArg(enc_y_kernel, 2, sizeof(cl_int), &inp_h);
+    status |= clSetKernelArg(enc_y_kernel, 3, sizeof(cl_int), &quality);
+    status |= clSetKernelArg(enc_y_kernel, 4, sizeof(cl_mem), &out_enc_y_buf);
+    status |= clSetKernelArg(enc_y_kernel, 5, sizeof(cl_mem), &out_enc_uv_buf);
+    CHECK_AND_RETURN(status, "failed to assign kernel parameters to  enc kernel");
+
+    status = clSetKernelArg(dec_y_kernel, 0, sizeof(cl_mem), &out_enc_y_buf);
+    status |= clSetKernelArg(dec_y_kernel, 1, sizeof(cl_mem), &out_enc_uv_buf);
+    status |= clSetKernelArg(dec_y_kernel, 2, sizeof(cl_int), &inp_w);
+    status |= clSetKernelArg(dec_y_kernel, 3, sizeof(cl_int), &inp_h);
+    status |= clSetKernelArg(dec_y_kernel, 4, sizeof(cl_mem), &img_buf[2]);
+    CHECK_AND_RETURN(status, "failed to assign kernel parameters to  dec kernel");
+
+    // built-in kernels, so one dimensional
+    enc_y_global[0] = 1;
+
+    dec_y_global[0] = 1;
+
+    clReleaseProgram(enc_program);
+    clReleaseProgram(dec_program);
+
+    return 0;
+
+}
+
+
+///**
+// * setup and create the objects needed for repeated PoCL calls.
+// * PoCL can be configured by setting environment variables.
+// * @param width of the image
+// * @param height of the image
+// * @param enableProfiling enable
+// * @param codec_sources the kernel sources of the codecs
+// * @param src_size the size of the codec_sources
+// * @return
+// */
 int
-initPoclImageProcessor(const int width, const int height, const bool enableProfiling,
-                       const char *codec_sources, const size_t src_size, const int fd) {
+initPoclImageProcessor(const int width, const int height,const int init_config_flags, const char *codec_sources, const size_t src_size,
+                        const int fd) {
     cl_platform_id platform;
     cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
     cl_uint devices_found;
     cl_int status;
+
+    // todo: get this from java
+    /*
+     * 0 none
+     * 1 yuv compression
+     * 2 jpeg
+     */
+//    compression_type = 2;
+    config_flags = init_config_flags;
+
+    // todo: get this from java
+    int quality = 80;
 
     status = clGetPlatformIDs(1, &platform, NULL);
     CHECK_AND_RETURN(status, "getting platform id failed");
@@ -293,9 +367,9 @@ initPoclImageProcessor(const int width, const int height, const bool enableProfi
     context = clCreateContext(cps, devices_found, devices, NULL, NULL, &status);
     CHECK_AND_RETURN(status, "creating context failed");
 
-    enable_profiling = enableProfiling;
+//    enable_profiling = enableProfiling;
     cl_command_queue_properties cq_properties = 0;
-    if (enable_profiling) {
+    if (ENABLE_PROFILING & config_flags) {
 #ifdef __ANDROID__
         __android_log_print(ANDROID_LOG_INFO, LOGTAG, "enabling profiling");
 #endif
@@ -340,10 +414,7 @@ initPoclImageProcessor(const int width, const int height, const bool enableProfi
 
     // set some default values;
     rotate_cw_degrees = 90;
-    // 0 - RGB
-    // 1 - YUV420 NV21 Android (interleaved U/V)
-    // 2 - YUV420 (U/V separate)
-    inp_format = 1;
+
 
     inp_w = width;
     inp_h = height;
@@ -372,8 +443,13 @@ initPoclImageProcessor(const int width, const int height, const bool enableProfi
     // only allocate these buffers if the remote is also available
     if (devices_found > 1) {
         // remote device buffers
-        img_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                    img_buf_size, NULL, &status);
+        if(JPEG_COMPRESSION & config_flags) {
+            img_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                        tot_pixels * 3, NULL, &status);
+        } else {
+            img_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                        img_buf_size, NULL, &status);
+        }
         CHECK_AND_RETURN(status, "failed to create the image buffer");
 
         out_buf[2] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, total_out_count * sizeof(cl_int),
@@ -396,7 +472,7 @@ initPoclImageProcessor(const int width, const int height, const bool enableProfi
     status |= clSetKernelArg(dnn_kernel, 2, sizeof(cl_int), &inp_h);
     status |=
             clSetKernelArg(dnn_kernel, 3, sizeof(cl_int), &rotate_cw_degrees);
-    status |= clSetKernelArg(dnn_kernel, 4, sizeof(cl_int), &inp_format);
+//    status |= clSetKernelArg(dnn_kernel, 4, sizeof(cl_int), &inp_format);
     //status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &out_buf);
     //status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &out_mask_buf);
 
@@ -408,15 +484,28 @@ initPoclImageProcessor(const int width, const int height, const bool enableProfi
     global_size = 1;
     local_size = 1;
 
-    // buffer to copy image data to
-    host_img_buf = (cl_uchar *) malloc(img_buf_size);
+    // todo, refactor this nicer
+    if(JPEG_COMPRESSION & config_flags) {
+        // buffer to copy image data to
+        host_img_buf = (cl_uchar *) malloc(tot_pixels * 4);
+    } else {
+        // buffer to copy image data to
+        host_img_buf = (cl_uchar *) malloc(img_buf_size);
+    }
+
     // string to write values to for logging
     c_log_string = (char *) malloc(LOG_BUFFER_SIZE * sizeof(char));
 
     if (devices_found > 1) {
 
-        status = init_codecs(devices[1], devices[3], codec_sources, src_size);
-        CHECK_AND_RETURN(status, "init of codec kernels failed");
+        if(YUV_COMPRESSION & config_flags) {
+            status = init_codecs(devices[1], devices[3], codec_sources, src_size);
+            CHECK_AND_RETURN(status, "init of codec kernels failed");
+        }else if (JPEG_COMPRESSION & config_flags) {
+            status = init_jpeg_codecs(&devices[1], &devices[3], quality);
+            CHECK_AND_RETURN(status, "init of codec kernels failed");
+        }
+
     }
 
     for (unsigned i = 0; i < MAX_NUM_CL_DEVICES; ++i) {
@@ -426,7 +515,7 @@ initPoclImageProcessor(const int width, const int height, const bool enableProfi
     }
 
     // setup profiling
-    if (enableProfiling) {
+    if (ENABLE_PROFILING & config_flags) {
         file_descriptor = fd;
         status = dprintf(file_descriptor, CSV_HEADER);
         CHECK_AND_RETURN((status < 0), "could not write csv header");
@@ -573,7 +662,7 @@ void printTime(timespec start, timespec stop, char message[256]) {
  */
 cl_int
 enqueue_dnn(const cl_event *wait_event, const int device_index, const int do_segment, cl_int
-*detection_array, cl_char *segmentation_array) {
+*detection_array, cl_uchar *segmentation_array, cl_int inp_format) {
 
     cl_int status;
 
@@ -583,6 +672,7 @@ enqueue_dnn(const cl_event *wait_event, const int device_index, const int do_seg
 #endif
 
     status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &img_buf[device_index]);
+    status |= clSetKernelArg(dnn_kernel, 4, sizeof(cl_int), &inp_format);
     status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &out_buf[device_index]);
     status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &out_mask_buf[device_index]);
     CHECK_AND_RETURN(status, "could not assign buffers to DNN kernel");
@@ -648,8 +738,8 @@ enqueue_dnn(const cl_event *wait_event, const int device_index, const int do_seg
  * @param dest_buf
  */
 void
-copy_yuv_to_array(const cl_char *y_ptr, const int yrow_stride, const int ypixel_stride,
-                  const cl_char *u_ptr, const cl_char *v_ptr, const int uvpixel_stride,
+copy_yuv_to_array(const cl_uchar *y_ptr, const int yrow_stride, const int ypixel_stride,
+                  const cl_uchar *u_ptr, const cl_uchar *v_ptr, const int uvpixel_stride,
                   cl_uchar *dest_buf) {
 
 #if defined(PRINT_PROFILE_TIME)
@@ -743,6 +833,57 @@ enqueue_yuv_compression(const cl_uchar *input_img, const size_t buf_size, const 
 
     return 0;
 }
+/**
+ *
+ * @param input_img
+ * @param buf_size
+ * @param quality value must be between 0 and 100
+ * @param enc_index
+ * @param dec_index
+ * @param result_event
+ * @return
+ */
+cl_int
+enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const int quality, const int enc_index,
+                        const int dec_index, cl_event *result_event) {
+
+    assert ( 0 <= quality && quality <= 100 );
+    cl_int status;
+
+    status = clSetKernelArg(enc_y_kernel, 3, sizeof(cl_int), &quality);
+    CHECK_AND_RETURN(status, "could not set compression quality");
+
+    cl_event enc_image_event, enc_event, dec_event, mig_event;
+
+    // the compressed image and the size of the image are in these buffers respectively
+    cl_mem migrate_bufs[] = {out_enc_y_buf, out_enc_uv_buf};
+
+    // The latest intermediary buffers can be ANYWHERE, therefore preemptively migrate them to
+    // the enc device.
+    status = clEnqueueMigrateMemObjects(commandQueue[enc_index], 2, migrate_bufs,
+                                        CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, 0, NULL, &mig_event);
+    CHECK_AND_RETURN(status, "could not migrate buffers back");
+
+    status = clEnqueueWriteBuffer(commandQueue[enc_index], img_buf[enc_index], CL_FALSE, 0,
+                                  buf_size, input_img, 0, NULL, &enc_image_event);
+    CHECK_AND_RETURN(status, "failed to write image to enc buffers");
+    append_to_event_array(&event_array, enc_image_event, VAR_NAME(enc_image_event));
+
+    cl_event wait_events[] = {enc_image_event, mig_event};
+    status = clEnqueueNDRangeKernel(commandQueue[enc_index], enc_y_kernel, 1, NULL, enc_y_global,
+                                    NULL, 2, wait_events, &enc_event);
+    CHECK_AND_RETURN(status, "failed to enqueue compression kernel");
+    append_to_event_array(&event_array, enc_event, VAR_NAME(enc_event));
+
+    status = clEnqueueNDRangeKernel(commandQueue[dec_index], dec_y_kernel, 1, NULL, dec_y_global,
+                                    NULL, 1, &enc_event, &dec_event);
+    CHECK_AND_RETURN(status, "failed to enqueue decompression kernel");
+    append_to_event_array(&event_array, dec_event, VAR_NAME(dec_event));
+
+    *result_event = dec_event;
+
+    return 0;
+}
 
 /**
  * process the image with PoCL.
@@ -763,11 +904,11 @@ enqueue_yuv_compression(const cl_uchar *input_img, const size_t buf_size, const 
  * @return
  */
 int
-poclProcessYUVImage(const int device_index, const int do_segment, const int do_compression,
-                    const int rotation, const int8_t *y_ptr, const int yrow_stride,
-                    const int ypixel_stride, const int8_t *u_ptr, const int8_t *v_ptr,
+poclProcessYUVImage(const int device_index, const int do_segment, const compression_t compression_type,
+                    const int quality, const int rotation, const uint8_t *y_ptr, const int yrow_stride,
+                    const int ypixel_stride, const uint8_t *u_ptr, const uint8_t *v_ptr,
                     const int uvrow_stride, const int uvpixel_stride, int32_t *detection_array,
-                    int8_t *segmentation_array) {
+                    uint8_t *segmentation_array) {
 
     if (!setup_success) {
 #ifdef __ANDROID__
@@ -777,33 +918,59 @@ poclProcessYUVImage(const int device_index, const int do_segment, const int do_c
         return 1;
     }
 
+    // make sure that the input is actually a valid compression type
+    assert(CHECK_COMPRESSION_T(compression_type));
+
+    // check that this compression type is enabled
+    assert(compression_type & config_flags);
+
     struct timespec timespec_start, timespec_stop;
     clock_gettime(CLOCK_MONOTONIC, &timespec_start);
 
     // make local copies so that they don't change during execution
     // when the user presses a button.
-    device_index_copy = device_index;
-    do_segment_copy = do_segment;
-    local_do_compression = do_compression;
+    int device_index_copy = device_index;
+    int do_segment_copy = do_segment;
+//    int local_compression_type = compression_type;
 
     cl_int status;
 
     // todo: remove this variable, since the phone is always kept in portrait mode.
     rotate_cw_degrees = rotation;
 
-    // copy the yuv image data over to the host_img_buf and make sure it's semiplanar.
-    copy_yuv_to_array(y_ptr, yrow_stride, ypixel_stride, u_ptr, v_ptr, uvpixel_stride,
-                      host_img_buf);
+    // even though inp_format is assigned image_format_t,
+    // the type is set to cl_int since underlying enum types
+    // can vary and we want a known size on both the client and server.
+    cl_int inp_format;
+
+    if ((2 == device_index_copy) && (JPEG_COMPRESSION == compression_type)) {
+        inp_format = RGB;
+        status = libyuv::Android420ToARGB(y_ptr, yrow_stride, u_ptr, uvrow_stride, v_ptr,
+                                          uvrow_stride, uvpixel_stride, host_img_buf, inp_w * 4,
+                                          inp_w, inp_h);
+    } else {
+        inp_format = YUV_SEMI_PLANAR;
+        // copy the yuv image data over to the host_img_buf and make sure it's semiplanar.
+        copy_yuv_to_array(y_ptr, yrow_stride, ypixel_stride, u_ptr, v_ptr, uvpixel_stride,
+                          host_img_buf);
+    }
 
     cl_event dnn_wait_event;
     reset_event_array(&event_array);
 
     // do compression
-    if (2 == device_index_copy && (1 == local_do_compression)) {
+    if (2 == device_index_copy && (NO_COMPRESSION != compression_type)) {
 
-        status = enqueue_yuv_compression(host_img_buf, img_buf_size, 1, 3,
-                                         &dnn_wait_event);
-        CHECK_AND_RETURN(status, "could enqueue yuv compression work");
+        if (YUV_COMPRESSION == compression_type) {
+            status = enqueue_yuv_compression(host_img_buf, img_buf_size, 1, 3,
+                                             &dnn_wait_event);
+            CHECK_AND_RETURN(status, "could not enqueue yuv compression work");
+        } else if (JPEG_COMPRESSION == compression_type) {
+            // todo: refactor this so that the buf size is not calculated like this
+            status = enqueue_jpeg_compression(host_img_buf, tot_pixels * 4, quality, 1, 3,
+                                              &dnn_wait_event);
+            CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
+        }
 
     } else {
         // normal execution
@@ -817,7 +984,7 @@ poclProcessYUVImage(const int device_index, const int do_segment, const int do_c
     }
 
     status = enqueue_dnn(&dnn_wait_event, device_index_copy, do_segment_copy, detection_array,
-                         segmentation_array);
+                         segmentation_array, inp_format);
     CHECK_AND_RETURN(status, "could not enqueue dnn kernels");
 
     status = clFinish(commandQueue[device_index_copy]);
@@ -829,14 +996,15 @@ poclProcessYUVImage(const int device_index, const int do_segment, const int do_c
     printTime(timespec_start, timespec_b, "total cl stuff");
 #endif
 
-    if (enable_profiling) {
+    if (ENABLE_PROFILING & config_flags) {
 
         print_events(file_descriptor, frame_index, &event_array);
 
         dprintf(file_descriptor, "%d,device,index,%d\n", frame_index, device_index_copy);
         dprintf(file_descriptor, "%d,config,segment,%d\n", frame_index, do_segment_copy);
         dprintf(file_descriptor, "%d,compression,name,%s\n", frame_index,
-                compression_names[local_do_compression]);
+                get_compression_name(compression_type));
+        dprintf(file_descriptor, "%d,compression,quality,%d\n", quality);
 
     }
 
@@ -849,7 +1017,7 @@ poclProcessYUVImage(const int device_index, const int do_segment, const int do_c
     printTime(timespec_b, timespec_stop, "printing messages");
 #endif
 
-    if (enable_profiling) {
+    if (ENABLE_PROFILING & config_flags) {
         dprintf(file_descriptor, "%d,frame_time,start_ns,%lu\n", frame_index,
                 (timespec_start.tv_sec * 1000000000) + timespec_start.tv_nsec);
         dprintf(file_descriptor, "%d,frame_time,stop_ns,%lu\n", frame_index,
@@ -863,6 +1031,20 @@ poclProcessYUVImage(const int device_index, const int do_segment, const int do_c
 char *
 get_c_log_string_pocl() {
     return c_log_string;
+}
+
+char *
+get_compression_name(const compression_t compression_id) {
+    switch (compression_id) {
+        case NO_COMPRESSION:
+            return "none";
+        case YUV_COMPRESSION:
+            return "yuv";
+        case JPEG_COMPRESSION:
+            return "jpeg";
+        default:
+            return "unknown";
+    }
 }
 
 #ifdef __cplusplus

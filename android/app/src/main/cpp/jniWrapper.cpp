@@ -96,7 +96,7 @@ read_file(JNIEnv *env, jobject jAssetManager, const char *filename, size_t *byte
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JNIEnv *env,
                                                                               jclass clazz,
-                                                                              jboolean enableProfiling,
+                                                                              jint config_flags,
                                                                               jobject jAssetManager,
                                                                               jint width,
                                                                               jint height, jint fd) {
@@ -108,7 +108,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     char *codec_sources = read_file(env, jAssetManager, "kernels/copy.cl", &src_size);
     assert((nullptr != codec_sources) && "could not read sources");
 
-    jint res = initPoclImageProcessor(width, height, enableProfiling, codec_sources, src_size, fd);
+    jint res = initPoclImageProcessor(width, height, config_flags, codec_sources, src_size, fd);
 
     destroySmugglingEvidence();
 
@@ -152,7 +152,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                                                            jclass clazz,
                                                                            jint device_index,
                                                                            jint do_segment,
-                                                                           jint doCompression,
+                                                                           jint compression,
+                                                                           jint quality,
                                                                            jint rotation, jobject y,
                                                                            jint yrow_stride,
                                                                            jint ypixel_stride,
@@ -164,19 +165,23 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
 
     // todo: look into if iscopy=true works on android
     int32_t *detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
-    int8_t *segmentation_array = env->GetByteArrayElements(segmentation_result, JNI_FALSE);
+    // pocl returns segmentation result in uint8_t, but jbyte is int8_t
+    uint8_t *segmentation_array = reinterpret_cast<uint8_t *>(env->GetByteArrayElements(
+            segmentation_result, JNI_FALSE));
 
-    int8_t *y_ptr = (int8_t *) env->GetDirectBufferAddress(y);
-    int8_t *u_ptr = (int8_t *) env->GetDirectBufferAddress(u);
-    int8_t *v_ptr = (int8_t *) env->GetDirectBufferAddress(v);
+    uint8_t *y_ptr = (uint8_t *) env->GetDirectBufferAddress(y);
+    uint8_t *u_ptr = (uint8_t *) env->GetDirectBufferAddress(u);
+    uint8_t *v_ptr = (uint8_t *) env->GetDirectBufferAddress(v);
 
-    int res = poclProcessYUVImage(device_index, do_segment, doCompression, rotation,
+    int res = poclProcessYUVImage(device_index, do_segment,
+                                  (compression_t)compression, quality, rotation,
                                   y_ptr, yrow_stride, ypixel_stride, u_ptr, v_ptr, uvrow_stride,
                                   uvpixel_stride, detection_array, segmentation_array);
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
-    env->ReleaseByteArrayElements(segmentation_result, segmentation_array, JNI_FALSE);
+    env->ReleaseByteArrayElements(segmentation_result,
+                                  reinterpret_cast<jbyte *>(segmentation_array), JNI_FALSE);
 
     return res;
 }
