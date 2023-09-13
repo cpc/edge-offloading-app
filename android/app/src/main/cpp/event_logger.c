@@ -7,17 +7,9 @@
 #include "sharedUtils.h"
 #include <assert.h>
 
-#ifdef __ANDROID__
-
-#include <android/log.h>
-
-#define LOGTAG "event profiling"
-
-#endif
-
 event_array_t
 create_event_array(const int size) {
-    event_pair_t *array = malloc(size * sizeof(event_pair_t));
+    event_pair_t *array = (event_pair_t *)malloc(size * sizeof(event_pair_t));
     event_array_t res = {size, 0, array};
     return res;
 }
@@ -52,26 +44,26 @@ print_events(const int fd, const int frame_index, event_array_t *array) {
                                          sizeof(cl_ulong),
                                          &event_time, NULL);
         CHECK_AND_RETURN(status, "could not read event start date");
-        dprintf(fd, "%d,%s,queued_ns,%llu\n", frame_index, array->array[i].description, event_time);
+        dprintf(fd, "%d,%s,queued_ns,%lu\n", frame_index, array->array[i].description, event_time);
 
         status = clGetEventProfilingInfo(array->array[i].event, CL_PROFILING_COMMAND_SUBMIT,
                                          sizeof(cl_ulong),
                                          &event_time, NULL);
         CHECK_AND_RETURN(status, "could not read event start date");
-        dprintf(fd, "%d,%s,submit_ns,%llu\n", frame_index, array->array[i].description, event_time);
+        dprintf(fd, "%d,%s,submit_ns,%lu\n", frame_index, array->array[i].description, event_time);
 
         status = clGetEventProfilingInfo(array->array[i].event, CL_PROFILING_COMMAND_START,
                                          sizeof(cl_ulong),
                                          &event_time, NULL);
         CHECK_AND_RETURN(status, "could not read event start date");
-        dprintf(fd, "%d,%s,start_ns,%llu\n", frame_index, array->array[i].description, event_time);
+        dprintf(fd, "%d,%s,start_ns,%lu\n", frame_index, array->array[i].description, event_time);
         start = event_time;
 
         status = clGetEventProfilingInfo(array->array[i].event, CL_PROFILING_COMMAND_END,
                                          sizeof(cl_ulong),
                                          &event_time, NULL);
         CHECK_AND_RETURN(status, "could not read event end date");
-        dprintf(fd, "%d,%s,end_ns,%llu\n", frame_index, array->array[i].description, event_time);
+        dprintf(fd, "%d,%s,end_ns,%lu\n", frame_index, array->array[i].description, event_time);
 
 #ifdef PRINT_PROFILE_TIME
         PRINT_DIFF(event_time - start, array->array[i].description);
