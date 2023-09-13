@@ -3,23 +3,30 @@
 #define CL_HPP_MINIMUM_OPENCL_VERSION 300
 #define CL_HPP_TARGET_OPENCL_VERSION 300
 
+
+#if __ANDROID__
+// required for proxy device http://portablecl.org/docs/html/proxy.html
 #include <rename_opencl.h>
+
+#endif
+
 #include <CL/cl.h>
-#include "event_logger.h"
 #include <libyuv/convert_argb.h>
-#include "poclImageProcessor.h"
 #include <string>
 #include <stdlib.h>
 #include <vector>
-#include "sharedUtils.h"
 #include <assert.h>
 #include <ctime>
+#include <cmath>
 
-#ifdef __ANDROID__
+#include "poclImageProcessor.h" // defines LOGTAG
+#include "platform.h"
+#include "sharedUtils.h"
+#include "event_logger.h"
 
-#include <android/log.h>
-
-#endif
+#include <opencv2/imgproc.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/opencv.hpp>
 
 #ifdef __cplusplus
 extern "C" {
@@ -237,18 +244,20 @@ src_size) {
 }
 
 static int
-init_jpeg_codecs(cl_device_id * enc_device, cl_device_id *dec_device, cl_int quality) {
+init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int quality) {
 
     int status;
     cl_program enc_program = clCreateProgramWithBuiltInKernels(context, 1, enc_device,
-                                                               "pocl.compress.to.jpeg.argb8888", &status);
+                                                               "pocl.compress.to.jpeg.argb8888",
+                                                               &status);
     CHECK_AND_RETURN(status, "could not create enc program");
 
     status = clBuildProgram(enc_program, 1, enc_device, nullptr, nullptr, nullptr);
     CHECK_AND_RETURN(status, "could not build enc program");
 
     cl_program dec_program = clCreateProgramWithBuiltInKernels(context, 1, dec_device,
-                                                               "pocl.decompress.from.jpeg.rgb888", &status);
+                                                               "pocl.decompress.from.jpeg.rgb888",
+                                                               &status);
     CHECK_AND_RETURN(status, "could not create dec program");
 
     status = clBuildProgram(dec_program, 1, dec_device, nullptr, nullptr, nullptr);
@@ -258,11 +267,11 @@ init_jpeg_codecs(cl_device_id * enc_device, cl_device_id *dec_device, cl_int qua
     CHECK_AND_RETURN(status, "failed to create the input buffer");
 
     // overprovision this buffer since the compressed output size can vary
-    out_enc_y_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, tot_pixels * 4, NULL, &status );
+    out_enc_y_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, tot_pixels * 4, NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the output buffer");
 
     // needed to indicate how big the compressed image is
-    out_enc_uv_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(cl_int), NULL, &status );
+    out_enc_uv_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(cl_int), NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the output size buffer");
 
     enc_y_kernel = clCreateKernel(enc_program, "pocl.compress.to.jpeg.argb8888", &status);
@@ -310,8 +319,9 @@ init_jpeg_codecs(cl_device_id * enc_device, cl_device_id *dec_device, cl_int qua
 // * @return
 // */
 int
-initPoclImageProcessor(const int width, const int height,const int init_config_flags, const char *codec_sources, const size_t src_size,
-                        const int fd) {
+initPoclImageProcessor(const int width, const int height, const int init_config_flags,
+                       const char *codec_sources, const size_t src_size,
+                       const int fd) {
     cl_platform_id platform;
     cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
     cl_uint devices_found;
@@ -335,30 +345,20 @@ initPoclImageProcessor(const int width, const int height,const int init_config_f
     status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, MAX_NUM_CL_DEVICES, devices,
                             &devices_found);
     CHECK_AND_RETURN(status, "getting device id failed");
-#ifdef __ANDROID__
-    __android_log_print(ANDROID_LOG_INFO, LOGTAG, "Platform has %d devices", devices_found);
-#endif
+    LOGI("Platform has %d devices\n", devices_found);
     assert(devices_found > 0);
 
     // some info
     char result_array[256];
     for (unsigned i = 0; i < devices_found; ++i) {
         clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
-#ifdef __ANDROID__
-        __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DEVICE_NAME: %s", result_array);
-#endif
+        LOGI("CL_DEVICE_NAME: %s\n", result_array);
         clGetDeviceInfo(devices[i], CL_DEVICE_VERSION, 256 * sizeof(char), result_array, NULL);
-#ifdef __ANDROID__
-        __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DEVICE_VERSION: %s", result_array);
-#endif
+        LOGI("CL_DEVICE_VERSION: %s\n", result_array);
         clGetDeviceInfo(devices[i], CL_DRIVER_VERSION, 256 * sizeof(char), result_array, NULL);
-#ifdef __ANDROID__
-        __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DRIVER_VERSION: %s", result_array);
-#endif
+        LOGI("CL_DRIVER_VERSION: %s\n", result_array);
         clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
-#ifdef __ANDROID__
-        __android_log_print(ANDROID_LOG_INFO, LOGTAG, "CL_DEVICE_NAME: %s", result_array);
-#endif
+        LOGI("CL_DEVICE_NAME: %s\n", result_array);
     }
 
     cl_context_properties cps[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
@@ -370,9 +370,7 @@ initPoclImageProcessor(const int width, const int height,const int init_config_f
 //    enable_profiling = enableProfiling;
     cl_command_queue_properties cq_properties = 0;
     if (ENABLE_PROFILING & config_flags) {
-#ifdef __ANDROID__
-        __android_log_print(ANDROID_LOG_INFO, LOGTAG, "enabling profiling");
-#endif
+        LOGI("enabling profiling\n");
         cq_properties = CL_QUEUE_PROFILING_ENABLE;
     }
 
@@ -443,7 +441,7 @@ initPoclImageProcessor(const int width, const int height,const int init_config_f
     // only allocate these buffers if the remote is also available
     if (devices_found > 1) {
         // remote device buffers
-        if(JPEG_COMPRESSION & config_flags) {
+        if (JPEG_COMPRESSION & config_flags) {
             img_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE,
                                         tot_pixels * 3, NULL, &status);
         } else {
@@ -485,7 +483,7 @@ initPoclImageProcessor(const int width, const int height,const int init_config_f
     local_size = 1;
 
     // todo, refactor this nicer
-    if(JPEG_COMPRESSION & config_flags) {
+    if (JPEG_COMPRESSION & config_flags) {
         // buffer to copy image data to
         host_img_buf = (cl_uchar *) malloc(tot_pixels * 4);
     } else {
@@ -498,10 +496,10 @@ initPoclImageProcessor(const int width, const int height,const int init_config_f
 
     if (devices_found > 1) {
 
-        if(YUV_COMPRESSION & config_flags) {
+        if (YUV_COMPRESSION & config_flags) {
             status = init_codecs(devices[1], devices[3], codec_sources, src_size);
             CHECK_AND_RETURN(status, "init of codec kernels failed");
-        }else if (JPEG_COMPRESSION & config_flags) {
+        } else if (JPEG_COMPRESSION & config_flags) {
             status = init_jpeg_codecs(&devices[1], &devices[3], quality);
             CHECK_AND_RETURN(status, "init of codec kernels failed");
         }
@@ -520,7 +518,7 @@ initPoclImageProcessor(const int width, const int height,const int init_config_f
         status = dprintf(file_descriptor, CSV_HEADER);
         CHECK_AND_RETURN((status < 0), "could not write csv header");
         std::time_t t = std::time(nullptr);
-        status = dprintf(file_descriptor, "-1,unix_timestamp,time_s,%d\n", t);
+        status = dprintf(file_descriptor, "-1,unix_timestamp,time_s,%ld\n", t);
         CHECK_AND_RETURN((status < 0), "could not write timestamp");
     }
     frame_index = 0;
@@ -631,7 +629,7 @@ destroy_pocl_image_processor() {
 }
 
 #if defined(PRINT_PROFILE_TIME)
-void printTime(timespec start, timespec stop, char message[256]) {
+void printTime(timespec start, timespec stop, const char message[256]) {
 
     time_t s = stop.tv_sec - start.tv_sec;
     unsigned long final = s * 1000000000;
@@ -641,12 +639,10 @@ void printTime(timespec start, timespec stop, char message[256]) {
     int ms = final / 1000000;
     int ns = final % 1000000;
 
-    char display_message[256 + 16];
-    strcpy(display_message, message);
-    strcat(display_message, ": %d ms, %d ns");
-#ifdef __ANDROID__
-    __android_log_print(ANDROID_LOG_WARN, LOGTAG "timing", display_message, ms, ns);
-#endif
+    // char display_message[256 + 16];
+    // strcpy(display_message, message);
+    // strcat(display_message, ": %d ms, %d ns");
+    LOGW("timing %s: %d ms, %d ns\n", message, ms, ns);
 }
 #endif
 
@@ -844,10 +840,11 @@ enqueue_yuv_compression(const cl_uchar *input_img, const size_t buf_size, const 
  * @return
  */
 cl_int
-enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const int quality, const int enc_index,
-                        const int dec_index, cl_event *result_event) {
+enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const int quality,
+                         const int enc_index,
+                         const int dec_index, cl_event *result_event) {
 
-    assert ( 0 <= quality && quality <= 100 );
+    assert (0 <= quality && quality <= 100);
     cl_int status;
 
     status = clSetKernelArg(enc_y_kernel, 3, sizeof(cl_int), &quality);
@@ -861,7 +858,8 @@ enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const
     // The latest intermediary buffers can be ANYWHERE, therefore preemptively migrate them to
     // the enc device.
     status = clEnqueueMigrateMemObjects(commandQueue[enc_index], 2, migrate_bufs,
-                                        CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, 0, NULL, &mig_event);
+                                        CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, 0, NULL,
+                                        &mig_event);
     CHECK_AND_RETURN(status, "could not migrate buffers back");
 
     status = clEnqueueWriteBuffer(commandQueue[enc_index], img_buf[enc_index], CL_FALSE, 0,
@@ -904,17 +902,16 @@ enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const
  * @return
  */
 int
-poclProcessYUVImage(const int device_index, const int do_segment, const compression_t compression_type,
-                    const int quality, const int rotation, const uint8_t *y_ptr, const int yrow_stride,
+poclProcessYUVImage(const int device_index, const int do_segment,
+                    const compression_t compression_type,
+                    const int quality, const int rotation, const uint8_t *y_ptr,
+                    const int yrow_stride,
                     const int ypixel_stride, const uint8_t *u_ptr, const uint8_t *v_ptr,
                     const int uvrow_stride, const int uvpixel_stride, int32_t *detection_array,
                     uint8_t *segmentation_array) {
 
     if (!setup_success) {
-#ifdef __ANDROID__
-        __android_log_print(ANDROID_LOG_ERROR, LOGTAG,
-                            "poclProcessYUVImage called but setup did not complete successfully");
-#endif
+        LOGE("poclProcessYUVImage called but setup did not complete successfully\n");
         return 1;
     }
 
@@ -1004,13 +1001,11 @@ poclProcessYUVImage(const int device_index, const int do_segment, const compress
         dprintf(file_descriptor, "%d,config,segment,%d\n", frame_index, do_segment_copy);
         dprintf(file_descriptor, "%d,compression,name,%s\n", frame_index,
                 get_compression_name(compression_type));
-        dprintf(file_descriptor, "%d,compression,quality,%d\n", quality);
+        dprintf(file_descriptor, "%d,compression,quality,%d\n", frame_index, quality);
 
     }
 
     release_events(&event_array);
-
-//    __android_log_print(ANDROID_LOG_DEBUG, "DETECTION", "%d %d %d %d %d %d %d", result_array[0],result_array[1],result_array[2],result_array[3],result_array[4],result_array[5],result_array[6]);
 
     clock_gettime(CLOCK_MONOTONIC, &timespec_stop);
 #if defined(PRINT_PROFILE_TIME)
@@ -1033,7 +1028,7 @@ get_c_log_string_pocl() {
     return c_log_string;
 }
 
-char *
+const char *
 get_compression_name(const compression_t compression_id) {
     switch (compression_id) {
         case NO_COMPRESSION:

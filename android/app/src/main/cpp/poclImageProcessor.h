@@ -5,9 +5,9 @@
 #ifndef POCL_AISA_DEMO_POCLIMAGEPROCESSOR_H
 #define POCL_AISA_DEMO_POCLIMAGEPROCESSOR_H
 
-#include "stdint.h"
+#define LOGTAG "poclaisademo"
 
-#define LOGTAG "poclimageprocessor"
+#include "stdint.h"
 
 #define CSV_HEADER "frameindex,tag,parameter,value\n"
 
@@ -76,7 +76,7 @@ get_c_log_string_pocl();
 void
 pocl_remote_get_traffic_stats(uint64_t *out_buf, int server_num);
 
-char *
+const char *
 get_compression_name(const compression_t compression_id);
 
 #ifdef __cplusplus

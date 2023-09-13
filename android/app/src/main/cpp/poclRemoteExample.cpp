@@ -180,4 +180,3 @@ Java_org_portablecl_poclaisademo_MainActivity_setPoCLEnv(JNIEnv *env, jobject th
 #ifdef __cplusplus
 }
 #endif
-
