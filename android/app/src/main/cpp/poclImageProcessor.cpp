@@ -11,6 +11,7 @@
 #endif
 
 #include <CL/cl.h>
+#include <CL/cl_ext_pocl.h>
 #include <libyuv/convert_argb.h>
 #include <string>
 #include <stdlib.h>
@@ -271,8 +272,13 @@ init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int qual
     CHECK_AND_RETURN(status, "failed to create the output buffer");
 
     // needed to indicate how big the compressed image is
-    out_enc_uv_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(cl_int), NULL, &status);
+    out_enc_uv_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(cl_ulong), NULL, &status );
     CHECK_AND_RETURN(status, "failed to create the output size buffer");
+
+    // pocl content extension, allows for only the used part of the buffer to be transferred
+    // https://registry.khronos.org/OpenCL/extensions/pocl/cl_pocl_content_size.html
+    status = clSetContentSizeBufferPoCL(out_enc_y_buf, out_enc_uv_buf);
+    CHECK_AND_RETURN(status, "could not apply content size extension");
 
     enc_y_kernel = clCreateKernel(enc_program, "pocl.compress.to.jpeg.argb8888", &status);
     CHECK_AND_RETURN(status, "failed to create enc kernel");
