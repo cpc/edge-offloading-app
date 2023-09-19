@@ -19,11 +19,13 @@ public class ConfigStore {
 
     private SharedPreferences.Editor editor;
 
-    private final String logTag = "configStore";
-    private final String keyPrefix = "org.portablecl.poclaisademo.";
-    private final String preferencStoreName = keyPrefix +"configstore";
+    private final static String logTag = "configStore";
+    private final static String keyPrefix = "org.portablecl.poclaisademo.";
+    private final static String preferencStoreName = keyPrefix +"configstore";
 
-    private final String configFlagKey = keyPrefix + "configflagkey";
+    private final static String configFlagKey = keyPrefix + "configflagkey";
+
+    private final static String uriLogKey = keyPrefix + "urilogkey";
 
     /**
      *
@@ -53,6 +55,18 @@ public class ConfigStore {
             Log.println(Log.INFO, logTag, String.format("setting config flags to: 0x%08X", configFlags));
         }
         editor.putInt(configFlagKey, configFlags);
+    }
+
+    public String getLogUri(String key) {
+        return preferences.getString(uriLogKey+key, null);
+    }
+
+    public void setLogUri(String key, String value) {
+        if (VERBOSITY >= 2) {
+            Log.println(Log.INFO, logTag, String.format("setting uri key %s to: %s", key, value));
+        }
+
+        editor.putString(uriLogKey+key, value);
     }
 
     /**

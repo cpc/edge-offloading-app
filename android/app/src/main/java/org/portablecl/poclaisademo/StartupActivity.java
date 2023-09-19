@@ -1,10 +1,12 @@
 package org.portablecl.poclaisademo;
 
+import static org.portablecl.poclaisademo.BundleKeys.CAMERALOGFILEURIKEY;
 import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
 import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static org.portablecl.poclaisademo.BundleKeys.MONITORLOGFILEURIKEY;
 import static org.portablecl.poclaisademo.BundleKeys.POCLLOGFILEURIKEY;
+import static org.portablecl.poclaisademo.BundleKeys.TOTALLOGS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
@@ -43,10 +45,10 @@ import org.portablecl.poclaisademo.databinding.ActivityStartupBinding;
 
 public class StartupActivity extends AppCompatActivity {
 
-    public static final int TOTALLOGS = 2;
-
     private static final String[] preferencekeys = {"org.portablecl.poclaisademo.logfile.urikey",
-            "org.portablecl.poclaisademo.logfile.monitorurikey"};
+            "org.portablecl.poclaisademo.logfile.monitorurikey", "org.portablecl.poclaisademo.logfile.cameralogurikey"};
+
+    private static final String[] filePrefixes = {"pocl", "monitor", "camera"};
 
     /**
      * static prefix to use with displaying the file name
@@ -102,6 +104,8 @@ public class StartupActivity extends AppCompatActivity {
     private ToggleButton yuvCompButton;
     private ToggleButton jpegCompButton;
 
+    private Switch cameraLogSwitch;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -126,24 +130,19 @@ public class StartupActivity extends AppCompatActivity {
 
         // display file name
         fileViews[0] = binding.poclFileNameView;
-        String fileName = getFileName(uris[0]);
-        if (null == fileName) {
-            fileExistsChecks[0] = false;
-            fileName = "no file";
-        } else {
-            fileExistsChecks[0] = true;
-        }
-        fileViews[0].setText(fileTextPrefix + fileName);
-
         fileViews[1] = binding.monitorFileNameView;
-        fileName = getFileName(uris[1]);
-        if (null == fileName) {
-            fileExistsChecks[1] = false;
-            fileName = "no file";
-        } else {
-            fileExistsChecks[1] = true;
+        fileViews[2] = binding.cameraLogFileNameView;
+
+        for(int i = 0; i < TOTALLOGS; i++) {
+            String fileName = getFileName(uris[i]);
+            if (null == fileName) {
+                fileExistsChecks[i] = false;
+                fileName = "no file";
+            } else {
+                fileExistsChecks[i] = true;
+            }
+            fileViews[i].setText(fileTextPrefix + fileName);
         }
-        fileViews[1].setText(fileTextPrefix + fileName);
 
         Bundle bundle = getIntent().getExtras();
 
@@ -181,18 +180,17 @@ public class StartupActivity extends AppCompatActivity {
         Log.println(Log.INFO, "startupactivity", "setting logging to: " + enableLogging);
         enableLoggingSwitch.setChecked(enableLogging);
 
+        // button to select log files for the pocl image processor
         ActivityResultLauncher<Intent> resultLauncher;
-        Button selectURI = binding.poclSelectURI;
-        resultLauncher =
-                registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
-                        new HandleActivityResultCallback(0));
-        selectURI.setOnClickListener(new SelectURIListener("pocl", resultLauncher));
+        Button[] buttons = {binding.poclSelectURI, binding.monitorSelectURI,
+                binding.cameraLogSelectURI};
 
-        selectURI = binding.monitorSelectURI;
-        resultLauncher =
-                registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
-                        new HandleActivityResultCallback(1));
-        selectURI.setOnClickListener(new SelectURIListener("monitor", resultLauncher));
+        for(int i = 0; i< TOTALLOGS; i++) {
+            resultLauncher =
+                    registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
+                            new HandleActivityResultCallback(i));
+            buttons[i].setOnClickListener(new SelectURIListener(filePrefixes[i], resultLauncher));
+        }
 
         Button benchmarkButton = binding.BenchmarkButton;
         benchmarkButton.setOnClickListener(startBenchmarkListener);
@@ -201,6 +199,8 @@ public class StartupActivity extends AppCompatActivity {
         yuvCompButton.setOnClickListener(yuvCompButtonListener);
         jpegCompButton = binding.jpegCompButton;
         jpegCompButton.setOnClickListener(jpegCompButtonListener);
+
+        cameraLogSwitch = binding.cameraLogSwitch;
 
     }
 
@@ -305,13 +305,7 @@ public class StartupActivity extends AppCompatActivity {
             i.putExtra(DISABLEREMOTEKEY, disableRemote);
             i.putExtra(ENABLELOGGINGKEY, enableLogging);
 
-            int configFlag = NO_COMPRESSION;
-            if(yuvCompButton.isChecked()) {
-                configFlag |= YUV_COMPRESSION;
-            }
-            if(jpegCompButton.isChecked()) {
-                configFlag |= JPEG_COMPRESSION;
-            }
+            int configFlag = genConfigFlags();
 
             if (enableLogging) {
                 String uriString = uris[0].toString();
@@ -319,8 +313,14 @@ public class StartupActivity extends AppCompatActivity {
                 uriString = uris[1].toString();
                 i.putExtra(MONITORLOGFILEURIKEY, uriString);
 
-                configFlag |= ENABLE_PROFILING;
+                // only add it if camera logging is enabled
+                if(cameraLogSwitch.isChecked()) {
+                    uriString = uris[2].toString();
+                    i.putExtra(CAMERALOGFILEURIKEY, uriString);
+                }
+
             }
+
             configStore.setConfigFlags(configFlag);
             // settings are only saved when calling this function.
             configStore.flushSetting();
@@ -363,10 +363,33 @@ public class StartupActivity extends AppCompatActivity {
             uriString = uris[1].toString();
             i.putExtra(MONITORLOGFILEURIKEY, uriString);
 
+            int configFlags = genConfigFlags();
+            configStore.setConfigFlags(configFlags);
+            // settings are only saved when calling this function.
+            configStore.flushSetting();
+
             // start the main activity
             startActivity(i);
         }
     };
+
+    /**
+     * a function to generate configflags from the buttons
+     * @return a valid configflag
+     */
+    int genConfigFlags() {
+        int configFlag = NO_COMPRESSION;
+        if(yuvCompButton.isChecked()) {
+            configFlag |= YUV_COMPRESSION;
+        }
+        if(jpegCompButton.isChecked()) {
+            configFlag |= JPEG_COMPRESSION;
+        }
+        if(enableLogging) {
+            configFlag |= ENABLE_PROFILING;
+        }
+        return  configFlag;
+    }
 
     /**
      * listener that causes the ip textview to lose focus once the

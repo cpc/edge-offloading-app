@@ -6,16 +6,14 @@ import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
 import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
+import static org.portablecl.poclaisademo.BundleKeys.TOTALLOGS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_DEVICE;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.REMOTE_DEVICE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
-import static org.portablecl.poclaisademo.StartupActivity.TOTALLOGS;
 
 import android.Manifest;
 import android.content.Context;
@@ -53,7 +51,6 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
-import android.widget.EditText;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -180,6 +177,9 @@ public class MainActivity extends AppCompatActivity {
      */
     private Handler backgroundThreadHandler;
 
+    private HandlerThread cameraLogThread;
+
+    private Handler cameraLogHandler;
 
 
     /**
@@ -250,6 +250,8 @@ public class MainActivity extends AppCompatActivity {
      * needed to stop the stat logging thread
      */
     private ScheduledFuture statLoggerFuture;
+
+    private CameraLogger cameraLogger;
 
     private ConfigStore configStore;
 
@@ -374,11 +376,11 @@ public class MainActivity extends AppCompatActivity {
             modeSwitch.setClickable(true);
 
             // todo: remove this statement once init in poclimageprocessor.cpp is refactored
-            if ((YUV_COMPRESSION &  configFlags) > 1) {
+            if ((YUV_COMPRESSION & configFlags) > 1) {
                 setNativeEnv("POCL_DEVICES", "basic remote remote proxy");
-            }else if ((JPEG_COMPRESSION & configFlags) > 1) {
+            } else if ((JPEG_COMPRESSION & configFlags) > 1) {
                 setNativeEnv("POCL_DEVICES", "basic basic remote remote");
-            }else {
+            } else {
                 Log.println(Log.ERROR, "mainActivity.java", "could not determince which " +
                         "pocl devices are required");
             }
@@ -407,7 +409,6 @@ public class MainActivity extends AppCompatActivity {
         qualityText.setOnEditorActionListener(qualityTextListener);
         qualityText.setOnFocusChangeListener(qualityFocusListener);
 
-
         // TODO: remove this example
         // this is an example run
         // Running in separate thread to avoid UI hangs
@@ -425,20 +426,21 @@ public class MainActivity extends AppCompatActivity {
      * This callback checks the input and sets it within the bounds of 0 - 100.
      * It also passes this input to the poclimageprocessor
      */
-    private final View.OnFocusChangeListener qualityFocusListener = new View.OnFocusChangeListener() {
+    private final View.OnFocusChangeListener qualityFocusListener =
+            new View.OnFocusChangeListener() {
         @Override
         public void onFocusChange(View v, boolean hasFocus) {
             if (DEBUGEXECUTION) {
                 Log.println(Log.INFO, "EXECUTIONFLOW", "started qualityTextListener callback");
             }
 
-            if(!hasFocus) {
+            if (!hasFocus) {
                 TextView textView = (DropEditText) v;
                 int qualityInput;
                 try {
                     qualityInput = Integer.parseInt(textView.getText().toString());
-                }catch (Exception e) {
-                    if (VERBOSITY >=3) {
+                } catch (Exception e) {
+                    if (VERBOSITY >= 3) {
                         Log.println(Log.INFO, "MainActivity.java", "could not parse quality, " +
                                 "defaulting to 80");
                     }
@@ -446,10 +448,10 @@ public class MainActivity extends AppCompatActivity {
                     textView.setText(Integer.toString(qualityInput));
                 }
 
-                if(qualityInput < 0) {
+                if (qualityInput < 0) {
                     qualityInput = 0;
                     textView.setText(Integer.toString(qualityInput));
-                }else if( qualityInput >100) {
+                } else if (qualityInput > 100) {
                     qualityInput = 100;
                     textView.setText(Integer.toString(qualityInput));
                 }
@@ -467,7 +469,8 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
                     if (DEBUGEXECUTION) {
-                        Log.println(Log.INFO, "EXECUTIONFLOW", "started qualityTextListener callback");
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "started qualityTextListener " +
+                                "callback");
                     }
 
                     if (EditorInfo.IME_ACTION_DONE == actionId) {
@@ -758,6 +761,24 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * Method to log an image from outside the main activity
+     *
+     * @param systemTime time in ns when image was acquired
+     * @param deviceTime timestamp of the image
+     */
+    public void logImage(long systemTime, long deviceTime) {
+
+        if (null != cameraLogger) {
+            cameraLogger.logImage(systemTime, deviceTime);
+        } else if(VERBOSITY >=3){
+            // very well possible that the cameralogger was not initialized on purpose
+            Log.println(Log.WARN, "cameralogger", "logImage called but logger was not initialized");
+        }
+
+    }
+
+
+    /**
      * this is the first function is called when stopping an activity
      * <p>
      * see https://developer.android.com/guide/components/activities/activity-lifecycle
@@ -1013,6 +1034,7 @@ public class MainActivity extends AppCompatActivity {
                                     "got really full");
                         }
                     }
+
                 }
             };
 
@@ -1328,11 +1350,14 @@ public class MainActivity extends AppCompatActivity {
             Surface imageReaderSurface = imageReader.getSurface();
             requestBuilder.addTarget(imageReaderSurface);
 
+
             // todo: use the new proper method for creating a capture session
             // https://stackoverflow.com/questions/67077568/how-to-correctly-use-the-new-createcapturesession-in-camera2-in-android
             chosenCamera.createCaptureSession(Arrays.asList(previewSurface,
                             imageReaderSurface),
                     previewStateCallback, null);
+
+
         } catch (CameraAccessException e) {
             Log.println(Log.ERROR, "MainActivity.java:createPreview", "could not access camera");
             e.printStackTrace();
@@ -1362,9 +1387,17 @@ public class MainActivity extends AppCompatActivity {
 
                         CaptureRequest captureRequest = requestBuilder.build();
 
+                        cameraLogger = null;
+                        if (enableLogging) {
+                            // only set callback if the filestream is successfully opened
+                            if (null != uris[2] && openFileOutputStream(2)) {
+                                cameraLogger = new CameraLogger(logStreams[2]);
+                            }
+                        }
+
                         // todo: possibly add listener to request
-                        captureSession.setRepeatingRequest(captureRequest, null,
-                                backgroundThreadHandler);
+                        captureSession.setRepeatingRequest(captureRequest, cameraLogger,
+                                cameraLogHandler);
 
                     } catch (CameraAccessException e) {
                         Log.println(Log.ERROR, "MainActivity.java:previewStateCallback", "failed " +
@@ -1428,6 +1461,10 @@ public class MainActivity extends AppCompatActivity {
         backgroundThread.start();
         backgroundThreadHandler = new Handler(backgroundThread.getLooper());
 
+        cameraLogThread = new HandlerThread("CameraLoggingThread");
+        cameraLogThread.start();
+        cameraLogHandler = new Handler(cameraLogThread.getLooper());
+
     }
 
     /**
@@ -1438,9 +1475,14 @@ public class MainActivity extends AppCompatActivity {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started stopBackgroundThread method");
         }
         backgroundThread.quitSafely();
+        cameraLogThread.quitSafely();
         try {
             backgroundThread.join();
             backgroundThread = null;
+            backgroundThreadHandler = null;
+
+            cameraLogThread.join();
+            cameraLogThread = null;
             backgroundThreadHandler = null;
 
         } catch (InterruptedException e) {

@@ -23,7 +23,7 @@
         android:id="@+id/startButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="50dp"
+        android:layout_marginBottom="25dp"
         android:text="Start"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
@@ -37,7 +37,7 @@
         android:completionThreshold="0"
         android:ems="10"
         android:inputType="text"
-        android:text="192.168.50.112"
+        android:text="192.168.88.253"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.497"
         app:layout_constraintStart_toStartOf="parent"
@@ -180,14 +180,48 @@
         android:id="@+id/compressionText"
         android:layout_width="242dp"
         android:layout_height="22dp"
-        android:layout_marginTop="15dp"
+        android:layout_marginTop="10dp"
         android:gravity="center"
         android:text="Compression Type: "
         android:textAppearance="@style/TextAppearance.AppCompat.Body2"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.497"
         app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/cameraLogSelectURI" />
+
+    <TextView
+        android:id="@+id/cameraLogFileNameView"
+        android:layout_width="242dp"
+        android:layout_height="22dp"
+        android:layout_marginTop="10dp"
+        android:gravity="center"
+        android:text="Camera Log file name: "
+        android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.497"
+        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/monitorSelectURI" />
+
+    <Button
+        android:id="@+id/cameraLogSelectURI"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="select file"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.491"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/cameraLogFileNameView" />
+
+    <Switch
+        android:id="@+id/cameraLogSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="10dp"
+        android:text="Log Cam"
+        app:layout_constraintBottom_toBottomOf="@+id/cameraLogSelectURI"
+        app:layout_constraintEnd_toStartOf="@+id/cameraLogSelectURI"
+        app:layout_constraintTop_toTopOf="@+id/cameraLogSelectURI" />
 
 
 </androidx.constraintlayout.widget.ConstraintLayout>

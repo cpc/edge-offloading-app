@@ -24,7 +24,10 @@ public class BundleKeys {
      */
     public static final String MONITORLOGFILEURIKEY = "monitorlogfileuri";
 
-    public static final String[] LOGKEYS = {POCLLOGFILEURIKEY, MONITORLOGFILEURIKEY};
+    public static final String CAMERALOGFILEURIKEY = "cameralogfileuri";
+
+    public static final int TOTALLOGS = 3;
+    public static final String[] LOGKEYS = {POCLLOGFILEURIKEY, MONITORLOGFILEURIKEY, CAMERALOGFILEURIKEY};
 
     public static final String VIDEOBENCHMARKKEY = "videobenchmarkkey";
 

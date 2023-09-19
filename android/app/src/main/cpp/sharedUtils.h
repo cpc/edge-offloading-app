@@ -10,7 +10,7 @@
 #include "platform.h"
 
 // enable this to print timing to logs
-#define PRINT_PROFILE_TIME
+//#define PRINT_PROFILE_TIME
 
 /**
  * when using this, don't forget to define LOGTAG before hand

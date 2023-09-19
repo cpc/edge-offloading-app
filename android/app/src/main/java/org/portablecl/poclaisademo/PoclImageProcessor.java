@@ -305,6 +305,11 @@ public class PoclImageProcessor {
                 // wait until image is available,
                 imageAvailableLock.acquire();
                 image = imageReader.acquireLatestImage();
+
+                // only log image when using the camera
+                if(null != activity && ((ENABLE_PROFILING & configFlags) >0) ) {
+                    activity.logImage(System.nanoTime(),image.getTimestamp());
+                }
                 // acquirelatestimage closes all other images,
                 // so release all permits related to those images
                 // like this, we will only acquire a lock when a
