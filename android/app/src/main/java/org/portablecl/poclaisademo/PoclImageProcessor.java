@@ -258,7 +258,7 @@ public class PoclImageProcessor {
         int UVPixelStride, UVRowStride;
         int VPixelStride, VRowStride;
         int rotation, do_segment, compressionParam;
-        long currentTime, doneTime, poclTime;
+        long currentTime, doneTime, poclTime, imageAcquireTime;
 
         Image image = null;
 
@@ -305,16 +305,17 @@ public class PoclImageProcessor {
                 // wait until image is available,
                 imageAvailableLock.acquire();
                 image = imageReader.acquireLatestImage();
-
-                // only log image when using the camera
-                if(null != activity && ((ENABLE_PROFILING & configFlags) >0) ) {
-                    activity.logImage(System.nanoTime(),image.getTimestamp());
-                }
                 // acquirelatestimage closes all other images,
                 // so release all permits related to those images
                 // like this, we will only acquire a lock when a
                 // new image is available
                 int drainedPermits = imageAvailableLock.drainPermits();
+                imageAcquireTime =System.nanoTime();
+
+                // only log image when using the camera
+                if(null != activity && ((ENABLE_PROFILING & configFlags) >0) ) {
+                    activity.logImage(imageAcquireTime,image.getTimestamp());
+                }
 
                 if (DEBUGEXECUTION) {
                     Log.println(Log.INFO, "EXECUTIONFLOW", "acquired image");

@@ -19,7 +19,6 @@ import java.util.Locale;
  */
 public class CameraLogger extends CameraCaptureSession.CaptureCallback {
 
-    long startSystemTime;
     StringBuilder builder;
     FileOutputStream stream;
 
@@ -36,13 +35,15 @@ public class CameraLogger extends CameraCaptureSession.CaptureCallback {
 
     /**
      * function to log when an image is consumed for processing
+     * <p>
+     * Called from poclimageprocessor.java right after the latest image is acquired
      *
      * @param systemTime the time in ns when the image is acquired
      * @param deviceTime the timestamp of the image
      */
     public void logImage(long systemTime, long deviceTime) {
         if (VERBOSITY >= 2) {
-            Log.println(Log.WARN, "cameracapture", String.format(Locale.US,"log image sys ts: %d," +
+            Log.println(Log.WARN, "cameracapture", String.format(Locale.US, "log image sys ts: %d," +
                     " dev ts: %d", systemTime, deviceTime));
         }
 
@@ -62,23 +63,21 @@ public class CameraLogger extends CameraCaptureSession.CaptureCallback {
     public void onCaptureStarted(@NonNull CameraCaptureSession session,
                                  @NonNull CaptureRequest request, long timestamp,
                                  long frameNumber) {
-         startSystemTime = System.nanoTime();
+        long startSystemTime = System.nanoTime();
         if (VERBOSITY >= 2) {
-            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "started capture ts: " +
-                    "%d, frame: %d", startSystemTime, frameNumber));
-            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "started capture dev " +
-                    "ts: %d, frame: %d", timestamp, frameNumber));
+            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "started  capture sys ts: " +
+                    "%16d, frame: %d", startSystemTime, frameNumber));
+            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "started  capture dev " +
+                    "ts: %16d, frame: %d", timestamp, frameNumber));
         }
 
         builder.setLength(0);
-        builder.append(frameNumber).append(",camera,").append(startSystemTime).append(",").append(timestamp).append("\n");
+        builder.append(frameNumber).append(",camera_start,").append(startSystemTime).append(",").append(timestamp).append("\n");
         try {
             stream.write(builder.toString().getBytes());
         } catch (IOException e) {
             e.printStackTrace();
         }
-
-
     }
 
     @Override
@@ -89,20 +88,15 @@ public class CameraLogger extends CameraCaptureSession.CaptureCallback {
         long frameNumber = result.getFrameNumber();
         long devTime = result.get(TotalCaptureResult.SENSOR_TIMESTAMP);
         if (VERBOSITY >= 2) {
-            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "finished capture ts:" +
-                            " %d, frame: %d",
+            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "finished capture sys ts:" +
+                            " %16d, frame: %d",
                     System.nanoTime(), frameNumber));
             Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "finished capture " +
-                            "dev ts: %d, frame: %d", devTime, frameNumber));
-            long diff = systemTime - startSystemTime;
-            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "camera capture time" +
-                    "(estimate): %d ms, %d ns, frame: %d", diff/1000000, diff%1000000,
-                    frameNumber));
-
+                    "dev ts: %16d, frame: %d", devTime, frameNumber));
         }
 
         builder.setLength(0);
-        builder.append(frameNumber).append(",camera,").append(systemTime).append(",").append(devTime).append("\n");
+        builder.append(frameNumber).append(",camera_finish,").append(systemTime).append(",").append(devTime).append("\n");
         try {
             stream.write(builder.toString().getBytes());
         } catch (IOException e) {
