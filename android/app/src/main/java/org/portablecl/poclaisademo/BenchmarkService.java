@@ -15,8 +15,6 @@ import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
 import static org.portablecl.poclaisademo.BundleKeys.TOTALLOGS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 
 import android.app.Notification;
@@ -261,7 +259,7 @@ public class BenchmarkService extends Service {
         ConfigStore configStore = new ConfigStore(this);
         configFlags = configStore.getConfigFlags();
         poclImageProcessor = new PoclImageProcessor(this, captureSize, null,
-                imageAvailableLock, configFlags, null, deviceIndex,
+                ImageFormat.YUV_420_888, imageAvailableLock, configFlags, null, deviceIndex,
                 enableSegmentation, enableCompression, uris[0]);
 //        poclImageProcessor.setOrientation(true);
 

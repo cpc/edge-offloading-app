@@ -447,7 +447,7 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     // only allocate these buffers if the remote is also available
     if (devices_found > 1) {
         // remote device buffers
-        if (JPEG_COMPRESSION & config_flags) {
+        if ((JPEG_COMPRESSION & config_flags) || (JPEG_IMAGE & config_flags)) {
             img_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE,
                                         tot_pixels * 3, NULL, &status);
         } else {
@@ -489,7 +489,8 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     local_size = 1;
 
     // todo, refactor this nicer
-    if (JPEG_COMPRESSION & config_flags) {
+    if ((JPEG_COMPRESSION & config_flags) ||
+        (JPEG_IMAGE & config_flags)) {
         // buffer to copy image data to
         host_img_buf = (cl_uchar *) malloc(tot_pixels * 4);
     } else {
@@ -505,7 +506,8 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
         if (YUV_COMPRESSION & config_flags) {
             status = init_codecs(devices[1], devices[3], codec_sources, src_size);
             CHECK_AND_RETURN(status, "init of codec kernels failed");
-        } else if (JPEG_COMPRESSION & config_flags) {
+        } else if ((JPEG_COMPRESSION & config_flags) ||
+                   (JPEG_IMAGE & config_flags)) {
             status = init_jpeg_codecs(&devices[1], &devices[3], quality);
             CHECK_AND_RETURN(status, "init of codec kernels failed");
         }
@@ -739,15 +741,26 @@ enqueue_dnn(const cl_event *wait_event, const int device_index, const int do_seg
  * @param uvpixel_stride
  * @param dest_buf
  */
+//void
+//copy_yuv_to_array(const cl_uchar *y_ptr, const int yrow_stride, const int ypixel_stride,
+//                  const cl_uchar *u_ptr, const cl_uchar *v_ptr, const int uvpixel_stride,
+//                  cl_uchar *dest_buf) {
 void
-copy_yuv_to_array(const cl_uchar *y_ptr, const int yrow_stride, const int ypixel_stride,
-                  const cl_uchar *u_ptr, const cl_uchar *v_ptr, const int uvpixel_stride,
-                  cl_uchar *dest_buf) {
+copy_yuv_to_array(const image_data_t image, cl_uchar *dest_buf) {
 
 #if defined(PRINT_PROFILE_TIME)
     struct timespec timespec_a, timespec_b;
     clock_gettime(CLOCK_MONOTONIC, &timespec_a);
 #endif
+
+    // this will be optimized out by the compiler
+    const int yrow_stride = image.data.yuv.row_strides[0];
+    const uint8_t * y_ptr = image.data.yuv.planes[0];
+    const uint8_t * u_ptr = image.data.yuv.planes[1];
+    const uint8_t * v_ptr = image.data.yuv.planes[2];
+    const int ypixel_stride = image.data.yuv.pixel_strides[0];
+    const int upixel_stride = image.data.yuv.pixel_strides[1];
+    const int vpixel_stride = image.data.yuv.pixel_strides[2];
 
     // copy y plane into buffer
     for (int i = 0; i < inp_h; i++) {
@@ -762,9 +775,9 @@ copy_yuv_to_array(const cl_uchar *y_ptr, const int yrow_stride, const int ypixel
     // divided by 4 since u and v are subsampled by 2
     for (int i = 0; i < (inp_h * inp_w) / 4; i++) {
 
-        dest_buf[uv_start_index + 2 * i] = v_ptr[i * uvpixel_stride];
+        dest_buf[uv_start_index + 2 * i] = v_ptr[i * vpixel_stride];
 
-        dest_buf[uv_start_index + 1 + 2 * i] = u_ptr[i * uvpixel_stride];
+        dest_buf[uv_start_index + 1 + 2 * i] = u_ptr[i * upixel_stride];
     }
 
 #if defined(PRINT_PROFILE_TIME)
@@ -890,6 +903,43 @@ enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const
 }
 
 /**
+ * directly enqueue jpegs to the remote device
+ * @param input_img pointer to jpeg buffer
+ * @param buf_size size of jpeg buffer
+ * @param dec_index device docoding jpeg
+ * @param result_event event that can be waited on
+ * @return cl_success or an error
+ */
+cl_int
+enqueue_jpeg_image(const cl_uchar *input_img, const size_t buf_size, const int dec_index,
+                   cl_event *result_event) {
+
+    cl_int status;
+    cl_event image_write_event, image_size_write_event, dec_event;
+
+    status = clEnqueueWriteBuffer(commandQueue[dec_index], out_enc_y_buf, CL_FALSE, 0, buf_size,
+                                  input_img, 0, NULL,   &image_write_event);
+    CHECK_AND_RETURN(status, "failed to write image to enc buffer");
+    append_to_event_array(&event_array, image_write_event, VAR_NAME(image_write_event));
+
+    status = clEnqueueWriteBuffer( commandQueue[dec_index], out_enc_uv_buf, CL_FALSE, 0, sizeof
+    (size_t), &buf_size, 0, NULL, &image_size_write_event);
+    CHECK_AND_RETURN(status, "failed to write image size");
+    append_to_event_array(&event_array, image_size_write_event, VAR_NAME(image_size_write_event));
+
+    cl_event dec_kernel_wait_events[] = {image_write_event, image_size_write_event};
+    status = clEnqueueNDRangeKernel(commandQueue[dec_index], dec_y_kernel, 1, NULL, dec_y_global,
+                                    NULL, 2, dec_kernel_wait_events, &dec_event);
+    CHECK_AND_RETURN(status, "failed to enqueue decompression kernel");
+    append_to_event_array(&event_array, dec_event, VAR_NAME(dec_index));
+
+    *result_event = dec_event;
+
+    return 0;
+}
+
+
+/**
  * process the image with PoCL.
  * assumes that image format is YUV420_888
  * @param device_index
@@ -908,75 +958,51 @@ enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const
  * @return
  */
 int
-poclProcessYUVImage(const int device_index, const int do_segment,
-                    const compression_t compression_type,
-                    const int quality, const int rotation, const uint8_t *y_ptr,
-                    const int yrow_stride,
-                    const int ypixel_stride, const uint8_t *u_ptr, const uint8_t *v_ptr,
-                    const int uvrow_stride, const int uvpixel_stride, int32_t *detection_array,
-                    uint8_t *segmentation_array) {
+poclProcessImage(const int device_index, const int do_segment,
+                    const compression_t compressionType,
+                    const int quality, const int rotation, int32_t *detection_array,
+                    uint8_t *segmentation_array, image_data_t image_data) {
 
     if (!setup_success) {
         LOGE("poclProcessYUVImage called but setup did not complete successfully\n");
         return 1;
     }
-
+    const compression_t compression_type = compressionType;
     // make sure that the input is actually a valid compression type
     assert(CHECK_COMPRESSION_T(compression_type));
 
     // check that this compression type is enabled
     assert(compression_type & config_flags);
 
-    struct timespec timespec_start, timespec_stop;
-    clock_gettime(CLOCK_MONOTONIC, &timespec_start);
+    // check that no compression is passed to local device
+    assert((0 == device_index) ? (NO_COMPRESSION == compression_type) : 1);
 
     // make local copies so that they don't change during execution
     // when the user presses a button.
-    int device_index_copy = device_index;
-    int do_segment_copy = do_segment;
-//    int local_compression_type = compression_type;
-
+    const int device_index_copy = device_index;
+    const int do_segment_copy = do_segment;
     cl_int status;
-
     // todo: remove this variable, since the phone is always kept in portrait mode.
     rotate_cw_degrees = rotation;
-
     // even though inp_format is assigned image_format_t,
     // the type is set to cl_int since underlying enum types
     // can vary and we want a known size on both the client and server.
     cl_int inp_format;
-
-    if ((2 == device_index_copy) && (JPEG_COMPRESSION == compression_type)) {
-        inp_format = RGB;
-        status = libyuv::Android420ToARGB(y_ptr, yrow_stride, u_ptr, uvrow_stride, v_ptr,
-                                          uvrow_stride, uvpixel_stride, host_img_buf, inp_w * 4,
-                                          inp_w, inp_h);
-    } else {
-        inp_format = YUV_SEMI_PLANAR;
-        // copy the yuv image data over to the host_img_buf and make sure it's semiplanar.
-        copy_yuv_to_array(y_ptr, yrow_stride, ypixel_stride, u_ptr, v_ptr, uvpixel_stride,
-                          host_img_buf);
-    }
-
     cl_event dnn_wait_event;
+
+    struct timespec timespec_start, timespec_stop;
+    clock_gettime(CLOCK_MONOTONIC, &timespec_start);
+
     reset_event_array(&event_array);
 
-    // do compression
-    if (2 == device_index_copy && (NO_COMPRESSION != compression_type)) {
-
-        if (YUV_COMPRESSION == compression_type) {
-            status = enqueue_yuv_compression(host_img_buf, img_buf_size, 1, 3,
-                                             &dnn_wait_event);
-            CHECK_AND_RETURN(status, "could not enqueue yuv compression work");
-        } else if (JPEG_COMPRESSION == compression_type) {
-            // todo: refactor this so that the buf size is not calculated like this
-            status = enqueue_jpeg_compression(host_img_buf, tot_pixels * 4, quality, 1, 3,
-                                              &dnn_wait_event);
-            CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
-        }
-
-    } else {
+    // the local device does not support other compression types, but this this function with
+    // local devices should only be called with no compression, so other paths will not be
+    // reached. There is also an assert to make sure of this.
+    if (NO_COMPRESSION == compressionType) {
         // normal execution
+        inp_format = YUV_SEMI_PLANAR;
+        // copy the yuv image data over to the host_img_buf and make sure it's semiplanar.
+        copy_yuv_to_array(image_data,host_img_buf);
         status = clEnqueueWriteBuffer(commandQueue[device_index_copy], img_buf[device_index_copy],
                                       CL_FALSE, 0,
                                       img_buf_size, host_img_buf,
@@ -984,6 +1010,34 @@ poclProcessYUVImage(const int device_index, const int do_segment,
         CHECK_AND_RETURN(status, "failed to write image to ocl buffers");
         append_to_event_array(&event_array, dnn_wait_event, "write_img_event");
 
+    } else if (YUV_COMPRESSION == compression_type) {
+        inp_format = YUV_SEMI_PLANAR;
+        copy_yuv_to_array(image_data, host_img_buf);
+        status = enqueue_yuv_compression(host_img_buf, img_buf_size, 1, 3,
+                                         &dnn_wait_event);
+        CHECK_AND_RETURN(status, "could not enqueue yuv compression work");
+    } else if (JPEG_COMPRESSION == compression_type) {
+        inp_format = RGB;
+        status = libyuv::Android420ToARGB(image_data.data.yuv.planes[0],
+                                          image_data.data.yuv.row_strides[0],
+                                          image_data.data.yuv.planes[1],
+                                          image_data.data.yuv.row_strides[1],
+                                          image_data.data.yuv.planes[2],
+                                          image_data.data.yuv.row_strides[2],
+                                          image_data.data.yuv.pixel_strides[1],
+                                          host_img_buf, inp_w * 4, inp_w, inp_h);
+        CHECK_AND_RETURN(status, "could not convert YUV to ARGB");
+        // todo: refactor this so that the buf size is not calculated like this
+        status = enqueue_jpeg_compression(host_img_buf, tot_pixels * 4, quality, 1, 3,
+                                          &dnn_wait_event);
+        CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
+    } else {
+        // process jpeg images
+        inp_format = RGB;
+        status = enqueue_jpeg_image(image_data.data.jpeg.data,
+                                    image_data.data.jpeg.capacity,
+                                    3, &dnn_wait_event);
+        CHECK_AND_RETURN(status, "could not enqueue jpeg image");
     }
 
     status = enqueue_dnn(&dnn_wait_event, device_index_copy, do_segment_copy, detection_array,
@@ -1043,6 +1097,8 @@ get_compression_name(const compression_t compression_id) {
             return "yuv";
         case JPEG_COMPRESSION:
             return "jpeg";
+        case JPEG_IMAGE:
+            return "jpeg_image";
         default:
             return "unknown";
     }

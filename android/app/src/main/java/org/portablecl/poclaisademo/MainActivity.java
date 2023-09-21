@@ -10,6 +10,7 @@ import static org.portablecl.poclaisademo.BundleKeys.TOTALLOGS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_DEVICE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.REMOTE_DEVICE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
@@ -21,7 +22,6 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
-import android.graphics.Bitmap;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.Point;
@@ -158,11 +158,6 @@ public class MainActivity extends AppCompatActivity {
     private String IPAddress;
     private boolean disableRemote;
 
-    /**
-     * the bitmap to save the result of processing in
-     */
-    private static Bitmap resultBitmap;
-
     private static OverlayVisualizer overlayVisualizer;
 
     private static SurfaceView overlayView;
@@ -286,6 +281,7 @@ public class MainActivity extends AppCompatActivity {
 
         // used to retrieve settings set by the StartupActivity
         configStore = new ConfigStore(this);
+        configFlags = configStore.getConfigFlags();
 
         // get bundle with variables set during startup activity
         Bundle bundle = getIntent().getExtras();
@@ -321,12 +317,11 @@ public class MainActivity extends AppCompatActivity {
         captureSize = new Size(640, 480);
         imageBufferSize = 35;
 
-        // this should be an image format we can work with on the native side.
-        captureFormat = ImageFormat.YUV_420_888;
-
-        // todo: check whether these args need to be updated.
-        resultBitmap = Bitmap.createBitmap(captureSize.getWidth(), captureSize.getHeight(),
-                Bitmap.Config.RGB_565);
+        if ((JPEG_IMAGE & configFlags) > 0) {
+            captureFormat = ImageFormat.JPEG;
+        } else {
+            captureFormat = ImageFormat.YUV_420_888;
+        }
 
         // get camera permission
         // (if not yet gotten, the screen will show a popup to grant permissions)
@@ -365,9 +360,6 @@ public class MainActivity extends AppCompatActivity {
         counter = new FPSCounter();
         statUpdateScheduler = Executors.newScheduledThreadPool(2);
 
-
-        configFlags = configStore.getConfigFlags();
-
         if (disableRemote) {
             // disable this switch when remote is disabled
             modeSwitch.setClickable(false);
@@ -376,9 +368,10 @@ public class MainActivity extends AppCompatActivity {
             modeSwitch.setClickable(true);
 
             // todo: remove this statement once init in poclimageprocessor.cpp is refactored
-            if ((YUV_COMPRESSION & configFlags) > 1) {
+            if ((YUV_COMPRESSION & configFlags) > 0) {
                 setNativeEnv("POCL_DEVICES", "basic remote remote proxy");
-            } else if ((JPEG_COMPRESSION & configFlags) > 1) {
+            } else if ((JPEG_COMPRESSION & configFlags) > 0 ||
+                    (JPEG_IMAGE & configFlags) > 0) {
                 setNativeEnv("POCL_DEVICES", "basic basic remote remote");
             } else {
                 Log.println(Log.ERROR, "mainActivity.java", "could not determince which " +
@@ -400,9 +393,18 @@ public class MainActivity extends AppCompatActivity {
         // stop screen from turning off
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        poclImageProcessor = new PoclImageProcessor(this, captureSize, null,
+        poclImageProcessor = new PoclImageProcessor(this, captureSize, null, captureFormat,
                 imageAvailableLock, configFlags, counter, LOCAL_DEVICE,
                 segmentationSwitch.isChecked(), comPressionSwitch.isChecked(), uris[0]);
+
+        // when jpeg_image is enabled, the camera only outputs jpegs,
+        // so offloading with compression is the only option
+        if ((JPEG_IMAGE & configFlags) > 0) {
+            modeSwitch.performClick();
+            modeSwitch.setClickable(false);
+            comPressionSwitch.performClick();
+            comPressionSwitch.setClickable(false);
+        }
 
         // code to handle the quality input
         DropEditText qualityText = binding.compressionEditText;
@@ -585,6 +587,13 @@ public class MainActivity extends AppCompatActivity {
     private final View.OnClickListener compressListener = new View.OnClickListener() {
         @Override
         public void onClick(View v) {
+
+            // if the device is local it does not make sense to compress
+            if(LOCAL_DEVICE == poclImageProcessor.inferencingDevice) {
+                ((Switch) v).setChecked(false);
+                return;
+            }
+
             if (((Switch) v).isChecked()) {
                 Toast.makeText(MainActivity.this, "enabling compression, please wait",
                         Toast.LENGTH_SHORT).show();

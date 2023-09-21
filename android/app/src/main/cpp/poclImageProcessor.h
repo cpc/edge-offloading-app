@@ -15,14 +15,13 @@
 extern "C" {
 #endif
 
-//#define NO_COMPRESSION 0
-//#define YUV_COMPRESSION 1
-//#define JPEG_COMPRESSION 2
+
 
 typedef enum {
     NO_COMPRESSION = 1,
     YUV_COMPRESSION = 2,
-    JPEG_COMPRESSION = 4
+    JPEG_COMPRESSION = 4,
+    JPEG_IMAGE = (1<<3), // if the input is already a compressed image
 } compression_t;
 
 enum {
@@ -30,9 +29,10 @@ enum {
 };
 
 #define CHECK_COMPRESSION_T(inp)                    \
-    (NO_COMPRESSION == compression_type) ||         \
-    (YUV_COMPRESSION == compression_type) ||        \
-    (JPEG_COMPRESSION == compression_type)
+    (NO_COMPRESSION == inp) ||         \
+    (YUV_COMPRESSION == inp) ||        \
+    (JPEG_COMPRESSION == inp) ||       \
+    (JPEG_IMAGE == inp)
 
 // 0 - RGB
 // 1 - YUV420 NV21 Android (interleaved U/V)
@@ -42,6 +42,43 @@ typedef enum {
     YUV_SEMI_PLANAR,
     YUV_PLANAR
 } image_format_t;
+
+/**
+ * struct that hold relevant data of jpeg images
+ */
+struct jpeg_image_data_t{
+    uint8_t * data;
+    size_t capacity;
+} ;
+
+/**
+ * struct that holds relevant data of yuv images
+ */
+struct yuv_image_data_t {
+    uint8_t * planes[3];
+    int pixel_strides[3];
+    int row_strides[3];
+};
+
+/**
+ * enum of different image types supported by
+ * image_data_t
+ */
+typedef enum {
+    YUV_DATA_T=0,
+    JPEG_DATA_T,
+}image_datatype_t;
+
+/**
+ * pseudopolymorphic struct that can contain different image data
+ */
+typedef struct {
+  image_datatype_t type;
+  union{
+    struct yuv_image_data_t yuv;
+    struct jpeg_image_data_t jpeg;
+  }data;
+}image_data_t;
 
 /**
  *
@@ -63,12 +100,10 @@ int
 destroy_pocl_image_processor();
 
 int
-poclProcessYUVImage(const int device_index, const int do_segment, const compression_t compression,
-                    const int quality, const int rotation, const uint8_t *y_ptr,
-                    const int yrow_stride,
-                    const int ypixel_stride, const uint8_t *u_ptr, const uint8_t *v_ptr,
-                    const int uvrow_stride, const int uvpixel_stride, int32_t *detection_array,
-                    uint8_t *segmentation_array);
+poclProcessImage(const int device_index, const int do_segment,
+                 const compression_t compressionType,
+                 const int quality, const int rotation, int32_t *detection_array,
+                 uint8_t *segmentation_array, image_data_t image_data);
 
 char *
 get_c_log_string_pocl();

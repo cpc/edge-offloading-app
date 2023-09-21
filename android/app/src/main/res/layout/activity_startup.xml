@@ -151,30 +151,25 @@
         android:id="@+id/yuvCompButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="50dp"
+        android:layout_marginEnd="10dp"
         android:text="ToggleButton"
         android:textOff="YUV:OFF"
         android:textOn="YUV:ON"
-        app:layout_constraintBottom_toBottomOf="@+id/jpegCompButton"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.007"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="@+id/jpegCompButton" />
+        app:layout_constraintBottom_toBottomOf="@+id/jpegImageButton"
+        app:layout_constraintEnd_toStartOf="@+id/jpegImageButton"
+        app:layout_constraintTop_toTopOf="@+id/jpegImageButton" />
 
     <ToggleButton
         android:id="@+id/jpegCompButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="25dp"
-        android:layout_marginTop="15dp"
-        android:layout_marginEnd="50dp"
+        android:layout_marginStart="10dp"
         android:text="ToggleButton"
         android:textOff="JPEG:OFF"
         android:textOn="JPEG:ON"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.935"
-        app:layout_constraintStart_toEndOf="@+id/yuvCompButton"
-        app:layout_constraintTop_toBottomOf="@+id/compressionText" />
+        app:layout_constraintBottom_toBottomOf="@+id/jpegImageButton"
+        app:layout_constraintStart_toEndOf="@+id/jpegImageButton"
+        app:layout_constraintTop_toTopOf="@+id/jpegImageButton" />
 
     <TextView
         android:id="@+id/compressionText"
@@ -222,6 +217,18 @@
         app:layout_constraintBottom_toBottomOf="@+id/cameraLogSelectURI"
         app:layout_constraintEnd_toStartOf="@+id/cameraLogSelectURI"
         app:layout_constraintTop_toTopOf="@+id/cameraLogSelectURI" />
+
+    <ToggleButton
+        android:id="@+id/jpegImageButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="ToggleButton"
+        android:textOff="JPEG CAM:OFF"
+        android:textOn="JPEG CAM:ON"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/compressionText" />
 
 
 </androidx.constraintlayout.widget.ConstraintLayout>

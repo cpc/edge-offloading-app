@@ -4,14 +4,17 @@ import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessJPEGImage;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessYUVImage;
 
 import android.content.Context;
 import android.content.res.AssetManager;
+import android.graphics.ImageFormat;
 import android.media.Image;
 import android.media.ImageReader;
 import android.net.Uri;
@@ -90,8 +93,9 @@ public class PoclImageProcessor {
 
     private int quality;
 
-    private int configFlags;
+    private final int configFlags;
 
+    private int imageFormat;
 
     /**
      * constructor for pocl image processor
@@ -107,10 +111,13 @@ public class PoclImageProcessor {
      * @param doCompression
      */
     public PoclImageProcessor(Context context, Size captureSize, ImageReader imageReader,
-                              Semaphore imageAvailableLock, int configFlags,
+                              int imageFormat, Semaphore imageAvailableLock,
+                              int configFlags,
                               FPSCounter fpsCounter,
-                              int inferencingDevice, boolean doSegment, boolean doCompression, Uri uri) {
-        this(null, context, captureSize, imageReader, imageAvailableLock, configFlags,
+                              int inferencingDevice, boolean doSegment, boolean doCompression,
+                              Uri uri) {
+        this(null, context, captureSize, imageReader, imageFormat, imageAvailableLock,
+                configFlags,
                 fpsCounter, inferencingDevice, doSegment, doCompression, uri);
     }
 
@@ -128,10 +135,13 @@ public class PoclImageProcessor {
      * @param doCompression
      */
     public PoclImageProcessor(MainActivity activity, Size captureSize, ImageReader imageReader,
+                              int imageFormat,
                               Semaphore imageAvailableLock, int configFlags,
                               FPSCounter fpsCounter,
-                              int inferencingDevice, boolean doSegment, boolean doCompression, Uri uri) {
-        this(activity, activity, captureSize, imageReader, imageAvailableLock, configFlags,
+                              int inferencingDevice, boolean doSegment, boolean doCompression,
+                              Uri uri) {
+        this(activity, activity, captureSize, imageReader, imageFormat, imageAvailableLock,
+                configFlags,
                 fpsCounter, inferencingDevice, doSegment, doCompression, uri);
     }
 
@@ -150,10 +160,11 @@ public class PoclImageProcessor {
      * @param doCompression
      */
     private PoclImageProcessor(MainActivity activity, Context context, Size captureSize,
-                               ImageReader imageReader,
+                               ImageReader imageReader, int imageFormat,
                                Semaphore imageAvailableLock, int configFlags,
                                FPSCounter fpsCounter,
-                               int inferencingDevice, boolean doSegment, boolean doCompression, Uri uri) {
+                               int inferencingDevice, boolean doSegment, boolean doCompression,
+                               Uri uri) {
         this.activity = activity;
         this.context = context;
         this.captureSize = captureSize;
@@ -173,13 +184,18 @@ public class PoclImageProcessor {
         this.quality = 80;
 
         // default to the first configured compression type
-        if((YUV_COMPRESSION & configFlags) > 0) {
+        // todo: make this runtime configurable
+        if ((YUV_COMPRESSION & configFlags) > 0) {
             compressionType = YUV_COMPRESSION;
-        }else if((JPEG_COMPRESSION & configFlags) > 0) {
+        } else if ((JPEG_COMPRESSION & configFlags) > 0) {
             compressionType = JPEG_COMPRESSION;
-        }else {
+        } else if ((JPEG_IMAGE & configFlags) > 0) {
+            compressionType = JPEG_IMAGE;
+        } else {
             compressionType = NO_COMPRESSION;
         }
+
+        setImageFormat(imageFormat);
 
     }
 
@@ -219,7 +235,9 @@ public class PoclImageProcessor {
         this.doCompression = doCompression;
     }
 
-    public void setCompressionType(int compressionType) { this.compressionType = compressionType;}
+    public void setCompressionType(int compressionType) {
+        this.compressionType = compressionType;
+    }
 
     /**
      * Set the imageReader to use
@@ -230,7 +248,27 @@ public class PoclImageProcessor {
         this.imageReader = imageReader;
     }
 
-    public void setQuality(int quality) { this.quality = quality; }
+    public void setQuality(int quality) {
+        this.quality = quality;
+    }
+
+    public void setImageFormat(int imageFormat) {
+
+        // safety checks to make sure the image format is supported in this config
+        assert ImageFormat.YUV_420_888 == imageFormat ||
+                ImageFormat.JPEG == imageFormat;
+        assert ImageFormat.YUV_420_888 != imageFormat || ((YUV_COMPRESSION & configFlags) > 0) ||
+                ((JPEG_COMPRESSION & configFlags) > 0) ||
+                ((NO_COMPRESSION & configFlags) > 0);
+        assert ImageFormat.JPEG != imageFormat || ((JPEG_IMAGE & configFlags) > 0);
+
+        this.imageFormat = imageFormat;
+    }
+
+    private boolean checkImageFormat(Image image) {
+        int format = image.getFormat();
+        return (ImageFormat.YUV_420_888 == format) || (ImageFormat.JPEG == format);
+    }
 
     /**
      * Method to call pocl. This method contains a while loop that exits
@@ -259,13 +297,14 @@ public class PoclImageProcessor {
         int VPixelStride, VRowStride;
         int rotation, do_segment, compressionParam;
         long currentTime, doneTime, poclTime, imageAcquireTime;
+        int size;
 
         Image image = null;
 
         ParcelFileDescriptor parcelFileDescriptor = null;
 
         int nativeFd = -1;
-        if((ENABLE_PROFILING & configFlags) > 0) {
+        if ((ENABLE_PROFILING & configFlags) > 0) {
             try {
                 parcelFileDescriptor = context.getContentResolver().openFileDescriptor(uri, "wa");
             } catch (FileNotFoundException e) {
@@ -305,6 +344,7 @@ public class PoclImageProcessor {
                 // wait until image is available,
                 imageAvailableLock.acquire();
                 image = imageReader.acquireLatestImage();
+
                 // acquirelatestimage closes all other images,
                 // so release all permits related to those images
                 // like this, we will only acquire a lock when a
@@ -331,47 +371,72 @@ public class PoclImageProcessor {
                 }
 
                 Image.Plane[] planes = image.getPlanes();
-
-                ByteBuffer Y = planes[0].getBuffer();
-                YPixelStride = planes[0].getPixelStride();
-                YRowStride = planes[0].getRowStride();
-
-                ByteBuffer U = planes[1].getBuffer();
-                ByteBuffer V = planes[2].getBuffer();
-                UVPixelStride = planes[1].getPixelStride();
-                UVRowStride = planes[1].getRowStride();
-
-                VPixelStride = planes[2].getPixelStride();
-                VRowStride = planes[2].getRowStride();
-
-                if (VERBOSITY >= 3) {
-
-                    Log.println(Log.WARN, "imagereader", "plane count: " + planes.length);
-                    Log.println(Log.WARN, "imagereader",
-                            "Y pixel stride: " + YPixelStride);
-                    Log.println(Log.WARN, "imagereader",
-                            "Y row stride: " + YRowStride);
-                    Log.println(Log.WARN, "imagereader",
-                            "UV pixel stride: " + UVPixelStride);
-                    Log.println(Log.WARN, "imagereader",
-                            "UV row stride: " + UVRowStride);
-
-                    Log.println(Log.WARN, "imagereader",
-                            "V pixel stride: " + VPixelStride);
-                    Log.println(Log.WARN, "imagereader",
-                            "V row stride: " + VRowStride);
-                }
-
                 rotation = orientationsSwapped ? 90 : 0;
                 do_segment = doSegment ? 1 : 0;
-
                 // pick the right compression value
                 compressionParam = doCompression ? compressionType : NO_COMPRESSION;
 
-                currentTime = System.currentTimeMillis();
-                poclProcessYUVImage(inferencingDevice, do_segment, compressionParam, quality,
-                        rotation, Y, YRowStride, YPixelStride, U, V, UVRowStride, UVPixelStride,
-                        detection_results, segmentation_results);
+                // check that the image is supported
+                assert checkImageFormat(image);
+                if (ImageFormat.YUV_420_888 == imageFormat) {
+
+                    ByteBuffer Y = planes[0].getBuffer();
+                    YPixelStride = planes[0].getPixelStride();
+                    YRowStride = planes[0].getRowStride();
+
+                    ByteBuffer U = planes[1].getBuffer();
+                    ByteBuffer V = planes[2].getBuffer();
+                    UVPixelStride = planes[1].getPixelStride();
+                    UVRowStride = planes[1].getRowStride();
+
+                    VPixelStride = planes[2].getPixelStride();
+                    VRowStride = planes[2].getRowStride();
+
+                    if (VERBOSITY >= 3) {
+
+                        Log.println(Log.INFO, "imagereader", "image type: " + imageFormat);
+                        Log.println(Log.INFO, "imagereader", "plane count: " + planes.length);
+                        Log.println(Log.INFO, "imagereader",
+                                "Y pixel stride: " + YPixelStride);
+                        Log.println(Log.INFO, "imagereader",
+                                "Y row stride: " + YRowStride);
+                        Log.println(Log.INFO, "imagereader",
+                                "UV pixel stride: " + UVPixelStride);
+                        Log.println(Log.INFO, "imagereader",
+                                "UV row stride: " + UVRowStride);
+
+                        Log.println(Log.INFO, "imagereader",
+                                "V pixel stride: " + VPixelStride);
+                        Log.println(Log.INFO, "imagereader",
+                                "V row stride: " + VRowStride);
+                    }
+
+                    currentTime = System.currentTimeMillis();
+                    poclProcessYUVImage(inferencingDevice, do_segment, compressionParam, quality,
+                            rotation, detection_results, segmentation_results, Y, YRowStride,
+                            YPixelStride, U, UVRowStride, UVPixelStride, V, VRowStride,
+                            VPixelStride);
+                    
+                } else if (ImageFormat.JPEG == imageFormat) {
+                    // process jpeg images. jpeg images are just one plane with row and pixel
+                    // strides set to 0. see:
+                    // https://developer.android.com/reference/android/media/Image#getFormat()
+                    ByteBuffer data = planes[0].getBuffer();
+                    size = data.limit();
+
+                    if (VERBOSITY >= 3) {
+                        Log.println(Log.INFO, "imagereader", "image type: " + imageFormat);
+                        Log.println(Log.INFO, "imagereader", "image size: " + size);
+                    }
+
+                    currentTime = System.currentTimeMillis();
+                    poclProcessJPEGImage(inferencingDevice, do_segment, compressionParam, quality
+                            , rotation, detection_results, segmentation_results, data, size);
+
+                } else {
+                    Log.println(Log.WARN, "imageprocessloop", "unknown image format");
+                    currentTime = 0;
+                }
                 doneTime = System.currentTimeMillis();
                 poclTime = doneTime - currentTime;
                 if (VERBOSITY >= 1) {
@@ -385,7 +450,7 @@ public class PoclImageProcessor {
                 }
 
                 // used to calculate the (avg) FPS
-                if(null != counter){
+                if (null != counter) {
                     counter.tickFrame();
                 }
 
@@ -416,7 +481,7 @@ public class PoclImageProcessor {
             // always free pocl
             destroyPoclImageProcessor();
 
-            if(null != parcelFileDescriptor){
+            if (null != parcelFileDescriptor) {
                 try {
                     parcelFileDescriptor.close();
                 } catch (IOException e) {

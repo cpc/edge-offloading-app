@@ -10,6 +10,7 @@ import static org.portablecl.poclaisademo.BundleKeys.TOTALLOGS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
 import static java.lang.Character.isDigit;
@@ -103,6 +104,8 @@ public class StartupActivity extends AppCompatActivity {
 
     private ToggleButton yuvCompButton;
     private ToggleButton jpegCompButton;
+
+    private ToggleButton jpegImageButton;
 
     private Switch cameraLogSwitch;
 
@@ -199,10 +202,30 @@ public class StartupActivity extends AppCompatActivity {
         yuvCompButton.setOnClickListener(yuvCompButtonListener);
         jpegCompButton = binding.jpegCompButton;
         jpegCompButton.setOnClickListener(jpegCompButtonListener);
+        jpegImageButton = binding.jpegImageButton;
+        jpegImageButton.setOnClickListener(jpegImageButtonListener);
 
         cameraLogSwitch = binding.cameraLogSwitch;
 
     }
+
+    private final View.OnClickListener jpegImageButtonListener = new View.OnClickListener() {
+
+        @Override
+        public void onClick(View v) {
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started jpegImageButtonListener callback");
+            }
+
+            if (jpegCompButton.isChecked()) {
+                jpegCompButton.setChecked(false);
+            }
+
+            if (yuvCompButton.isChecked()) {
+                yuvCompButton.setChecked(false);
+            }
+        }
+    };
 
     /**
      * a callback when the yuvCompButton is pressed. It forces mutual exclusivity between it and the
@@ -215,8 +238,12 @@ public class StartupActivity extends AppCompatActivity {
                 Log.println(Log.INFO, "EXECUTIONFLOW", "started yuvCompButtonListener callback");
             }
 
-            if( jpegCompButton.isChecked()) {
+            if (jpegCompButton.isChecked()) {
                 jpegCompButton.setChecked(false);
+            }
+
+            if (jpegImageButton.isChecked()) {
+                jpegImageButton.setChecked(false);
             }
         }
     };
@@ -232,8 +259,12 @@ public class StartupActivity extends AppCompatActivity {
                 Log.println(Log.INFO, "EXECUTIONFLOW", "started jpegCompButtonListener callback");
             }
 
-            if( yuvCompButton.isChecked()) {
+            if (yuvCompButton.isChecked()) {
                 yuvCompButton.setChecked(false);
+            }
+
+            if (jpegImageButton.isChecked()) {
+                jpegImageButton.setChecked(false);
             }
         }
     };
@@ -379,16 +410,19 @@ public class StartupActivity extends AppCompatActivity {
      */
     int genConfigFlags() {
         int configFlag = NO_COMPRESSION;
-        if(yuvCompButton.isChecked()) {
+        if (yuvCompButton.isChecked()) {
             configFlag |= YUV_COMPRESSION;
         }
-        if(jpegCompButton.isChecked()) {
+        if (jpegCompButton.isChecked()) {
             configFlag |= JPEG_COMPRESSION;
         }
-        if(enableLogging) {
+        if (jpegImageButton.isChecked()) {
+            configFlag |= JPEG_IMAGE;
+        }
+        if (enableLogging) {
             configFlag |= ENABLE_PROFILING;
         }
-        return  configFlag;
+        return configFlag;
     }
 
     /**

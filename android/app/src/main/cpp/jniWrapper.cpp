@@ -147,36 +147,80 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
  * @param result
  * @return
  */
+
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEnv *env,
                                                                            jclass clazz,
                                                                            jint device_index,
                                                                            jint do_segment,
-                                                                           jint compression,
+                                                                           jint do_compression,
                                                                            jint quality,
-                                                                           jint rotation, jobject y,
-                                                                           jint yrow_stride,
-                                                                           jint ypixel_stride,
-                                                                           jobject u, jobject v,
-                                                                           jint uvrow_stride,
-                                                                           jint uvpixel_stride,
+                                                                           jint rotation,
                                                                            jintArray detection_result,
-                                                                           jbyteArray segmentation_result) {
-
+                                                                           jbyteArray segmentation_result,
+                                                                           jobject plane0,
+                                                                           jint row_stride0,
+                                                                           jint pixel_stride0,
+                                                                           jobject plane1,
+                                                                           jint row_stride1,
+                                                                           jint pixel_stride1,
+                                                                           jobject plane2,
+                                                                           jint row_stride2,
+                                                                           jint pixel_stride2) {
     // todo: look into if iscopy=true works on android
     int32_t *detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
     // pocl returns segmentation result in uint8_t, but jbyte is int8_t
     uint8_t *segmentation_array = reinterpret_cast<uint8_t *>(env->GetByteArrayElements(
             segmentation_result, JNI_FALSE));
 
-    uint8_t *y_ptr = (uint8_t *) env->GetDirectBufferAddress(y);
-    uint8_t *u_ptr = (uint8_t *) env->GetDirectBufferAddress(u);
-    uint8_t *v_ptr = (uint8_t *) env->GetDirectBufferAddress(v);
+    image_data_t image_data;
+    image_data.type = YUV_DATA_T;
+    image_data.data.yuv.planes[0] = (uint8_t *) env->GetDirectBufferAddress(plane0);
+    image_data.data.yuv.planes[1] = (uint8_t *) env->GetDirectBufferAddress(plane1);
+    image_data.data.yuv.planes[2] = (uint8_t *) env->GetDirectBufferAddress(plane2);
+    image_data.data.yuv.pixel_strides[0] = pixel_stride0;
+    image_data.data.yuv.pixel_strides[1] = pixel_stride1;
+    image_data.data.yuv.pixel_strides[2] = pixel_stride2;
+    image_data.data.yuv.row_strides[0] = row_stride0;
+    image_data.data.yuv.row_strides[1] = row_stride1;
+    image_data.data.yuv.row_strides[2] = row_stride2;
 
-    int res = poclProcessYUVImage(device_index, do_segment,
-                                  (compression_t)compression, quality, rotation,
-                                  y_ptr, yrow_stride, ypixel_stride, u_ptr, v_ptr, uvrow_stride,
-                                  uvpixel_stride, detection_array, segmentation_array);
+    int res = poclProcessImage(device_index, do_segment, (compression_t)do_compression, quality,
+                               rotation, detection_array, segmentation_array, image_data);
+
+    // commit the results back
+    env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
+    env->ReleaseByteArrayElements(segmentation_result,
+                                  reinterpret_cast<jbyte *>(segmentation_array), JNI_FALSE);
+
+    return res;
+}
+
+JNIEXPORT jint JNICALL
+Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessJPEGImage(JNIEnv *env,
+                                                                            jclass clazz,
+                                                                            jint device_index,
+                                                                            jint do_segment,
+                                                                            jint do_compression,
+                                                                            jint quality,
+                                                                            jint rotation,
+                                                                            jintArray detection_result,
+                                                                            jbyteArray segmentation_result,
+                                                                            jobject data,
+                                                                            jint size) {
+
+    int32_t *detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
+    // pocl returns segmentation result in uint8_t, but jbyte is int8_t
+    uint8_t *segmentation_array = reinterpret_cast<uint8_t *>(env->GetByteArrayElements(
+            segmentation_result, JNI_FALSE));
+
+    image_data_t image_data;
+    image_data.type = JPEG_DATA_T;
+    image_data.data.jpeg.data = (uint8_t *) env->GetDirectBufferAddress(data);
+    image_data.data.jpeg.capacity = size;
+
+    int res = poclProcessImage(device_index, do_segment, (compression_t)do_compression, quality,
+                               rotation, detection_array, segmentation_array, image_data);
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
