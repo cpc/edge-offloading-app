@@ -4,6 +4,7 @@ import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
 
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.util.Log;
 
@@ -43,13 +44,12 @@ public class CameraLogger extends CameraCaptureSession.CaptureCallback {
      */
     public void logImage(long systemTime, long deviceTime) {
         if (VERBOSITY >= 2) {
-            Log.println(Log.WARN, "cameracapture", String.format(Locale.US, "log image sys ts: %d," +
-                    " dev ts: %d", systemTime, deviceTime));
+            Log.println(Log.WARN, "cameracapture", String.format(Locale.US,
+                    "log image sys ts: %d, dev ts: %d", systemTime, deviceTime));
         }
 
         builder.setLength(0);
-        builder.append("0,image,").append(systemTime).append(",").append(deviceTime).append(
-                "\n");
+        builder.append("0,image,").append(systemTime).append(",").append(deviceTime).append("\n");
 
         try {
             stream.write(builder.toString().getBytes());
@@ -59,16 +59,17 @@ public class CameraLogger extends CameraCaptureSession.CaptureCallback {
 
     }
 
+
     @Override
     public void onCaptureStarted(@NonNull CameraCaptureSession session,
                                  @NonNull CaptureRequest request, long timestamp,
                                  long frameNumber) {
         long startSystemTime = System.nanoTime();
         if (VERBOSITY >= 2) {
-            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "started  capture sys ts: " +
-                    "%16d, frame: %d", startSystemTime, frameNumber));
-            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "started  capture dev " +
-                    "ts: %16d, frame: %d", timestamp, frameNumber));
+            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "frame: %d, started  "
+                    + "capture sys ts: %16d", frameNumber, startSystemTime));
+            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "frame: %d, started  "
+                    + "capture dev ts: %16d", frameNumber, timestamp));
         }
 
         builder.setLength(0);
@@ -81,18 +82,61 @@ public class CameraLogger extends CameraCaptureSession.CaptureCallback {
     }
 
     @Override
+    public void onCaptureProgressed(@NonNull CameraCaptureSession session,
+                                    @NonNull CaptureRequest request,
+                                    @NonNull CaptureResult partialResult) {
+        long systemTime = System.nanoTime();
+        long frameNumber = partialResult.getFrameNumber();
+
+        if (VERBOSITY >= 4) {
+            for (CaptureResult.Key key : partialResult.getKeys()) {
+                Object res = partialResult.get(key);
+                if (res.getClass() == Integer.class) {
+                    Log.println(Log.INFO, "cameracapture", String.format(Locale.US,
+                            "frame: %d, partial sys ts: %16d | %s: %d", frameNumber,
+                            systemTime, key.getName(), res));
+                } else if (res.getClass() == Float.class) {
+                    Log.println(Log.INFO, "cameracapture", String.format(Locale.US,
+                            "frame: %d, partial sys ts: %16d | %s: %f", frameNumber,
+                            systemTime, key.getName(), res));
+                } else {
+                    Log.println(Log.INFO, "cameracapture", String.format(Locale.US,
+                            "frame: %d, partial sys ts: %16d | %s: %s", frameNumber,
+                            systemTime, key.getName(), res));
+                }
+            }
+        }
+    }
+
+    @Override
     public void onCaptureCompleted(@NonNull CameraCaptureSession session,
                                    @NonNull CaptureRequest request,
                                    @NonNull TotalCaptureResult result) {
         long systemTime = System.nanoTime();
         long frameNumber = result.getFrameNumber();
         long devTime = result.get(TotalCaptureResult.SENSOR_TIMESTAMP);
+
         if (VERBOSITY >= 2) {
-            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "finished capture sys ts:" +
-                            " %16d, frame: %d",
-                    System.nanoTime(), frameNumber));
-            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "finished capture " +
-                    "dev ts: %16d, frame: %d", devTime, frameNumber));
+            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "frame: %d, finished "
+                    + "capture sys ts: %16d", frameNumber, systemTime));
+            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "frame: %d, finished "
+                    + "capture dev ts: %16d", frameNumber, devTime));
+        }
+
+        if (VERBOSITY >= 4) {
+            float aperture = result.get(TotalCaptureResult.LENS_APERTURE);
+            long exposure_time = result.get(TotalCaptureResult.SENSOR_EXPOSURE_TIME);
+            long frame_duration = result.get(TotalCaptureResult.SENSOR_FRAME_DURATION);
+            long sensitivity = result.get(TotalCaptureResult.SENSOR_SENSITIVITY);
+
+            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "frame: %d,          "
+                    + "      aperture: %f", frameNumber, aperture));
+            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "frame: %d,          "
+                    + " exposure time: %16d", frameNumber, exposure_time));
+            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "frame: %d,          "
+                    + "frame duration: %16d", frameNumber, frame_duration));
+            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "frame: %d,          "
+                    + "   sensitivity: %16d", frameNumber, sensitivity));
         }
 
         builder.setLength(0);

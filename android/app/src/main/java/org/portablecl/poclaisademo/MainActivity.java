@@ -43,6 +43,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
+import android.util.Range;
 import android.util.Size;
 import android.view.KeyEvent;
 import android.view.Surface;
@@ -721,11 +722,11 @@ public class MainActivity extends AppCompatActivity {
 
                 energyMonitor.tick();
                 trafficMonitor.tick();
-                String formatString = "FPS: %3.1f (%4.0fms)  AVG FPS: %3.1f (%4.0fms) \n" +
-                        "pow: %5.2f W  AVG pow: %5.2f W \n" +
-                        "EPF: %5.2f J  AVG EPF: %5.2f J \n" +
-                        "bandwidth: ∇ %s | ∆ %s \n" +
-                        "ping: %5.1f ms  AVG ping: %5.1f ms\n";
+                String formatString = "FPS: %3.1f (%4.0fms)  AVG: %3.1f (%4.0fms)\n" +
+                        "pow: %5.2f W  AVG: %5.2f W\n" +
+                        "EPF: %5.2f J  AVG: %5.2f J\n" +
+                        "bandwidth: ∇ %s | ∆ %s\n" +
+                        "ping: %5.1f ms  AVG: %5.1f ms\n";
 
                 float fps = counter.getEMAFPS();
                 float avgfps = counter.getAverageFPS();
@@ -997,6 +998,12 @@ public class MainActivity extends AppCompatActivity {
 
                     setupImageReader();
                     setupCameraOutput(cameraId, previewView.getWidth(), previewView.getHeight());
+
+                    if (VERBOSITY >= 3) {
+                        Log.println(Log.INFO, "MainActivity.java:setupCamera", "minimum frame duration: "
+                                + map.getOutputMinFrameDuration(captureFormat, captureSize)
+                        );
+                    }
 
                     // orientation is only known after setupcameraoutput, so set it now
                     poclImageProcessor.setOrientation(orientationsSwapped);
@@ -1354,6 +1361,13 @@ public class MainActivity extends AppCompatActivity {
             requestBuilder = chosenCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             requestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
                     CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+//            requestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<Integer>(60, 60)); // only usable in auto exposure mode, doesn't work
+//            // The following set the camera parameters manually:
+//            requestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
+//            requestBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME,   1000000L); // 1 ms
+//            requestBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, 640); // value of android.sensor.maxAnalogSensitivity
+//            requestBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, 16665880L); // 60 FPS (doesn't work)
+//            requestBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, 33333333L); // 30 FPS
             requestBuilder.addTarget(previewSurface);
 
             Surface imageReaderSurface = imageReader.getSurface();
