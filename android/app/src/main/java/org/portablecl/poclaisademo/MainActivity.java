@@ -43,7 +43,6 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
-import android.util.Range;
 import android.util.Size;
 import android.view.KeyEvent;
 import android.view.Surface;
@@ -183,6 +182,11 @@ public class MainActivity extends AppCompatActivity {
      */
     private boolean enableLogging;
 
+    /**
+     * Quality parameter of camera's JPEG compression
+     */
+    private int jpegQuality;
+
     private int configFlags;
 
     /**
@@ -283,11 +287,13 @@ public class MainActivity extends AppCompatActivity {
         // used to retrieve settings set by the StartupActivity
         configStore = new ConfigStore(this);
         configFlags = configStore.getConfigFlags();
+        jpegQuality = configStore.getJpegQuality();
 
         // get bundle with variables set during startup activity
         Bundle bundle = getIntent().getExtras();
         IPAddress = bundle.getString(IPKEY);
         disableRemote = bundle.getBoolean(DISABLEREMOTEKEY);
+
         try {
             enableLogging = bundle.getBoolean(ENABLELOGGINGKEY, false);
         } catch (Exception e) {
@@ -398,6 +404,13 @@ public class MainActivity extends AppCompatActivity {
                 imageAvailableLock, configFlags, counter, LOCAL_DEVICE,
                 segmentationSwitch.isChecked(), comPressionSwitch.isChecked(), uris[0]);
 
+        // code to handle the quality input
+        DropEditText qualityText = binding.compressionEditText;
+        qualityText.setOnEditorActionListener(qualityTextListener);
+        qualityText.setOnFocusChangeListener(qualityFocusListener);
+        qualityText.setText(Integer.toString(jpegQuality));
+        poclImageProcessor.setQuality(jpegQuality);
+
         // when jpeg_image is enabled, the camera only outputs jpegs,
         // so offloading with compression is the only option
         if ((JPEG_IMAGE & configFlags) > 0) {
@@ -405,12 +418,9 @@ public class MainActivity extends AppCompatActivity {
             modeSwitch.setClickable(false);
             comPressionSwitch.performClick();
             comPressionSwitch.setClickable(false);
+            qualityText.setClickable(false);
+            qualityText.setFocusable(false);
         }
-
-        // code to handle the quality input
-        DropEditText qualityText = binding.compressionEditText;
-        qualityText.setOnEditorActionListener(qualityTextListener);
-        qualityText.setOnFocusChangeListener(qualityFocusListener);
 
         // TODO: remove this example
         // this is an example run
@@ -451,8 +461,8 @@ public class MainActivity extends AppCompatActivity {
                     textView.setText(Integer.toString(qualityInput));
                 }
 
-                if (qualityInput < 0) {
-                    qualityInput = 0;
+                if (qualityInput < 1) {
+                    qualityInput = 1;
                     textView.setText(Integer.toString(qualityInput));
                 } else if (qualityInput > 100) {
                     qualityInput = 100;
@@ -1361,6 +1371,13 @@ public class MainActivity extends AppCompatActivity {
             requestBuilder = chosenCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             requestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
                     CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+            if (captureFormat == ImageFormat.JPEG) {
+                requestBuilder.set(CaptureRequest.JPEG_QUALITY, (byte) jpegQuality);
+                if (VERBOSITY >= 1) {
+                    Log.println(Log.INFO, "previewfeed",
+                            "Setting camera JPEG quality to " + jpegQuality);
+                }
+            }
 //            requestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<Integer>(60, 60)); // only usable in auto exposure mode, doesn't work
 //            // The following set the camera parameters manually:
 //            requestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);

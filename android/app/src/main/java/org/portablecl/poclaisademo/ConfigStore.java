@@ -21,18 +21,19 @@ public class ConfigStore {
 
     private final static String logTag = "configStore";
     private final static String keyPrefix = "org.portablecl.poclaisademo.";
-    private final static String preferencStoreName = keyPrefix +"configstore";
+    private final static String preferencStoreName = keyPrefix + "configstore";
 
     private final static String configFlagKey = keyPrefix + "configflagkey";
 
     private final static String uriLogKey = keyPrefix + "urilogkey";
 
+    private final static String jpegQualityKey = keyPrefix + "jpegqualitykey";
+
     /**
-     *
      * @param context can be an activity for example
      */
-    public ConfigStore(@NonNull Context context){
-        this.preferences = context.getSharedPreferences(preferencStoreName,Context.MODE_PRIVATE);
+    public ConfigStore(@NonNull Context context) {
+        this.preferences = context.getSharedPreferences(preferencStoreName, Context.MODE_PRIVATE);
         this.editor = preferences.edit();
     }
 
@@ -58,7 +59,7 @@ public class ConfigStore {
     }
 
     public String getLogUri(String key) {
-        return preferences.getString(uriLogKey+key, null);
+        return preferences.getString(uriLogKey + key, null);
     }
 
     public void setLogUri(String key, String value) {
@@ -66,7 +67,27 @@ public class ConfigStore {
             Log.println(Log.INFO, logTag, String.format("setting uri key %s to: %s", key, value));
         }
 
-        editor.putString(uriLogKey+key, value);
+        editor.putString(uriLogKey + key, value);
+    }
+
+    /**
+     * get the stored jpeg quality setting. defaults to 80.
+     * @return
+     */
+    public int getJpegQuality() {
+        return preferences.getInt(jpegQualityKey, 80);
+    }
+
+    /**
+     * set the jpeg quality to be stored
+     * @param quality to be set, there are no checks if the value is in an acceptable range
+     */
+    public void setJpegQuality(int quality) {
+        if (VERBOSITY >= 2) {
+            Log.println(Log.INFO, logTag, String.format("setting jpeg quality to: %d", quality));
+        }
+
+        editor.putInt(jpegQualityKey, quality);
     }
 
     /**

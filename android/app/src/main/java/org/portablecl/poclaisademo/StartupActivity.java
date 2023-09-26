@@ -8,6 +8,7 @@ import static org.portablecl.poclaisademo.BundleKeys.MONITORLOGFILEURIKEY;
 import static org.portablecl.poclaisademo.BundleKeys.POCLLOGFILEURIKEY;
 import static org.portablecl.poclaisademo.BundleKeys.TOTALLOGS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
+import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
@@ -92,6 +93,11 @@ public class StartupActivity extends AppCompatActivity {
      * boolean to store user values
      */
     private boolean enableLogging;
+
+    /**
+     * Quality parameter of camera's JPEG compression
+     */
+    private int jpegQuality;
 
     private Switch enableLoggingSwitch;
 
@@ -207,6 +213,14 @@ public class StartupActivity extends AppCompatActivity {
 
         cameraLogSwitch = binding.cameraLogSwitch;
 
+        // code to handle the camera JPEG quality input
+        DropEditText qualityText = binding.jpegQualityEditText;
+        qualityText.setOnEditorActionListener(jpegQualityTextListener);
+        qualityText.setOnFocusChangeListener(jpegQualityFocusListener);
+
+        jpegQuality = configStore.getJpegQuality();
+        qualityText.setText(Integer.toString(jpegQuality));
+
     }
 
     private final View.OnClickListener jpegImageButtonListener = new View.OnClickListener() {
@@ -268,6 +282,64 @@ public class StartupActivity extends AppCompatActivity {
             }
         }
     };
+
+    /**
+     * A callback that handles the camera JPEG quality edittext on screen when it loses focus.
+     * This callback checks the input and sets it within the bounds of 1 - 100.
+     */
+    private final View.OnFocusChangeListener jpegQualityFocusListener =
+            new View.OnFocusChangeListener() {
+                @Override
+                public void onFocusChange(View v, boolean hasFocus) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "started qualityTextListener callback");
+                    }
+
+                    if (!hasFocus) {
+                        TextView textView = (DropEditText) v;
+                        int qualityInput;
+                        try {
+                            qualityInput = Integer.parseInt(textView.getText().toString());
+                        } catch (Exception e) {
+                            if (VERBOSITY >= 3) {
+                                Log.println(Log.INFO, "StartupActivity.java", "could not parse quality, " +
+                                        "defaulting to 80");
+                            }
+                            qualityInput = 80;
+                            textView.setText(Integer.toString(qualityInput));
+                        }
+
+                        if (qualityInput < 1) {
+                            qualityInput = 1;
+                            textView.setText(Integer.toString(qualityInput));
+                        } else if (qualityInput > 100) {
+                            qualityInput = 100;
+                            textView.setText(Integer.toString(qualityInput));
+                        }
+
+                        jpegQuality = qualityInput;
+                    }
+                }
+            };
+
+    /**
+     * A callback that loses focus when the done button is pressed on a TextView.
+     */
+    private final TextView.OnEditorActionListener jpegQualityTextListener =
+            new TextView.OnEditorActionListener() {
+                @Override
+                public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "started jpegQualityTextListener " +
+                                "callback");
+                    }
+
+                    if (EditorInfo.IME_ACTION_DONE == actionId) {
+                        v.clearFocus();
+                    }
+                    return false;
+                }
+            };
 
     /**
      * get the name of the file pointed to by the uri.
@@ -353,6 +425,7 @@ public class StartupActivity extends AppCompatActivity {
             }
 
             configStore.setConfigFlags(configFlag);
+            configStore.setJpegQuality(jpegQuality);
             // settings are only saved when calling this function.
             configStore.flushSetting();
 
@@ -396,6 +469,7 @@ public class StartupActivity extends AppCompatActivity {
 
             int configFlags = genConfigFlags();
             configStore.setConfigFlags(configFlags);
+            configStore.setJpegQuality(jpegQuality);
             // settings are only saved when calling this function.
             configStore.flushSetting();
 

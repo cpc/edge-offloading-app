@@ -6,6 +6,20 @@
     android:layout_height="match_parent"
     tools:context=".StartupActivity">
 
+    <org.portablecl.poclaisademo.DropEditText
+        android:id="@+id/jpegQualityEditText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:ems="3"
+        android:inputType="number"
+        android:selectAllOnFocus="true"
+        android:text="80"
+        android:textAlignment="textEnd"
+        app:layout_constraintEnd_toEndOf="@+id/jpegImageButton"
+        app:layout_constraintStart_toStartOf="@+id/jpegImageButton"
+        app:layout_constraintTop_toBottomOf="@+id/jpegImageButton" />
+
     <TextView
         android:id="@+id/greeting"
         android:layout_width="wrap_content"
@@ -21,13 +35,15 @@
 
     <Button
         android:id="@+id/startButton"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginStart="25dp"
+        android:layout_marginEnd="25dp"
         android:layout_marginBottom="25dp"
         android:text="Start"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintStart_toEndOf="@+id/BenchmarkButton" />
 
     <AutoCompleteTextView
         android:id="@+id/IPTextView"
@@ -139,12 +155,14 @@
 
     <Button
         android:id="@+id/BenchmarkButton"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
+        android:layout_marginStart="25dp"
+        android:layout_marginEnd="25dp"
+        android:layout_marginBottom="25dp"
         android:text="Benchmark"
-        app:layout_constraintBottom_toTopOf="@+id/startButton"
-        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/startButton"
         app:layout_constraintStart_toStartOf="parent" />
 
     <ToggleButton
@@ -175,7 +193,7 @@
         android:id="@+id/compressionText"
         android:layout_width="242dp"
         android:layout_height="22dp"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="4dp"
         android:gravity="center"
         android:text="Compression Type: "
         android:textAppearance="@style/TextAppearance.AppCompat.Body2"

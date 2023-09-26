@@ -128,6 +128,7 @@ public class CameraLogger extends CameraCaptureSession.CaptureCallback {
             long exposure_time = result.get(TotalCaptureResult.SENSOR_EXPOSURE_TIME);
             long frame_duration = result.get(TotalCaptureResult.SENSOR_FRAME_DURATION);
             long sensitivity = result.get(TotalCaptureResult.SENSOR_SENSITIVITY);
+            byte camera_jpeg_quality = result.get(TotalCaptureResult.JPEG_QUALITY);
 
             Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "frame: %d,          "
                     + "      aperture: %f", frameNumber, aperture));
@@ -137,6 +138,8 @@ public class CameraLogger extends CameraCaptureSession.CaptureCallback {
                     + "frame duration: %16d", frameNumber, frame_duration));
             Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "frame: %d,          "
                     + "   sensitivity: %16d", frameNumber, sensitivity));
+            Log.println(Log.INFO, "cameracapture", String.format(Locale.US, "frame: %d,          "
+                    + "  jpeg quality: %16d", frameNumber, camera_jpeg_quality));
         }
 
         builder.setLength(0);
