@@ -68,18 +68,7 @@ public class PoclImageProcessor {
      */
     private final MainActivity activity;
 
-    /**
-     * used to indicate if logging is enabled
-     */
-//    private final boolean enableLogging;
-
-    /**
-     * used to write to logging file
-     */
-//    private final FileOutputStream[] logStreams;
     private final Uri uri;
-
-//    private ParcelFileDescriptor parcelFileDescriptor;
 
     private boolean orientationsSwapped;
 

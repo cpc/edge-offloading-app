@@ -25,9 +25,11 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
+        android:layout_marginBottom="13dp"
         android:ems="10"
         android:inputType="text"
         android:text="Configure the demo"
+        app:layout_constraintBottom_toTopOf="@+id/infoText"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.497"
         app:layout_constraintStart_toStartOf="parent"
@@ -49,7 +51,7 @@
         android:id="@+id/IPTextView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="72dp"
+        android:layout_marginTop="5dp"
         android:completionThreshold="0"
         android:ems="10"
         android:inputType="text"
@@ -57,7 +59,7 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.497"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toBottomOf="@+id/infoText" />
 
     <TextView
         android:id="@+id/infoText"
@@ -82,15 +84,15 @@
         app:layout_constraintTop_toBottomOf="@+id/IPTextView" />
 
     <!--    <Button-->
-<!--        android:id="@+id/printURI"-->
-<!--        android:layout_width="wrap_content"-->
-<!--        android:layout_height="wrap_content"-->
-<!--        android:layout_marginTop="24dp"-->
-<!--        android:text="show URI"-->
-<!--        app:layout_constraintEnd_toEndOf="parent"-->
-<!--        app:layout_constraintHorizontal_bias="0.498"-->
-<!--        app:layout_constraintStart_toStartOf="parent"-->
-<!--        app:layout_constraintTop_toBottomOf="@+id/fileNameView" />-->
+    <!--        android:id="@+id/printURI"-->
+    <!--        android:layout_width="wrap_content"-->
+    <!--        android:layout_height="wrap_content"-->
+    <!--        android:layout_marginTop="24dp"-->
+    <!--        android:text="show URI"-->
+    <!--        app:layout_constraintEnd_toEndOf="parent"-->
+    <!--        app:layout_constraintHorizontal_bias="0.498"-->
+    <!--        app:layout_constraintStart_toStartOf="parent"-->
+    <!--        app:layout_constraintTop_toBottomOf="@+id/fileNameView" />-->
 
     <Switch
         android:id="@+id/disableLoggingSwitch"
@@ -104,54 +106,6 @@
         app:layout_constraintHorizontal_bias="0.498"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/disableSwitch" />
-
-    <TextView
-        android:id="@+id/poclFileNameView"
-        android:layout_width="242dp"
-        android:layout_height="22dp"
-        android:layout_marginTop="10dp"
-        android:gravity="center"
-        android:text="pocl file name: "
-        android:textAppearance="@style/TextAppearance.AppCompat.Body2"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.497"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/disableLoggingSwitch" />
-
-    <Button
-        android:id="@+id/poclSelectURI"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:text="select file"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.498"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/poclFileNameView" />
-
-    <TextView
-        android:id="@+id/monitorFileNameView"
-        android:layout_width="242dp"
-        android:layout_height="22dp"
-        android:layout_marginTop="10dp"
-        android:gravity="center"
-        android:text="monitor file name: "
-        android:textAppearance="@style/TextAppearance.AppCompat.Body2"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.497"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/poclSelectURI" />
-
-    <Button
-        android:id="@+id/monitorSelectURI"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:text="select file"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.491"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/monitorFileNameView" />
 
     <Button
         android:id="@+id/BenchmarkButton"
@@ -187,54 +141,21 @@
         android:textOn="JPEG:ON"
         app:layout_constraintBottom_toBottomOf="@+id/jpegImageButton"
         app:layout_constraintStart_toEndOf="@+id/jpegImageButton"
-        app:layout_constraintTop_toTopOf="@+id/jpegImageButton" />
+        app:layout_constraintTop_toTopOf="@+id/jpegImageButton"
+        app:layout_constraintVertical_bias="0.0" />
 
     <TextView
         android:id="@+id/compressionText"
         android:layout_width="242dp"
         android:layout_height="22dp"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="274dp"
         android:gravity="center"
         android:text="Compression Type: "
         android:textAppearance="@style/TextAppearance.AppCompat.Body2"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.497"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/cameraLogSelectURI" />
-
-    <TextView
-        android:id="@+id/cameraLogFileNameView"
-        android:layout_width="242dp"
-        android:layout_height="22dp"
-        android:layout_marginTop="10dp"
-        android:gravity="center"
-        android:text="Camera Log file name: "
-        android:textAppearance="@style/TextAppearance.AppCompat.Body2"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.497"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/monitorSelectURI" />
-
-    <Button
-        android:id="@+id/cameraLogSelectURI"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:text="select file"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.491"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/cameraLogFileNameView" />
-
-    <Switch
-        android:id="@+id/cameraLogSwitch"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginEnd="10dp"
-        android:text="Log Cam"
-        app:layout_constraintBottom_toBottomOf="@+id/cameraLogSelectURI"
-        app:layout_constraintEnd_toStartOf="@+id/cameraLogSelectURI"
-        app:layout_constraintTop_toTopOf="@+id/cameraLogSelectURI" />
+        app:layout_constraintTop_toBottomOf="@+id/disableLoggingSwitch" />
 
     <ToggleButton
         android:id="@+id/jpegImageButton"

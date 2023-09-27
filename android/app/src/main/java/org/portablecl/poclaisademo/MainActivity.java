@@ -35,6 +35,7 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.icu.util.Output;
 import android.media.Image;
 import android.media.ImageReader;
 import android.net.Uri;
@@ -689,7 +690,8 @@ public class MainActivity extends AppCompatActivity {
             logStreams[i] = new FileOutputStream(parcelFileDescriptors[i].getFileDescriptor());
 
         } catch (Exception e) {
-            Log.println(Log.WARN, "openFileOutputStreams", "could not open log file " + i);
+            Log.println(Log.WARN, "openFileOutputStreams", "could not open log file " + i
+                    + ": " + uris[i].toString() + " :" + e.toString());
             logStreams[i] = null;
             return false;
         }
