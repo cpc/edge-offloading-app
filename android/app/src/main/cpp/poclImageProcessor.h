@@ -16,12 +16,11 @@ extern "C" {
 #endif
 
 
-
 typedef enum {
     NO_COMPRESSION = 1,
     YUV_COMPRESSION = 2,
     JPEG_COMPRESSION = 4,
-    JPEG_IMAGE = (1<<3), // if the input is already a compressed image
+    JPEG_IMAGE = (1 << 3), // if the input is already a compressed image
 } compression_t;
 
 enum {
@@ -46,16 +45,16 @@ typedef enum {
 /**
  * struct that hold relevant data of jpeg images
  */
-struct jpeg_image_data_t{
-    uint8_t * data;
+struct jpeg_image_data_t {
+    uint8_t *data;
     size_t capacity;
-} ;
+};
 
 /**
  * struct that holds relevant data of yuv images
  */
 struct yuv_image_data_t {
-    uint8_t * planes[3];
+    uint8_t *planes[3];
     int pixel_strides[3];
     int row_strides[3];
 };
@@ -65,20 +64,20 @@ struct yuv_image_data_t {
  * image_data_t
  */
 typedef enum {
-    YUV_DATA_T=0,
+    YUV_DATA_T = 0,
     JPEG_DATA_T,
-}image_datatype_t;
+} image_datatype_t;
 
 /**
  * pseudopolymorphic struct that can contain different image data
  */
 typedef struct {
-  image_datatype_t type;
-  union{
-    struct yuv_image_data_t yuv;
-    struct jpeg_image_data_t jpeg;
-  }data;
-}image_data_t;
+    image_datatype_t type;
+    union {
+        struct yuv_image_data_t yuv;
+        struct jpeg_image_data_t jpeg;
+    } data;
+} image_data_t;
 
 /**
  *

@@ -14,15 +14,16 @@ public class StatLogger implements Runnable {
     private final StringBuilder builder;
     private final FileOutputStream stream;
 
-    private TrafficMonitor trafficMonitor;
+    private final TrafficMonitor trafficMonitor;
 
-    private EnergyMonitor energyMonitor;
+    private final EnergyMonitor energyMonitor;
 
     private long timeEnergy, timeBandw;
     private int amp, volt;
     private TrafficMonitor.DataPoint dataPoint;
 
-    public StatLogger(FileOutputStream stream, TrafficMonitor trafficMonitor, EnergyMonitor energyMonitor) {
+    public StatLogger(FileOutputStream stream, TrafficMonitor trafficMonitor,
+                      EnergyMonitor energyMonitor) {
         this.stream = stream;
         this.trafficMonitor = trafficMonitor;
         this.energyMonitor = energyMonitor;
@@ -38,7 +39,6 @@ public class StatLogger implements Runnable {
                     "header");
         }
     }
-
 
 
     @Override

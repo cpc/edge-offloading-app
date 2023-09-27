@@ -35,7 +35,6 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
-import android.icu.util.Output;
 import android.media.Image;
 import android.media.ImageReader;
 import android.net.Uri;
@@ -442,38 +441,40 @@ public class MainActivity extends AppCompatActivity {
      */
     private final View.OnFocusChangeListener qualityFocusListener =
             new View.OnFocusChangeListener() {
-        @Override
-        public void onFocusChange(View v, boolean hasFocus) {
-            if (DEBUGEXECUTION) {
-                Log.println(Log.INFO, "EXECUTIONFLOW", "started qualityTextListener callback");
-            }
-
-            if (!hasFocus) {
-                TextView textView = (DropEditText) v;
-                int qualityInput;
-                try {
-                    qualityInput = Integer.parseInt(textView.getText().toString());
-                } catch (Exception e) {
-                    if (VERBOSITY >= 3) {
-                        Log.println(Log.INFO, "MainActivity.java", "could not parse quality, " +
-                                "defaulting to 80");
+                @Override
+                public void onFocusChange(View v, boolean hasFocus) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "started qualityTextListener " +
+                                "callback");
                     }
-                    qualityInput = 80;
-                    textView.setText(Integer.toString(qualityInput));
-                }
 
-                if (qualityInput < 1) {
-                    qualityInput = 1;
-                    textView.setText(Integer.toString(qualityInput));
-                } else if (qualityInput > 100) {
-                    qualityInput = 100;
-                    textView.setText(Integer.toString(qualityInput));
-                }
+                    if (!hasFocus) {
+                        TextView textView = (DropEditText) v;
+                        int qualityInput;
+                        try {
+                            qualityInput = Integer.parseInt(textView.getText().toString());
+                        } catch (Exception e) {
+                            if (VERBOSITY >= 3) {
+                                Log.println(Log.INFO, "MainActivity.java", "could not parse " +
+                                        "quality, " +
+                                        "defaulting to 80");
+                            }
+                            qualityInput = 80;
+                            textView.setText(Integer.toString(qualityInput));
+                        }
 
-                poclImageProcessor.setQuality(qualityInput);
-            }
-        }
-    };
+                        if (qualityInput < 1) {
+                            qualityInput = 1;
+                            textView.setText(Integer.toString(qualityInput));
+                        } else if (qualityInput > 100) {
+                            qualityInput = 100;
+                            textView.setText(Integer.toString(qualityInput));
+                        }
+
+                        poclImageProcessor.setQuality(qualityInput);
+                    }
+                }
+            };
 
     /**
      * A callback that loses focus when the done button is pressed on a TextView.
@@ -601,7 +602,7 @@ public class MainActivity extends AppCompatActivity {
         public void onClick(View v) {
 
             // if the device is local it does not make sense to compress
-            if(LOCAL_DEVICE == poclImageProcessor.inferencingDevice) {
+            if (LOCAL_DEVICE == poclImageProcessor.inferencingDevice) {
                 ((Switch) v).setChecked(false);
                 return;
             }
@@ -691,7 +692,7 @@ public class MainActivity extends AppCompatActivity {
 
         } catch (Exception e) {
             Log.println(Log.WARN, "openFileOutputStreams", "could not open log file " + i
-                    + ": " + uris[i].toString() + " :" + e.toString());
+                    + ": " + uris[i].toString() + " :" + e);
             logStreams[i] = null;
             return false;
         }
@@ -792,7 +793,7 @@ public class MainActivity extends AppCompatActivity {
 
         if (null != cameraLogger) {
             cameraLogger.logImage(systemTime, deviceTime);
-        } else if(VERBOSITY >=3){
+        } else if (VERBOSITY >= 3) {
             // very well possible that the cameralogger was not initialized on purpose
             Log.println(Log.WARN, "cameralogger", "logImage called but logger was not initialized");
         }
@@ -1012,7 +1013,8 @@ public class MainActivity extends AppCompatActivity {
                     setupCameraOutput(cameraId, previewView.getWidth(), previewView.getHeight());
 
                     if (VERBOSITY >= 3) {
-                        Log.println(Log.INFO, "MainActivity.java:setupCamera", "minimum frame duration: "
+                        Log.println(Log.INFO, "MainActivity.java:setupCamera", "minimum frame " +
+                                "duration: "
                                 + map.getOutputMinFrameDuration(captureFormat, captureSize)
                         );
                     }
@@ -1380,12 +1382,16 @@ public class MainActivity extends AppCompatActivity {
                             "Setting camera JPEG quality to " + jpegQuality);
                 }
             }
-//            requestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<Integer>(60, 60)); // only usable in auto exposure mode, doesn't work
+//            requestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<Integer>
+//            (60, 60)); // only usable in auto exposure mode, doesn't work
 //            // The following set the camera parameters manually:
-//            requestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
+//            requestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest
+//            .CONTROL_AE_MODE_OFF);
 //            requestBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME,   1000000L); // 1 ms
-//            requestBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, 640); // value of android.sensor.maxAnalogSensitivity
-//            requestBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, 16665880L); // 60 FPS (doesn't work)
+//            requestBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, 640); // value of android
+//            .sensor.maxAnalogSensitivity
+//            requestBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, 16665880L); // 60 FPS
+//            (doesn't work)
 //            requestBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, 33333333L); // 30 FPS
             requestBuilder.addTarget(previewSurface);
 

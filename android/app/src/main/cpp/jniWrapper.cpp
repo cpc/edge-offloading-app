@@ -99,7 +99,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
                                                                               jint config_flags,
                                                                               jobject jAssetManager,
                                                                               jint width,
-                                                                              jint height, jint fd) {
+                                                                              jint height,
+                                                                              jint fd) {
 
     bool smuggling_ok = smuggleONNXAsset(env, jAssetManager, "yolov8n-seg.onnx");
     assert(smuggling_ok);
@@ -185,7 +186,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     image_data.data.yuv.row_strides[1] = row_stride1;
     image_data.data.yuv.row_strides[2] = row_stride2;
 
-    int res = poclProcessImage(device_index, do_segment, (compression_t)do_compression, quality,
+    int res = poclProcessImage(device_index, do_segment, (compression_t) do_compression, quality,
                                rotation, detection_array, segmentation_array, image_data);
 
     // commit the results back
@@ -219,7 +220,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessJPEGImage(JNIE
     image_data.data.jpeg.data = (uint8_t *) env->GetDirectBufferAddress(data);
     image_data.data.jpeg.capacity = size;
 
-    int res = poclProcessImage(device_index, do_segment, (compression_t)do_compression, quality,
+    int res = poclProcessImage(device_index, do_segment, (compression_t) do_compression, quality,
                                rotation, detection_array, segmentation_array, image_data);
 
     // commit the results back

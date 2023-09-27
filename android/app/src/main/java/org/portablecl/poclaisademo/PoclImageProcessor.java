@@ -339,11 +339,11 @@ public class PoclImageProcessor {
                 // like this, we will only acquire a lock when a
                 // new image is available
                 int drainedPermits = imageAvailableLock.drainPermits();
-                imageAcquireTime =System.nanoTime();
+                imageAcquireTime = System.nanoTime();
 
                 // only log image when using the camera
-                if(null != activity && ((ENABLE_PROFILING & configFlags) >0) ) {
-                    activity.logImage(imageAcquireTime,image.getTimestamp());
+                if (null != activity && ((ENABLE_PROFILING & configFlags) > 0)) {
+                    activity.logImage(imageAcquireTime, image.getTimestamp());
                 }
 
                 if (DEBUGEXECUTION) {
@@ -405,7 +405,7 @@ public class PoclImageProcessor {
                             rotation, detection_results, segmentation_results, Y, YRowStride,
                             YPixelStride, U, UVRowStride, UVPixelStride, V, VRowStride,
                             VPixelStride);
-                    
+
                 } else if (ImageFormat.JPEG == imageFormat) {
                     // process jpeg images. jpeg images are just one plane with row and pixel
                     // strides set to 0. see:

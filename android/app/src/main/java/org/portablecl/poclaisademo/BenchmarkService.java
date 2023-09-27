@@ -343,7 +343,6 @@ public class BenchmarkService extends Service {
         poclImageProcessor.setImageReader(imageReader);
         poclImageProcessor.start();
 
-        return;
     }
 
     /**

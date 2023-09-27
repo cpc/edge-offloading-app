@@ -287,18 +287,19 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
      */
     private final TextView.OnEditorActionListener editorActionListener =
             new TextView.OnEditorActionListener() {
-        @Override
-        public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
-            if (DEBUGEXECUTION) {
-                Log.println(Log.INFO, "EXECUTIONFLOW", "started editorActionListener callback");
-            }
+                @Override
+                public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "started editorActionListener " +
+                                "callback");
+                    }
 
-            if (EditorInfo.IME_ACTION_DONE == actionId) {
-                v.clearFocus();
-            }
-            return false;
-        }
-    };
+                    if (EditorInfo.IME_ACTION_DONE == actionId) {
+                        v.clearFocus();
+                    }
+                    return false;
+                }
+            };
 
     /**
      * get the name of the file pointed to by the uri.

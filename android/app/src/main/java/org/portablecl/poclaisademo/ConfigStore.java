@@ -15,9 +15,9 @@ import androidx.annotation.NonNull;
  */
 public class ConfigStore {
 
-    private SharedPreferences preferences;
+    private final SharedPreferences preferences;
 
-    private SharedPreferences.Editor editor;
+    private final SharedPreferences.Editor editor;
 
     private final static String logTag = "configStore";
     private final static String keyPrefix = "org.portablecl.poclaisademo.";
@@ -38,7 +38,6 @@ public class ConfigStore {
     }
 
     /**
-     *
      * @return an int with configs encoded on each bit.
      */
     public int getConfigFlags() {
@@ -48,12 +47,14 @@ public class ConfigStore {
 
     /**
      * add the configflag to be set
+     *
      * @param configFlags to be stored
      */
     public void setConfigFlags(int configFlags) {
 
         if (VERBOSITY >= 2) {
-            Log.println(Log.INFO, logTag, String.format("setting config flags to: 0x%08X", configFlags));
+            Log.println(Log.INFO, logTag, String.format("setting config flags to: 0x%08X",
+                    configFlags));
         }
         editor.putInt(configFlagKey, configFlags);
     }
@@ -72,6 +73,7 @@ public class ConfigStore {
 
     /**
      * get the stored jpeg quality setting. defaults to 80.
+     *
      * @return
      */
     public int getJpegQuality() {
@@ -80,6 +82,7 @@ public class ConfigStore {
 
     /**
      * set the jpeg quality to be stored
+     *
      * @param quality to be set, there are no checks if the value is in an acceptable range
      */
     public void setJpegQuality(int quality) {

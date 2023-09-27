@@ -18,7 +18,7 @@
 #define CHECK_AND_RETURN(ret, msg)                                          \
     if(ret != CL_SUCCESS) {                                                 \
         LOGE("ERROR: %s at line %d in %s returned with %d\n",               \
-			 msg, __LINE__, __FILE__, ret);                                 \
+             msg, __LINE__, __FILE__, ret);                                 \
         return ret;                                                         \
     }
 

@@ -90,9 +90,9 @@ public class EnergyMonitor {
                 new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
 
         // a check to see if the property returns values in milli or micro amps
-        if(manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) < 6000){
+        if (manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) < 6000) {
             currentScale = 0.001f;
-        }else {
+        } else {
             currentScale = 0.000001f;
         }
 
@@ -134,7 +134,7 @@ public class EnergyMonitor {
         energyFrame = (current * currentScale) * (voltage * voltageScale);
         totalEnergyDelta += energyFrame * (timeFrame * timescale);
 
-        ema_eps = ema_eps + smoothing_factor*((energyFrame / (timeFrame * timescale)) - ema_eps);
+        ema_eps = ema_eps + smoothing_factor * ((energyFrame / (timeFrame * timescale)) - ema_eps);
 
     }
 
@@ -201,9 +201,10 @@ public class EnergyMonitor {
 
     /**
      * reutrn the EMA FPS
+     *
      * @return exponential moving average energy per second
      */
-    public float getEMAEPS(){
+    public float getEMAEPS() {
         return ema_eps;
     }
 

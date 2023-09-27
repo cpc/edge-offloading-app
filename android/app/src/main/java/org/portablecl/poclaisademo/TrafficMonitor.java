@@ -12,7 +12,9 @@ public class TrafficMonitor {
         public long tx_bytes_submitted;
         public long tx_bytes_confirmed;
 
-        public DataPoint(long tv_sec, long tv_nsec, long rx_bytes_requested, long rx_bytes_confirmed, long tx_bytes_submitted, long tx_bytes_confirmed) {
+        public DataPoint(long tv_sec, long tv_nsec, long rx_bytes_requested,
+                         long rx_bytes_confirmed, long tx_bytes_submitted,
+                         long tx_bytes_confirmed) {
             this.tv_sec = tv_sec;
             this.tv_nsec = tv_nsec;
             this.rx_bytes_requested = rx_bytes_requested;
@@ -67,7 +69,8 @@ public class TrafficMonitor {
     final long NS_PER_S = 1_000_000_000L;
 
     public String getRXBandwidthString() {
-        long delta_nsec = (current.tv_sec - prev.tv_sec) * NS_PER_S + (current.tv_nsec - prev.tv_nsec);
+        long delta_nsec =
+                (current.tv_sec - prev.tv_sec) * NS_PER_S + (current.tv_nsec - prev.tv_nsec);
         double delta_s = (double) delta_nsec / (double) NS_PER_S;
 
         long delta_rx = current.rx_bytes_confirmed - prev.rx_bytes_confirmed;
@@ -81,7 +84,8 @@ public class TrafficMonitor {
     }
 
     public String getTXBandwidthString() {
-        long delta_nsec = (current.tv_sec - prev.tv_sec) * NS_PER_S + (current.tv_nsec - prev.tv_nsec);
+        long delta_nsec =
+                (current.tv_sec - prev.tv_sec) * NS_PER_S + (current.tv_nsec - prev.tv_nsec);
         double delta_s = (double) delta_nsec / (double) NS_PER_S;
 
         long delta_tx = current.tx_bytes_confirmed - prev.tx_bytes_confirmed;

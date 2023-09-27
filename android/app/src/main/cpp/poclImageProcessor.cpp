@@ -272,7 +272,7 @@ init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int qual
     CHECK_AND_RETURN(status, "failed to create the output buffer");
 
     // needed to indicate how big the compressed image is
-    out_enc_uv_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(cl_ulong), NULL, &status );
+    out_enc_uv_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(cl_ulong), NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the output size buffer");
 
     // pocl content extension, allows for only the used part of the buffer to be transferred
@@ -755,9 +755,9 @@ copy_yuv_to_array(const image_data_t image, cl_uchar *dest_buf) {
 
     // this will be optimized out by the compiler
     const int yrow_stride = image.data.yuv.row_strides[0];
-    const uint8_t * y_ptr = image.data.yuv.planes[0];
-    const uint8_t * u_ptr = image.data.yuv.planes[1];
-    const uint8_t * v_ptr = image.data.yuv.planes[2];
+    const uint8_t *y_ptr = image.data.yuv.planes[0];
+    const uint8_t *u_ptr = image.data.yuv.planes[1];
+    const uint8_t *v_ptr = image.data.yuv.planes[2];
     const int ypixel_stride = image.data.yuv.pixel_strides[0];
     const int upixel_stride = image.data.yuv.pixel_strides[1];
     const int vpixel_stride = image.data.yuv.pixel_strides[2];
@@ -918,12 +918,12 @@ enqueue_jpeg_image(const cl_uchar *input_img, const size_t buf_size, const int d
     cl_event image_write_event, image_size_write_event, dec_event;
 
     status = clEnqueueWriteBuffer(commandQueue[dec_index], out_enc_y_buf, CL_FALSE, 0, buf_size,
-                                  input_img, 0, NULL,   &image_write_event);
+                                  input_img, 0, NULL, &image_write_event);
     CHECK_AND_RETURN(status, "failed to write image to enc buffer");
     append_to_event_array(&event_array, image_write_event, VAR_NAME(image_write_event));
 
-    status = clEnqueueWriteBuffer( commandQueue[dec_index], out_enc_uv_buf, CL_FALSE, 0, sizeof
-    (size_t), &buf_size, 0, NULL, &image_size_write_event);
+    status = clEnqueueWriteBuffer(commandQueue[dec_index], out_enc_uv_buf, CL_FALSE, 0, sizeof
+            (size_t), &buf_size, 0, NULL, &image_size_write_event);
     CHECK_AND_RETURN(status, "failed to write image size");
     append_to_event_array(&event_array, image_size_write_event, VAR_NAME(image_size_write_event));
 
@@ -959,9 +959,9 @@ enqueue_jpeg_image(const cl_uchar *input_img, const size_t buf_size, const int d
  */
 int
 poclProcessImage(const int device_index, const int do_segment,
-                    const compression_t compressionType,
-                    const int quality, const int rotation, int32_t *detection_array,
-                    uint8_t *segmentation_array, image_data_t image_data) {
+                 const compression_t compressionType,
+                 const int quality, const int rotation, int32_t *detection_array,
+                 uint8_t *segmentation_array, image_data_t image_data) {
 
     if (!setup_success) {
         LOGE("poclProcessYUVImage called but setup did not complete successfully\n");
@@ -1002,7 +1002,7 @@ poclProcessImage(const int device_index, const int do_segment,
         // normal execution
         inp_format = YUV_SEMI_PLANAR;
         // copy the yuv image data over to the host_img_buf and make sure it's semiplanar.
-        copy_yuv_to_array(image_data,host_img_buf);
+        copy_yuv_to_array(image_data, host_img_buf);
         status = clEnqueueWriteBuffer(commandQueue[device_index_copy], img_buf[device_index_copy],
                                       CL_FALSE, 0,
                                       img_buf_size, host_img_buf,

@@ -9,7 +9,7 @@
 
 event_array_t
 create_event_array(const int size) {
-    event_pair_t *array = (event_pair_t *)malloc(size * sizeof(event_pair_t));
+    event_pair_t *array = (event_pair_t *) malloc(size * sizeof(event_pair_t));
     event_array_t res = {size, 0, array};
     return res;
 }

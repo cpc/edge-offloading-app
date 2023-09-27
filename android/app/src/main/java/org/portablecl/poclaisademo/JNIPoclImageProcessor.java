@@ -1,11 +1,11 @@
 /**
- *  JNIPoclImageProcessor.java a file with java native interfaces implemented by
- *  poclImageProcessor.cpp
+ * JNIPoclImageProcessor.java a file with java native interfaces implemented by
+ * poclImageProcessor.cpp
  */
 package org.portablecl.poclaisademo;
+
 import android.content.res.AssetManager;
 
-import java.io.FileDescriptor;
 import java.nio.ByteBuffer;
 
 public class JNIPoclImageProcessor {
@@ -28,22 +28,26 @@ public class JNIPoclImageProcessor {
 
     public static native int destroyPoclImageProcessor();
 
-//    public static native int poclProcessYUVImage(int deviceIndex, int do_segment,
+    //    public static native int poclProcessYUVImage(int deviceIndex, int do_segment,
 //                                                 int doCompression, int quality, int rotation,
 //                                                 ByteBuffer Y, int YRowStride, int YPixelStride,
 //                                                 ByteBuffer U, ByteBuffer V, int UVRowStride,
 //                                                 int UVPixelStride, int[] detection_result,
 //                                                 byte[] segmentation_result);
     public static native int poclProcessYUVImage(int deviceIndex, int doSegment, int doCompression,
-                                              int quality, int rotation, int[] detectionResult,
-                                              byte[] segmentationResult,
-                                              ByteBuffer plane0, int rowStride0, int pixelStride0,
-                                              ByteBuffer plane1, int rowStride1, int pixelStride1,
-                                              ByteBuffer plane2, int rowStride2, int pixelStride2);
+                                                 int quality, int rotation, int[] detectionResult,
+                                                 byte[] segmentationResult,
+                                                 ByteBuffer plane0, int rowStride0,
+                                                 int pixelStride0,
+                                                 ByteBuffer plane1, int rowStride1,
+                                                 int pixelStride1,
+                                                 ByteBuffer plane2, int rowStride2,
+                                                 int pixelStride2);
 
     public static native int poclProcessJPEGImage(int deviceIndex, int doSegment, int doCompression,
-                                                 int quality, int rotation, int[] detectionResult,
-                                                 byte[] segmentationResult, ByteBuffer data, int size );
+                                                  int quality, int rotation, int[] detectionResult,
+                                                  byte[] segmentationResult, ByteBuffer data,
+                                                  int size);
 
     public static native String getProfilingStats();
 

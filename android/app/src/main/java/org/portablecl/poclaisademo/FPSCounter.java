@@ -66,14 +66,13 @@ public class FPSCounter {
 
         frameTime = currentTime - previousFrameTime;
 
-        ema_fps = ema_fps + smoothingFactor*((timePrecision/frameTime) - ema_fps);
+        ema_fps = ema_fps + smoothingFactor * ((timePrecision / frameTime) - ema_fps);
 
         totalTime += frameTime;
         frameCount += 1;
 
         previousFrameTime = currentTime;
 
-        return;
     }
 
     /**
@@ -91,6 +90,7 @@ public class FPSCounter {
 
     /**
      * return the EMA FPS
+     *
      * @return the Exponential Moving Average Frames per Second
      */
     public float getEMAFPS() {

@@ -31,9 +31,9 @@ add_library( # Sets the name of the library.
         )
 
 target_include_directories(poclaisademo PRIVATE
-                            ${EXTERNAL_PATH}/libopencl-stub/include
+        ${EXTERNAL_PATH}/libopencl-stub/include
 
-                            )
+        )
 
 
 # Searches for a specified prebuilt library and stores the path as a
@@ -62,7 +62,7 @@ set(ONNXRUNTIME_LIBRARIES onnxruntime)
 set(ONNXRUNTIME_INCLUDE_DIRS "${EXTERNAL_PATH}/onnxruntime-android/headers")
 
 # build opencv.
-set (OPENCV_CMAKE_ARGS
+set(OPENCV_CMAKE_ARGS
         -DCMAKE_MAKE_PROGRAM=${ANDROID_NDK}/prebuilt/linux-x86_64/bin/make
         -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK}/build/cmake/android.toolchain.cmake
         -DANDROID_NDK=${ANDROID_NDK}
@@ -215,7 +215,7 @@ target_link_libraries(
         ${ONNXRUNTIME_LIBRARIES}
         libyuv
         -ljnigraphics
-        )
+)
 
 add_dependencies(pocl build_opencv)
 add_dependencies(poclnative pocl build_libyuv)

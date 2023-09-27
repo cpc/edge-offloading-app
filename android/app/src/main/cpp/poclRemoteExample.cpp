@@ -19,13 +19,13 @@ extern "C" {
 #define CHECK_AND_RETURN(ret, msg)                                          \
     if(ret != CL_SUCCESS) {                                                 \
         __android_log_print(ANDROID_LOG_ERROR, "opencl vector add",         \
-				"ERROR: %s at line %d in %s returned with %d\n",            \
-					msg, __LINE__, __FILE__, ret);                          \
+                "ERROR: %s at line %d in %s returned with %d\n",            \
+                    msg, __LINE__, __FILE__, ret);                          \
         return ret;                                                         \
     }
 
 
-static const char *vector_add_str="											\
+static const char *vector_add_str = "											\
 		__kernel void vec_add(int N, __global float *A,						\
 								__global float *B, __global float *C)		\
 		{																	\
@@ -38,22 +38,20 @@ static const char *vector_add_str="											\
 		";
 
 
-
-
 static cl_context clContext = NULL;
 static cl_command_queue clCommandQueue = NULL;
 static cl_program clProgram = NULL;
 static cl_kernel clKernel = NULL;
 
 
-
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_MainActivity_initPoCL(JNIEnv *env, jobject thiz) {
-    __android_log_print(ANDROID_LOG_ERROR, "opencl vector add", "If you see this, logging from native code is working.");
+    __android_log_print(ANDROID_LOG_ERROR, "opencl vector add",
+                        "If you see this, logging from native code is working.");
 
     cl_platform_id clPlatform;
     cl_device_id clDevice;
-    cl_int	status;
+    cl_int status;
 
     status = clGetPlatformIDs(1, &clPlatform, NULL);
     CHECK_AND_RETURN(status, "getting platform id failed");
@@ -63,20 +61,20 @@ Java_org_portablecl_poclaisademo_MainActivity_initPoCL(JNIEnv *env, jobject thiz
 
     // some info
     char result_array[256];
-    clGetDeviceInfo(clDevice, CL_DEVICE_NAME, 256* sizeof (char), result_array,NULL);
+    clGetDeviceInfo(clDevice, CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
     __android_log_print(ANDROID_LOG_INFO, "PoCL vector add", "CL_DEVICE_NAME: %s", result_array);
 
-    clGetDeviceInfo(clDevice, CL_DEVICE_VERSION, 256* sizeof (char), result_array,NULL);
+    clGetDeviceInfo(clDevice, CL_DEVICE_VERSION, 256 * sizeof(char), result_array, NULL);
     __android_log_print(ANDROID_LOG_INFO, "PoCL vector add", "CL_DEVICE_VERSION: %s", result_array);
 
-    clGetDeviceInfo(clDevice, CL_DRIVER_VERSION, 256* sizeof (char), result_array,NULL);
+    clGetDeviceInfo(clDevice, CL_DRIVER_VERSION, 256 * sizeof(char), result_array, NULL);
     __android_log_print(ANDROID_LOG_INFO, "PoCL vector add", "CL_DRIVER_VERSION: %s", result_array);
 
-    clGetDeviceInfo(clDevice, CL_DEVICE_NAME, 256* sizeof (char), result_array,NULL);
+    clGetDeviceInfo(clDevice, CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
     __android_log_print(ANDROID_LOG_INFO, "PoCL vector add", "CL_DEVICE_NAME: %s", result_array);
 
-    cl_context_properties cps[] = { CL_CONTEXT_PLATFORM, (cl_context_properties) clPlatform,
-                                    0 };
+    cl_context_properties cps[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) clPlatform,
+                                   0};
 
     clContext = clCreateContext(cps, 1, &clDevice, NULL, NULL, &status);
     CHECK_AND_RETURN(status, "creating context failed");
@@ -100,23 +98,22 @@ Java_org_portablecl_poclaisademo_MainActivity_initPoCL(JNIEnv *env, jobject thiz
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_MainActivity_poclRemoteVectorAdd(JNIEnv *env, jobject thiz, jint n,
                                                                   jfloatArray a, jfloatArray b,
-                                                                  jfloatArray c)
-{
+                                                                  jfloatArray c) {
 
-    cl_int	status;
+    cl_int status;
     int byteSize = n * sizeof(float);
 
     // Get pointers to array from jni wrapped floatArray
-    jfloat* A = env->GetFloatArrayElements(a, 0);
-    jfloat* B = env->GetFloatArrayElements(b, 0);
-    jfloat* C = env->GetFloatArrayElements(c, 0);
+    jfloat *A = env->GetFloatArrayElements(a, 0);
+    jfloat *B = env->GetFloatArrayElements(b, 0);
+    jfloat *C = env->GetFloatArrayElements(c, 0);
 
 
-    cl_mem A_obj = clCreateBuffer(clContext, (CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR),
+    cl_mem A_obj = clCreateBuffer(clContext, (CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR),
                                   byteSize, A, &status);
     CHECK_AND_RETURN(status, "create buffer A failed");
 
-    cl_mem B_obj = clCreateBuffer(clContext, (CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR),
+    cl_mem B_obj = clCreateBuffer(clContext, (CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR),
                                   byteSize, B, &status);
     CHECK_AND_RETURN(status, "create buffer B failed");
 
@@ -124,10 +121,10 @@ Java_org_portablecl_poclaisademo_MainActivity_poclRemoteVectorAdd(JNIEnv *env, j
                                   byteSize, NULL, &status);
     CHECK_AND_RETURN(status, "create buffer C failed");
 
-    status = clSetKernelArg(clKernel, 0, sizeof(cl_int), (void *)&n);
-    status |= clSetKernelArg(clKernel, 1, sizeof(cl_mem), (void *)&A_obj);
-    status |= clSetKernelArg(clKernel, 2, sizeof(cl_mem), (void *)&B_obj);
-    status |= clSetKernelArg(clKernel, 3, sizeof(cl_mem), (void *)&C_obj);
+    status = clSetKernelArg(clKernel, 0, sizeof(cl_int), (void *) &n);
+    status |= clSetKernelArg(clKernel, 1, sizeof(cl_mem), (void *) &A_obj);
+    status |= clSetKernelArg(clKernel, 2, sizeof(cl_mem), (void *) &B_obj);
+    status |= clSetKernelArg(clKernel, 3, sizeof(cl_mem), (void *) &C_obj);
     CHECK_AND_RETURN(status, "clSetKernelArg failed");
 
 //    size_t localSize = LOCAL_SIZE;
@@ -140,7 +137,7 @@ Java_org_portablecl_poclaisademo_MainActivity_poclRemoteVectorAdd(JNIEnv *env, j
                                     &globalSize, &localSize, 0, NULL, NULL);
     CHECK_AND_RETURN(status, "clEnqueueNDRange failed");
 
-    status = clEnqueueReadBuffer(clCommandQueue,C_obj,CL_TRUE,0,byteSize,C,0,NULL,NULL);
+    status = clEnqueueReadBuffer(clCommandQueue, C_obj, CL_TRUE, 0, byteSize, C, 0, NULL, NULL);
     CHECK_AND_RETURN(status, "clEnqueueReadBuffer failed");
 
     status = clFinish(clCommandQueue);
@@ -156,23 +153,22 @@ Java_org_portablecl_poclaisademo_MainActivity_poclRemoteVectorAdd(JNIEnv *env, j
 
 
 JNIEXPORT jint JNICALL
-Java_org_portablecl_poclaisademo_MainActivity_destroyPoCL(JNIEnv *env, jobject thiz)
-{
-    if(clKernel)		clReleaseKernel(clKernel);
-    if(clProgram)		clReleaseProgram(clProgram);
-    if(clCommandQueue) 	clReleaseCommandQueue(clCommandQueue);
-    if(clContext)	    clReleaseContext(clContext);
+Java_org_portablecl_poclaisademo_MainActivity_destroyPoCL(JNIEnv *env, jobject thiz) {
+    if (clKernel) clReleaseKernel(clKernel);
+    if (clProgram) clReleaseProgram(clProgram);
+    if (clCommandQueue) clReleaseCommandQueue(clCommandQueue);
+    if (clContext) clReleaseContext(clContext);
 
     return 0;
 }
 
 JNIEXPORT void JNICALL
 Java_org_portablecl_poclaisademo_MainActivity_setPoCLEnv(JNIEnv *env, jobject thiz, jstring key,
-                                                         jstring value)
-{
-    char * c_key = (char*) env->GetStringUTFChars(key, 0);
-    char * c_value = (char*) env->GetStringUTFChars(value, 0);
-    __android_log_print(ANDROID_LOG_INFO, "Pocl vector add", "setting env variable: %s : %s", c_key, c_value);
+                                                         jstring value) {
+    char *c_key = (char *) env->GetStringUTFChars(key, 0);
+    char *c_value = (char *) env->GetStringUTFChars(value, 0);
+    __android_log_print(ANDROID_LOG_INFO, "Pocl vector add", "setting env variable: %s : %s", c_key,
+                        c_value);
 
     setenv(c_key, c_value, 1);
 }

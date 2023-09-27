@@ -7,7 +7,6 @@ import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
-import android.graphics.RectF;
 import android.util.Log;
 import android.util.Size;
 import android.view.SurfaceHolder;
@@ -132,7 +131,8 @@ public class OverlayVisualizer {
 
             if (1 == do_segment) {
                 ByteBuffer segmentation_buf = ByteBuffer.wrap(segmentations);
-                Bitmap segmentation_bitmap = Bitmap.createBitmap(MASK_W, MASK_H, Bitmap.Config.ARGB_8888);
+                Bitmap segmentation_bitmap = Bitmap.createBitmap(MASK_W, MASK_H,
+                        Bitmap.Config.ARGB_8888);
                 segmentation_bitmap.copyPixelsFromBuffer(segmentation_buf);
                 Rect src = new Rect(0, 0, MASK_W, MASK_H);
                 Rect dst = new Rect(0, 0, surfaceView.getWidth(), surfaceView.getHeight());
@@ -164,7 +164,7 @@ public class OverlayVisualizer {
 
     }
 
-    public static String getDetectionName(int id){
+    public static String getDetectionName(int id) {
         return classes[id];
     }
 }

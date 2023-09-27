@@ -8,6 +8,7 @@
 #define POCL_AISA_DEMO_VECTORADDEXAMPLE_H
 
 #include <jni.h>
+
 #define CL_TARGET_OPENCL_VERSION 200
 
 #ifdef __cplusplus
@@ -28,7 +29,7 @@ Java_org_portablecl_poclaisademo_MainActivity_destroyCL(JNIEnv *env, jobject thi
 
 JNIEXPORT void JNICALL
 Java_org_portablecl_poclaisademo_MainActivity_setenv(JNIEnv *env, jobject thiz, jstring key,
-jstring value);
+                                                     jstring value);
 
 #ifdef __cplusplus
 }
