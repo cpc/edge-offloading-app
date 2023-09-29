@@ -34,32 +34,6 @@ public class CameraLogger extends CameraCaptureSession.CaptureCallback {
         }
     }
 
-    /**
-     * function to log when an image is consumed for processing
-     * <p>
-     * Called from poclimageprocessor.java right after the latest image is acquired
-     *
-     * @param systemTime the time in ns when the image is acquired
-     * @param deviceTime the timestamp of the image
-     */
-    public void logImage(long systemTime, long deviceTime) {
-        if (VERBOSITY >= 2) {
-            Log.println(Log.WARN, "cameracapture", String.format(Locale.US,
-                    "log image sys ts: %d, dev ts: %d", systemTime, deviceTime));
-        }
-
-        builder.setLength(0);
-        builder.append("0,image,").append(systemTime).append(",").append(deviceTime).append("\n");
-
-        try {
-            stream.write(builder.toString().getBytes());
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-    }
-
-
     @Override
     public void onCaptureStarted(@NonNull CameraCaptureSession session,
                                  @NonNull CaptureRequest request, long timestamp,

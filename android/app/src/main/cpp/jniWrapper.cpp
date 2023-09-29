@@ -167,7 +167,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                                                            jint pixel_stride1,
                                                                            jobject plane2,
                                                                            jint row_stride2,
-                                                                           jint pixel_stride2) {
+                                                                           jint pixel_stride2,
+                                                                           jlong image_timestamp) {
     // todo: look into if iscopy=true works on android
     int32_t *detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
     // pocl returns segmentation result in uint8_t, but jbyte is int8_t
@@ -187,7 +188,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     image_data.data.yuv.row_strides[2] = row_stride2;
 
     int res = poclProcessImage(device_index, do_segment, (compression_t) do_compression, quality,
-                               rotation, detection_array, segmentation_array, image_data);
+                               rotation, detection_array, segmentation_array, image_data,
+                               image_timestamp);
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
@@ -208,7 +210,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessJPEGImage(JNIE
                                                                             jintArray detection_result,
                                                                             jbyteArray segmentation_result,
                                                                             jobject data,
-                                                                            jint size) {
+                                                                            jint size,
+                                                                            jlong image_timestamp) {
 
     int32_t *detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
     // pocl returns segmentation result in uint8_t, but jbyte is int8_t
@@ -221,7 +224,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessJPEGImage(JNIE
     image_data.data.jpeg.capacity = size;
 
     int res = poclProcessImage(device_index, do_segment, (compression_t) do_compression, quality,
-                               rotation, detection_array, segmentation_array, image_data);
+                               rotation, detection_array, segmentation_array, image_data,
+                               image_timestamp);
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);

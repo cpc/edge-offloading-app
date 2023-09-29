@@ -784,24 +784,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Method to log an image from outside the main activity
-     *
-     * @param systemTime time in ns when image was acquired
-     * @param deviceTime timestamp of the image
-     */
-    public void logImage(long systemTime, long deviceTime) {
-
-        if (null != cameraLogger) {
-            cameraLogger.logImage(systemTime, deviceTime);
-        } else if (VERBOSITY >= 3) {
-            // very well possible that the cameralogger was not initialized on purpose
-            Log.println(Log.WARN, "cameralogger", "logImage called but logger was not initialized");
-        }
-
-    }
-
-
-    /**
      * this is the first function is called when stopping an activity
      * <p>
      * see https://developer.android.com/guide/components/activities/activity-lifecycle

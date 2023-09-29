@@ -42,12 +42,13 @@ public class JNIPoclImageProcessor {
                                                  ByteBuffer plane1, int rowStride1,
                                                  int pixelStride1,
                                                  ByteBuffer plane2, int rowStride2,
-                                                 int pixelStride2);
+                                                 int pixelStride2,
+                                                 long imageTimestamp);
 
     public static native int poclProcessJPEGImage(int deviceIndex, int doSegment, int doCompression,
                                                   int quality, int rotation, int[] detectionResult,
                                                   byte[] segmentationResult, ByteBuffer data,
-                                                  int size);
+                                                  int size, long imageTimestamp);
 
     public static native String getProfilingStats();
 

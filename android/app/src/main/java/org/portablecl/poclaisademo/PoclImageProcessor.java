@@ -341,11 +341,6 @@ public class PoclImageProcessor {
                 int drainedPermits = imageAvailableLock.drainPermits();
                 imageAcquireTime = System.nanoTime();
 
-                // only log image when using the camera
-                if (null != activity && ((ENABLE_PROFILING & configFlags) > 0)) {
-                    activity.logImage(imageAcquireTime, image.getTimestamp());
-                }
-
                 if (DEBUGEXECUTION) {
                     Log.println(Log.INFO, "EXECUTIONFLOW", "acquired image");
                 }
@@ -364,6 +359,9 @@ public class PoclImageProcessor {
                 do_segment = doSegment ? 1 : 0;
                 // pick the right compression value
                 compressionParam = doCompression ? compressionType : NO_COMPRESSION;
+
+                // Camera's timestamp passed to the processor to link camera and pocl logs together
+                long imageTimestamp = image.getTimestamp();
 
                 // check that the image is supported
                 assert checkImageFormat(image);
@@ -404,7 +402,7 @@ public class PoclImageProcessor {
                     poclProcessYUVImage(inferencingDevice, do_segment, compressionParam, quality,
                             rotation, detection_results, segmentation_results, Y, YRowStride,
                             YPixelStride, U, UVRowStride, UVPixelStride, V, VRowStride,
-                            VPixelStride);
+                            VPixelStride, imageTimestamp);
 
                 } else if (ImageFormat.JPEG == imageFormat) {
                     // process jpeg images. jpeg images are just one plane with row and pixel
@@ -420,7 +418,8 @@ public class PoclImageProcessor {
 
                     currentTime = System.currentTimeMillis();
                     poclProcessJPEGImage(inferencingDevice, do_segment, compressionParam, quality
-                            , rotation, detection_results, segmentation_results, data, size);
+                            , rotation, detection_results, segmentation_results, data, size,
+                            imageTimestamp);
 
                 } else {
                     Log.println(Log.WARN, "imageprocessloop", "unknown image format");

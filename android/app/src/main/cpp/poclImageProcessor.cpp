@@ -961,7 +961,7 @@ int
 poclProcessImage(const int device_index, const int do_segment,
                  const compression_t compressionType,
                  const int quality, const int rotation, int32_t *detection_array,
-                 uint8_t *segmentation_array, image_data_t image_data) {
+                 uint8_t *segmentation_array, image_data_t image_data, long image_timestamp) {
 
     if (!setup_success) {
         LOGE("poclProcessYUVImage called but setup did not complete successfully\n");
@@ -1070,6 +1070,8 @@ poclProcessImage(const int device_index, const int do_segment,
 
         print_events(file_descriptor, frame_index, &event_array);
 
+        dprintf(file_descriptor, "%d,frame,timestamp,%ld\n", frame_index,
+                image_timestamp);  // this should match device timestamp in camera log
         dprintf(file_descriptor, "%d,device,index,%d\n", frame_index, device_index_copy);
         dprintf(file_descriptor, "%d,config,segment,%d\n", frame_index, do_segment_copy);
         dprintf(file_descriptor, "%d,compression,name,%s\n", frame_index,
