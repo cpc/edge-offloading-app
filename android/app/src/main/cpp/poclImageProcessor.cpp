@@ -995,10 +995,13 @@ poclProcessImage(const int device_index, const int do_segment,
 
     reset_event_array(&event_array);
 
+    uint64_t size = 0;
+
     // the local device does not support other compression types, but this this function with
     // local devices should only be called with no compression, so other paths will not be
     // reached. There is also an assert to make sure of this.
     if (NO_COMPRESSION == compressionType) {
+        size = img_buf_size;
         // normal execution
         inp_format = YUV_SEMI_PLANAR;
         // copy the yuv image data over to the host_img_buf and make sure it's semiplanar.
@@ -1009,8 +1012,8 @@ poclProcessImage(const int device_index, const int do_segment,
                                       0, NULL, &dnn_wait_event);
         CHECK_AND_RETURN(status, "failed to write image to ocl buffers");
         append_to_event_array(&event_array, dnn_wait_event, "write_img_event");
-
     } else if (YUV_COMPRESSION == compression_type) {
+        size = img_buf_size;
         inp_format = YUV_SEMI_PLANAR;
         copy_yuv_to_array(image_data, host_img_buf);
         status = enqueue_yuv_compression(host_img_buf, img_buf_size, 1, 3,
@@ -1032,6 +1035,7 @@ poclProcessImage(const int device_index, const int do_segment,
                                           &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
     } else {
+        size = image_data.data.jpeg.capacity;
         // process jpeg images
         inp_format = RGB;
         status = enqueue_jpeg_image(image_data.data.jpeg.data,
@@ -1054,6 +1058,15 @@ poclProcessImage(const int device_index, const int do_segment,
 #endif
 
     if (ENABLE_PROFILING & config_flags) {
+        if (JPEG_COMPRESSION == compression_type) {
+            status = clEnqueueReadBuffer(commandQueue[1], out_enc_uv_buf, CL_FALSE, 0,
+                                         sizeof(cl_ulong),
+                                         &size, 0, NULL, NULL);
+            CHECK_AND_RETURN(status, "could not read size buffer");
+
+            status = clFinish(commandQueue[1]);
+            CHECK_AND_RETURN(status, "failed to clfinish");
+        }
 
         print_events(file_descriptor, frame_index, &event_array);
 
@@ -1062,7 +1075,7 @@ poclProcessImage(const int device_index, const int do_segment,
         dprintf(file_descriptor, "%d,compression,name,%s\n", frame_index,
                 get_compression_name(compression_type));
         dprintf(file_descriptor, "%d,compression,quality,%d\n", frame_index, quality);
-
+        dprintf(file_descriptor, "%d,compression,size,%llu\n", frame_index, size);
     }
 
     release_events(&event_array);
