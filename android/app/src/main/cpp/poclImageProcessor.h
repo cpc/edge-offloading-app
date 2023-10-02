@@ -47,7 +47,7 @@ typedef enum {
  */
 struct jpeg_image_data_t {
     uint8_t *data;
-    size_t capacity;
+    uint64_t capacity;
 };
 
 /**

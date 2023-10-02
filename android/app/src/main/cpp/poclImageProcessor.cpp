@@ -244,8 +244,17 @@ src_size) {
     return 0;
 }
 
+/**
+ * setup up everything needed to process jpeg images
+ * @param enc_device the device that will encode
+ * @param dec_device the device that will decode
+ * @param quality the starting quality at which to compress
+ * @param enable_resize used to enable the pocl size extension. currently jpeg images from the camera
+ * do not work well with this extension
+ * @return the status of how the commands executed
+ */
 static int
-init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int quality) {
+init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int quality, int enable_resize) {
 
     int status;
     cl_program enc_program = clCreateProgramWithBuiltInKernels(context, 1, enc_device,
@@ -277,8 +286,10 @@ init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int qual
 
     // pocl content extension, allows for only the used part of the buffer to be transferred
     // https://registry.khronos.org/OpenCL/extensions/pocl/cl_pocl_content_size.html
-    status = clSetContentSizeBufferPoCL(out_enc_y_buf, out_enc_uv_buf);
-    CHECK_AND_RETURN(status, "could not apply content size extension");
+    if(enable_resize > 0) {
+        status = clSetContentSizeBufferPoCL(out_enc_y_buf, out_enc_uv_buf);
+        CHECK_AND_RETURN(status, "could not apply content size extension");
+    }
 
     enc_y_kernel = clCreateKernel(enc_program, "pocl.compress.to.jpeg.argb8888", &status);
     CHECK_AND_RETURN(status, "failed to create enc kernel");
@@ -506,9 +517,11 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
         if (YUV_COMPRESSION & config_flags) {
             status = init_codecs(devices[1], devices[3], codec_sources, src_size);
             CHECK_AND_RETURN(status, "init of codec kernels failed");
-        } else if ((JPEG_COMPRESSION & config_flags) ||
-                   (JPEG_IMAGE & config_flags)) {
-            status = init_jpeg_codecs(&devices[1], &devices[3], quality);
+        } else if ((JPEG_COMPRESSION & config_flags)) {
+            status = init_jpeg_codecs(&devices[1], &devices[3], quality, 1);
+            CHECK_AND_RETURN(status, "init of codec kernels failed");
+        } else if (JPEG_IMAGE & config_flags) {
+            status = init_jpeg_codecs(&devices[1], &devices[3], quality, 0);
             CHECK_AND_RETURN(status, "init of codec kernels failed");
         }
 
@@ -859,7 +872,7 @@ enqueue_yuv_compression(const cl_uchar *input_img, const size_t buf_size, const 
  * @return
  */
 cl_int
-enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const int quality,
+enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const cl_int quality,
                          const int enc_index,
                          const int dec_index, cl_event *result_event) {
 
@@ -911,25 +924,24 @@ enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const
  * @return cl_success or an error
  */
 cl_int
-enqueue_jpeg_image(const cl_uchar *input_img, const size_t buf_size, const int dec_index,
+enqueue_jpeg_image(const cl_uchar *input_img, const uint64_t *buf_size, const int dec_index,
                    cl_event *result_event) {
 
     cl_int status;
     cl_event image_write_event, image_size_write_event, dec_event;
 
-    status = clEnqueueWriteBuffer(commandQueue[dec_index], out_enc_y_buf, CL_FALSE, 0, buf_size,
-                                  input_img, 0, NULL, &image_write_event);
-    CHECK_AND_RETURN(status, "failed to write image to enc buffer");
-    append_to_event_array(&event_array, image_write_event, VAR_NAME(image_write_event));
-
     status = clEnqueueWriteBuffer(commandQueue[dec_index], out_enc_uv_buf, CL_FALSE, 0, sizeof
-            (size_t), &buf_size, 0, NULL, &image_size_write_event);
+            (uint64_t), buf_size, 0, NULL, &image_size_write_event);
     CHECK_AND_RETURN(status, "failed to write image size");
     append_to_event_array(&event_array, image_size_write_event, VAR_NAME(image_size_write_event));
 
-    cl_event dec_kernel_wait_events[] = {image_write_event, image_size_write_event};
+    status = clEnqueueWriteBuffer(commandQueue[dec_index], out_enc_y_buf, CL_FALSE, 0, *buf_size,
+                                  input_img, 1, &image_size_write_event, &image_write_event);
+    CHECK_AND_RETURN(status, "failed to write image to enc buffer");
+    append_to_event_array(&event_array, image_write_event, VAR_NAME(image_write_event));
+
     status = clEnqueueNDRangeKernel(commandQueue[dec_index], dec_y_kernel, 1, NULL, dec_y_global,
-                                    NULL, 2, dec_kernel_wait_events, &dec_event);
+                                    NULL, 1, &image_write_event, &dec_event);
     CHECK_AND_RETURN(status, "failed to enqueue decompression kernel");
     append_to_event_array(&event_array, dec_event, VAR_NAME(dec_index));
 
@@ -1039,7 +1051,7 @@ poclProcessImage(const int device_index, const int do_segment,
         // process jpeg images
         inp_format = RGB;
         status = enqueue_jpeg_image(image_data.data.jpeg.data,
-                                    image_data.data.jpeg.capacity,
+                                    (const uint64_t *) &image_data.data.jpeg.capacity,
                                     3, &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue jpeg image");
     }
