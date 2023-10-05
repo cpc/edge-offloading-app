@@ -893,6 +893,7 @@ enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const
                                         CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, 0, NULL,
                                         &mig_event);
     CHECK_AND_RETURN(status, "could not migrate buffers back");
+    append_to_event_array(&event_array, mig_event, VAR_NAME(mig_event));
 
     status = clEnqueueWriteBuffer(commandQueue[enc_index], img_buf[enc_index], CL_FALSE, 0,
                                   buf_size, input_img, 0, NULL, &enc_image_event);
