@@ -109,7 +109,7 @@ add_library(opencv_core SHARED IMPORTED)
 set_target_properties(opencv_core PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_core.so)
 
 add_library(libturbojpeg SHARED IMPORTED)
-set_target_properties(libturbojpeg PROPERTIES IMPORTED_LOCATION ${EXTERNAL_PATH}/android-texcomp/TexcompApp/app/src/main/cpp/libturbojpeg/${ANDROID_ABI}/libturbojpeg.a)
+set_target_properties(libturbojpeg PROPERTIES IMPORTED_LOCATION ${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/${CMAKE_ANDROID_ARCH_ABI}/libturbojpeg.a)
 
 # build pocl project
 set(POCL_CMAKE_ARGS
@@ -143,8 +143,11 @@ set(POCL_CMAKE_ARGS
         -DENABLE_OPENCV_ONNX=YES
         -DONNXRUNTIME_INCLUDE_DIRS=${ONNXRUNTIME_INCLUDE_DIRS}
         -DONNXRUNTIME_LIBRARIES=${ONNXRUNTIME_LIBRARIES}
-        -DENABLE_ANDROID_COMPRESSION=YES
+        -DENABLE_TURBO_JPEG_COMPRESSION=YES
+        -DTURBO_JPEG_LIBRARIES=${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/${CMAKE_ANDROID_ARCH_ABI}/libturbojpeg.a
+        -DTURBO_JPEG_INCLUDE_DIR=${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/include
         )
+#-DENABLE_ANDROID_COMPRESSION=YES
 
 ExternalProject_Add(pocl
         SOURCE_DIR ${EXTERNAL_PATH}/pocl
@@ -214,8 +217,10 @@ target_link_libraries(
         opencv_core
         ${ONNXRUNTIME_LIBRARIES}
         libyuv
+        ${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/${CMAKE_ANDROID_ARCH_ABI}/libturbojpeg.a
         -ljnigraphics
 )
+
 
 add_dependencies(pocl build_opencv)
 add_dependencies(poclnative pocl build_libyuv)

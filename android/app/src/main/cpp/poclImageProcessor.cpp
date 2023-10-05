@@ -1,5 +1,4 @@
 
-
 #define CL_HPP_MINIMUM_OPENCL_VERSION 300
 #define CL_HPP_TARGET_OPENCL_VERSION 300
 
@@ -19,6 +18,7 @@
 #include <assert.h>
 #include <ctime>
 #include <cmath>
+#include <cstdio>
 
 #include "poclImageProcessor.h" // defines LOGTAG
 #include "platform.h"
@@ -254,11 +254,12 @@ src_size) {
  * @return the status of how the commands executed
  */
 static int
-init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int quality, int enable_resize) {
+init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int quality,
+                 int enable_resize) {
 
     int status;
     cl_program enc_program = clCreateProgramWithBuiltInKernels(context, 1, enc_device,
-                                                               "pocl.compress.to.jpeg.argb8888",
+                                                               "pocl.compress.to.jpeg.yuv420nv21",
                                                                &status);
     CHECK_AND_RETURN(status, "could not create enc program");
 
@@ -273,11 +274,11 @@ init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int qual
     status = clBuildProgram(dec_program, 1, dec_device, nullptr, nullptr, nullptr);
     CHECK_AND_RETURN(status, "could not build dec program");
 
-    img_buf[1] = clCreateBuffer(context, CL_MEM_READ_ONLY, tot_pixels * 4, NULL, &status);
+    img_buf[1] = clCreateBuffer(context, CL_MEM_READ_ONLY, tot_pixels * 3 / 2, NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the input buffer");
 
     // overprovision this buffer since the compressed output size can vary
-    out_enc_y_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, tot_pixels * 4, NULL, &status);
+    out_enc_y_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, tot_pixels * 3 / 2, NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the output buffer");
 
     // needed to indicate how big the compressed image is
@@ -286,12 +287,12 @@ init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int qual
 
     // pocl content extension, allows for only the used part of the buffer to be transferred
     // https://registry.khronos.org/OpenCL/extensions/pocl/cl_pocl_content_size.html
-    if(enable_resize > 0) {
+    if (enable_resize > 0) {
         status = clSetContentSizeBufferPoCL(out_enc_y_buf, out_enc_uv_buf);
         CHECK_AND_RETURN(status, "could not apply content size extension");
     }
 
-    enc_y_kernel = clCreateKernel(enc_program, "pocl.compress.to.jpeg.argb8888", &status);
+    enc_y_kernel = clCreateKernel(enc_program, "pocl.compress.to.jpeg.yuv420nv21", &status);
     CHECK_AND_RETURN(status, "failed to create enc kernel");
 
     dec_y_kernel = clCreateKernel(dec_program, "pocl.decompress.from.jpeg.rgb888", &status);
@@ -499,15 +500,7 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     global_size = 1;
     local_size = 1;
 
-    // todo, refactor this nicer
-    if ((JPEG_COMPRESSION & config_flags) ||
-        (JPEG_IMAGE & config_flags)) {
-        // buffer to copy image data to
-        host_img_buf = (cl_uchar *) malloc(tot_pixels * 4);
-    } else {
-        // buffer to copy image data to
-        host_img_buf = (cl_uchar *) malloc(img_buf_size);
-    }
+    host_img_buf = (cl_uchar *) malloc(img_buf_size);
 
     // string to write values to for logging
     c_log_string = (char *) malloc(LOG_BUFFER_SIZE * sizeof(char));
@@ -876,7 +869,7 @@ enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const
                          const int enc_index,
                          const int dec_index, cl_event *result_event) {
 
-    assert (0 <= quality && quality <= 100);
+    assert(0 <= quality && quality <= 100);
     cl_int status;
 
     status = clSetKernelArg(enc_y_kernel, 3, sizeof(cl_int), &quality);
@@ -950,7 +943,6 @@ enqueue_jpeg_image(const cl_uchar *input_img, const uint64_t *buf_size, const in
 
     return 0;
 }
-
 
 /**
  * process the image with PoCL.
@@ -1034,17 +1026,9 @@ poclProcessImage(const int device_index, const int do_segment,
         CHECK_AND_RETURN(status, "could not enqueue yuv compression work");
     } else if (JPEG_COMPRESSION == compression_type) {
         inp_format = RGB;
-        status = libyuv::Android420ToARGB(image_data.data.yuv.planes[0],
-                                          image_data.data.yuv.row_strides[0],
-                                          image_data.data.yuv.planes[1],
-                                          image_data.data.yuv.row_strides[1],
-                                          image_data.data.yuv.planes[2],
-                                          image_data.data.yuv.row_strides[2],
-                                          image_data.data.yuv.pixel_strides[1],
-                                          host_img_buf, inp_w * 4, inp_w, inp_h);
-        CHECK_AND_RETURN(status, "could not convert YUV to ARGB");
         // todo: refactor this so that the buf size is not calculated like this
-        status = enqueue_jpeg_compression(host_img_buf, tot_pixels * 4, quality, 1, 3,
+        copy_yuv_to_array(image_data, host_img_buf);
+        status = enqueue_jpeg_compression(host_img_buf, host_img_size, quality, 1, 3,
                                           &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
     } else {
