@@ -1028,7 +1028,7 @@ poclProcessImage(const int device_index, const int do_segment,
         inp_format = RGB;
         // todo: refactor this so that the buf size is not calculated like this
         copy_yuv_to_array(image_data, host_img_buf);
-        status = enqueue_jpeg_compression(host_img_buf, host_img_size, quality, 1, 3,
+        status = enqueue_jpeg_compression(host_img_buf, img_buf_size, quality, 1, 3,
                                           &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
     } else {
