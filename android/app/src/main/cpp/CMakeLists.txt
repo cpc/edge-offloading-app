@@ -108,8 +108,29 @@ set_target_properties(opencv_imgcodecs PROPERTIES IMPORTED_LOCATION
 add_library(opencv_core SHARED IMPORTED)
 set_target_properties(opencv_core PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/libs/${ANDROID_ABI}/libopencv_core.so)
 
+set(TURBO_JPEG_ARGS
+        -DANDROID_ABI=${ANDROID_ABI}
+#        -DANDROID_ARM_MODE=arm // set in the toolchain
+#        -DANDROID_TOOLCHAIN=clang // set in the toolchain
+        -DCMAKE_ASM_FLAGS="--target=aarch64-linux-android${ANDROID_VERSION}"
+        -DANDROID_NDK=${ANDROID_NDK}
+        -DANDROID_PLATFORM=${ANDROID_PLATFORM_LEVEL}
+        -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg
+        -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK}/build/cmake/android.toolchain.cmake
+        -DCMAKE_BUILD_TYPE=Release
+        )
+
+ExternalProject_Add(build_turbojpeg
+        SOURCE_DIR ${EXTERNAL_PATH}/libjpeg-turbo
+        CMAKE_GENERATOR "Unix Makefiles"
+        CMAKE_FLAGS ${TURBO_JPEG_ARGS}
+        BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
+        BUILD_ALWAYS True
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/libturbojpeg.a
+        )
+
 add_library(libturbojpeg SHARED IMPORTED)
-set_target_properties(libturbojpeg PROPERTIES IMPORTED_LOCATION ${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/${CMAKE_ANDROID_ARCH_ABI}/libturbojpeg.a)
+set_target_properties(libturbojpeg PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/libturbojpeg.a)
 
 # build pocl project
 set(POCL_CMAKE_ARGS
@@ -144,7 +165,7 @@ set(POCL_CMAKE_ARGS
         -DONNXRUNTIME_INCLUDE_DIRS=${ONNXRUNTIME_INCLUDE_DIRS}
         -DONNXRUNTIME_LIBRARIES=${ONNXRUNTIME_LIBRARIES}
         -DENABLE_TURBO_JPEG_COMPRESSION=YES
-        -DTURBO_JPEG_LIBRARIES=${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/${CMAKE_ANDROID_ARCH_ABI}/libturbojpeg.a
+        -DTURBO_JPEG_LIBRARIES=libturbojpeg
         -DTURBO_JPEG_INCLUDE_DIR=${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/include
         )
 #-DENABLE_ANDROID_COMPRESSION=YES
@@ -217,12 +238,12 @@ target_link_libraries(
         opencv_core
         ${ONNXRUNTIME_LIBRARIES}
         libyuv
-        ${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/${CMAKE_ANDROID_ARCH_ABI}/libturbojpeg.a
+        libturbojpeg
         -ljnigraphics
 )
 
 
-add_dependencies(pocl build_opencv)
+add_dependencies(pocl build_opencv build_turbojpeg)
 add_dependencies(poclnative pocl build_libyuv)
 add_dependencies(poclaisademo poclnative)
 
