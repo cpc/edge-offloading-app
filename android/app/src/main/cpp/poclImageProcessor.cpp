@@ -875,7 +875,7 @@ enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const
     status = clSetKernelArg(enc_y_kernel, 3, sizeof(cl_int), &quality);
     CHECK_AND_RETURN(status, "could not set compression quality");
 
-    cl_event enc_image_event, enc_event, dec_event, impl_mig_event, mig_event;
+    cl_event write_img_event, enc_event, dec_event, undef_mig_event, mig_event;
 
     // the compressed image and the size of the image are in these buffers respectively
     cl_mem migrate_bufs[] = {out_enc_y_buf, out_enc_uv_buf};
@@ -884,16 +884,16 @@ enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const
     // the enc device.
     status = clEnqueueMigrateMemObjects(commandQueue[enc_index], 2, migrate_bufs,
                                         CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, 0, NULL,
-                                        &impl_mig_event);
+                                        &undef_mig_event);
     CHECK_AND_RETURN(status, "could not migrate buffers back");
-    append_to_event_array(&event_array, impl_mig_event, VAR_NAME(impl_mig_event));
+    append_to_event_array(&event_array, undef_mig_event, VAR_NAME(undef_mig_event));
 
     status = clEnqueueWriteBuffer(commandQueue[enc_index], img_buf[enc_index], CL_FALSE, 0,
-                                  buf_size, input_img, 0, NULL, &enc_image_event);
+                                  buf_size, input_img, 0, NULL, &write_img_event);
     CHECK_AND_RETURN(status, "failed to write image to enc buffers");
-    append_to_event_array(&event_array, enc_image_event, VAR_NAME(enc_image_event));
+    append_to_event_array(&event_array, write_img_event, VAR_NAME(write_img_event));
 
-    cl_event wait_events[] = {enc_image_event, impl_mig_event};
+    cl_event wait_events[] = {write_img_event, undef_mig_event};
     status = clEnqueueNDRangeKernel(commandQueue[enc_index], enc_y_kernel, 1, NULL, enc_y_global,
                                     NULL, 2, wait_events, &enc_event);
     CHECK_AND_RETURN(status, "failed to enqueue compression kernel");
