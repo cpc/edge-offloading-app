@@ -875,7 +875,7 @@ enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const
     status = clSetKernelArg(enc_y_kernel, 3, sizeof(cl_int), &quality);
     CHECK_AND_RETURN(status, "could not set compression quality");
 
-    cl_event enc_image_event, enc_event, dec_event, mig_event;
+    cl_event enc_image_event, enc_event, dec_event, impl_mig_event, mig_event;
 
     // the compressed image and the size of the image are in these buffers respectively
     cl_mem migrate_bufs[] = {out_enc_y_buf, out_enc_uv_buf};
@@ -884,23 +884,30 @@ enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const
     // the enc device.
     status = clEnqueueMigrateMemObjects(commandQueue[enc_index], 2, migrate_bufs,
                                         CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, 0, NULL,
-                                        &mig_event);
+                                        &impl_mig_event);
     CHECK_AND_RETURN(status, "could not migrate buffers back");
-    append_to_event_array(&event_array, mig_event, VAR_NAME(mig_event));
+    append_to_event_array(&event_array, impl_mig_event, VAR_NAME(impl_mig_event));
 
     status = clEnqueueWriteBuffer(commandQueue[enc_index], img_buf[enc_index], CL_FALSE, 0,
                                   buf_size, input_img, 0, NULL, &enc_image_event);
     CHECK_AND_RETURN(status, "failed to write image to enc buffers");
     append_to_event_array(&event_array, enc_image_event, VAR_NAME(enc_image_event));
 
-    cl_event wait_events[] = {enc_image_event, mig_event};
+    cl_event wait_events[] = {enc_image_event, impl_mig_event};
     status = clEnqueueNDRangeKernel(commandQueue[enc_index], enc_y_kernel, 1, NULL, enc_y_global,
                                     NULL, 2, wait_events, &enc_event);
     CHECK_AND_RETURN(status, "failed to enqueue compression kernel");
     append_to_event_array(&event_array, enc_event, VAR_NAME(enc_event));
 
+    // explicitly migrate the image instead of having enqueueNDrangekernel do it implicitly
+    // so that we can profile the transfer times
+    status = clEnqueueMigrateMemObjects(commandQueue[dec_index], 2, migrate_bufs, 0, 1, &enc_event,
+                                        &mig_event);
+    CHECK_AND_RETURN(status, "failed to enqueue migration to remote");
+    append_to_event_array(&event_array, mig_event, VAR_NAME(mig_event));
+
     status = clEnqueueNDRangeKernel(commandQueue[dec_index], dec_y_kernel, 1, NULL, dec_y_global,
-                                    NULL, 1, &enc_event, &dec_event);
+                                    NULL, 1, &mig_event, &dec_event);
     CHECK_AND_RETURN(status, "failed to enqueue decompression kernel");
     append_to_event_array(&event_array, dec_event, VAR_NAME(dec_event));
 
