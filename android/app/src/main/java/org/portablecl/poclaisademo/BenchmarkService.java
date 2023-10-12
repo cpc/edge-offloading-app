@@ -10,7 +10,6 @@ import static org.portablecl.poclaisademo.BundleKeys.ENABLECOMPRESSIONKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLESEGMENTATIONKEY;
 import static org.portablecl.poclaisademo.BundleKeys.IMAGECAPTUREFRAMETIMEKEY;
-import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
 import static org.portablecl.poclaisademo.BundleKeys.TOTALLOGS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
@@ -190,11 +189,12 @@ public class BenchmarkService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
 
         this.startId = startId;
+        ConfigStore configStore = new ConfigStore(this);
 
         // todo: read variables set by user from intent
         // get bundle with variables set during startup activity
         Bundle bundle = intent.getExtras();
-        String IPAddress = bundle.getString(IPKEY);
+        String IPAddress = configStore.getIpAddressText();
         boolean disableRemote = bundle.getBoolean(DISABLEREMOTEKEY);
         deviceIndex = disableRemote ? 0 : 2;
         boolean enableSegmentation = bundle.getBoolean(ENABLESEGMENTATIONKEY, true);
@@ -256,7 +256,6 @@ public class BenchmarkService extends Service {
         setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error");
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
 
-        ConfigStore configStore = new ConfigStore(this);
         configFlags = configStore.getConfigFlags();
         poclImageProcessor = new PoclImageProcessor(this, captureSize, null,
                 ImageFormat.YUV_420_888, imageAvailableLock, configFlags, null, deviceIndex,

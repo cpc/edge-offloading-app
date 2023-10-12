@@ -3,7 +3,6 @@ package org.portablecl.poclaisademo;
 import static org.portablecl.poclaisademo.BundleKeys.CAMERALOGFILEURIKEY;
 import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
-import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static org.portablecl.poclaisademo.BundleKeys.MONITORLOGFILEURIKEY;
 import static org.portablecl.poclaisademo.BundleKeys.POCLLOGFILEURIKEY;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
@@ -274,7 +273,7 @@ public class StartupActivity extends AppCompatActivity {
                     Toast.LENGTH_SHORT).show();
 
             // pass ip to the main activity
-            i.putExtra(IPKEY, value);
+            // todo: store these values in the configstore instead
             i.putExtra(DISABLEREMOTEKEY, disableRemote);
             i.putExtra(ENABLELOGGINGKEY, enableLogging);
 
@@ -301,6 +300,7 @@ public class StartupActivity extends AppCompatActivity {
 
             configStore.setConfigFlags(configFlag);
             configStore.setJpegQuality(jpegQuality);
+            configStore.setIpAddressText(value);
             // settings are only saved when calling this function.
             configStore.flushSetting();
 
@@ -348,10 +348,7 @@ public class StartupActivity extends AppCompatActivity {
                 , IPAddresses);
         IPAddressView.setAdapter(adapter);
         IPAddressView.setOnEditorActionListener(editorActionListener);
-
-        if (null != bundle && bundle.containsKey("IP")) {
-            IPAddressView.setText(bundle.getString("IP"));
-        }
+        IPAddressView.setText(configStore.getIpAddressText());
 
         Switch modeSwitch = binding.disableSwitch;
         modeSwitch.setOnClickListener(modeListener);

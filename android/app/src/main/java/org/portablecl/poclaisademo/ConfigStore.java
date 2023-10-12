@@ -29,6 +29,8 @@ public class ConfigStore {
 
     private final static String jpegQualityKey = keyPrefix + "jpegqualitykey";
 
+    private final static String ipAddressTextKey = keyPrefix + "ipaddresstextkey";
+
     /**
      * @param context can be an activity for example
      */
@@ -91,6 +93,25 @@ public class ConfigStore {
         }
 
         editor.putInt(jpegQualityKey, quality);
+    }
+
+    /**
+     * set the ip address for the server as a string
+     * @param text updated ip address
+     */
+    public void setIpAddressText(String text) {
+        if (VERBOSITY >= 2) {
+            Log.println(Log.INFO, logTag, String.format("setting ip address text to: %s", text));
+        }
+        editor.putString(ipAddressTextKey, text);
+    }
+
+    /**
+     * get the stored ip address
+     * @return ip address as a string
+     */
+    public String getIpAddressText() {
+        return preferences.getString(ipAddressTextKey, "0.0.0.0");
     }
 
     /**

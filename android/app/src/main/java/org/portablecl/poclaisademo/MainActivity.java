@@ -4,7 +4,6 @@ package org.portablecl.poclaisademo;
 import static android.hardware.camera2.CameraMetadata.LENS_FACING_BACK;
 import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
-import static org.portablecl.poclaisademo.BundleKeys.IPKEY;
 import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
 import static org.portablecl.poclaisademo.BundleKeys.TOTALLOGS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
@@ -288,10 +287,10 @@ public class MainActivity extends AppCompatActivity {
         configStore = new ConfigStore(this);
         configFlags = configStore.getConfigFlags();
         jpegQuality = configStore.getJpegQuality();
-
+        IPAddress = configStore.getIpAddressText();
         // get bundle with variables set during startup activity
         Bundle bundle = getIntent().getExtras();
-        IPAddress = bundle.getString(IPKEY);
+
         disableRemote = bundle.getBoolean(DISABLEREMOTEKEY);
 
         try {
@@ -828,7 +827,6 @@ public class MainActivity extends AppCompatActivity {
                 applicationContext.getPackageManager().getLaunchIntentForPackage(
                         applicationContext.getPackageName());
         Intent restartIntent = Intent.makeRestartActivityTask(intent.getComponent());
-        restartIntent.putExtra(IPKEY, IPAddress);
         restartIntent.putExtra(DISABLEREMOTEKEY, disableRemote);
         restartIntent.putExtra(ENABLELOGGINGKEY, enableLogging);
         applicationContext.startActivity(restartIntent);
