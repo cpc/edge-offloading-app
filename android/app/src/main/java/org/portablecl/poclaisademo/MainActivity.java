@@ -235,6 +235,8 @@ public class MainActivity extends AppCompatActivity {
 
     private static PoclImageProcessor poclImageProcessor;
 
+    private static Switch compressionSwitch;
+
     /**
      * used to schedule a thread to periodically update stats
      */
@@ -349,8 +351,8 @@ public class MainActivity extends AppCompatActivity {
         Switch segmentationSwitch = binding.segmentSwitch;
         segmentationSwitch.setOnClickListener(segmentListener);
 
-        Switch comPressionSwitch = binding.CompressSwitch;
-        comPressionSwitch.setOnClickListener(compressListener);
+        compressionSwitch = binding.CompressSwitch;
+        compressionSwitch.setOnClickListener(compressListener);
 
         // setup overlay
         overlayVisualizer = new OverlayVisualizer();
@@ -401,7 +403,7 @@ public class MainActivity extends AppCompatActivity {
 
         poclImageProcessor = new PoclImageProcessor(this, captureSize, null, captureFormat,
                 imageAvailableLock, configFlags, counter, LOCAL_DEVICE,
-                segmentationSwitch.isChecked(), comPressionSwitch.isChecked(), uris[0]);
+                segmentationSwitch.isChecked(), compressionSwitch.isChecked(), uris[0]);
 
         // code to handle the quality input
         DropEditText qualityText = binding.compressionEditText;
@@ -415,8 +417,8 @@ public class MainActivity extends AppCompatActivity {
         if ((JPEG_IMAGE & configFlags) > 0) {
             modeSwitch.performClick();
             modeSwitch.setClickable(false);
-            comPressionSwitch.performClick();
-            comPressionSwitch.setClickable(false);
+            compressionSwitch.performClick();
+            compressionSwitch.setClickable(false);
             qualityText.setClickable(false);
             qualityText.setFocusable(false);
         }
@@ -553,6 +555,11 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 Toast.makeText(MainActivity.this, "Switching to local device, please wait",
                         Toast.LENGTH_SHORT).show();
+                // local compression is not an option,
+                // so make sure to turn it off
+                if(compressionSwitch.isChecked()) {
+                    compressionSwitch.performClick();
+                }
                 poclImageProcessor.setInferencingDevice(LOCAL_DEVICE);
             }
 
@@ -602,6 +609,7 @@ public class MainActivity extends AppCompatActivity {
 
             // if the device is local it does not make sense to compress
             if (LOCAL_DEVICE == poclImageProcessor.inferencingDevice) {
+                poclImageProcessor.setDoCompression(false);
                 ((Switch) v).setChecked(false);
                 return;
             }
