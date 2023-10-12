@@ -370,13 +370,11 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     char result_array[256];
     for (unsigned i = 0; i < devices_found; ++i) {
         clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
-        LOGI("CL_DEVICE_NAME: %s\n", result_array);
+        LOGI("device %d: CL_DEVICE_NAME:    %s\n", i, result_array);
         clGetDeviceInfo(devices[i], CL_DEVICE_VERSION, 256 * sizeof(char), result_array, NULL);
-        LOGI("CL_DEVICE_VERSION: %s\n", result_array);
+        LOGI("device %d: CL_DEVICE_VERSION: %s\n", i, result_array);
         clGetDeviceInfo(devices[i], CL_DRIVER_VERSION, 256 * sizeof(char), result_array, NULL);
-        LOGI("CL_DRIVER_VERSION: %s\n", result_array);
-        clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
-        LOGI("CL_DEVICE_NAME: %s\n", result_array);
+        LOGI("device %d: CL_DRIVER_VERSION: %s\n", i, result_array);
     }
 
     cl_context_properties cps[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
