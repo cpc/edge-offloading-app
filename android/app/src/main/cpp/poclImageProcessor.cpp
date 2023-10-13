@@ -992,8 +992,14 @@ poclProcessImage(const int device_index, const int do_segment,
     const int device_index_copy = device_index;
     const int do_segment_copy = do_segment;
     cl_int status;
-    // todo: remove this variable, since the phone is always kept in portrait mode.
-    rotate_cw_degrees = rotation;
+
+    if (rotation != rotate_cw_degrees) {
+        rotate_cw_degrees = rotation;
+        status =
+                clSetKernelArg(dnn_kernel, 3, sizeof(cl_int), &rotate_cw_degrees);
+        CHECK_AND_RETURN(status, "failed to set rotation");
+    }
+
     // even though inp_format is assigned image_format_t,
     // the type is set to cl_int since underlying enum types
     // can vary and we want a known size on both the client and server.

@@ -7,7 +7,7 @@
 #include "sys/stat.h"
 #include "unistd.h"
 
-// #include <rename_opencl.h>
+#include <rename_opencl.h>
 #include <CL/cl.h>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/opencv.hpp>
@@ -67,16 +67,16 @@ int main() {
     throw_if_cl_err(status, "Getting device info");
 
     /* Settings */
-    const int config_flags = ENABLE_PROFILING | YUV_COMPRESSION;
+    const compression_t compression_type = NO_COMPRESSION;
+    const int config_flags = ENABLE_PROFILING | compression_type;
 
     const int device_index = 0;
     const int do_segment = 1;
-    const compression_t compression_type = YUV_COMPRESSION;
     const int quality = 80;
     const int rotation = 0;
 
     /* Read input image */
-    std::string inp_name = "../android/app/src/main/assets/bus_640x480.jpg";
+    std::string inp_name = "../../android/app/src/main/assets/bus_640x480.jpg";
 
     int inp_w, inp_h, nch;
     uint8_t *inp_pixels = stbi_load(inp_name.data(), &inp_w, &inp_h, &nch, 3);
@@ -85,22 +85,31 @@ int main() {
 
     // Convert inp image to YUV420 (U/V planes separate)
     cv::Mat inp_img(inp_h, inp_w, CV_8UC3, (void *)(inp_pixels));
+    free(inp_pixels);
     cv::cvtColor(inp_img, inp_img, cv::COLOR_RGB2YUV_YV12);
     // TODO: Remove this debug loop:
-    for (int i = 0; i < inp_w * inp_h; ++i) {
-        inp_img.data[i] = inp_pixels[3 * i];
-    }
+//    for (int i = 0; i < inp_w * inp_h; ++i) {
+//        inp_img.data[i] = inp_pixels[3 * i];
+//    }
     cv::Mat inp_gray(inp_h, inp_w, CV_8UC1, (void *)(inp_img.data));
     cv::imwrite("inp_r.png", inp_gray);
     const int inp_count = inp_w * inp_h * 3 / 2;
     const int enc_count = inp_count / 2;
-    const int yrow_stride = inp_w;
-    const int uvrow_stride = inp_w;
-    const int ypixel_stride = 1;
-    const int uvpixel_stride = 2;
-    const uint8_t *y_ptr = inp_img.data;
-    const uint8_t *v_ptr = y_ptr + inp_w * inp_h;
-    const uint8_t *u_ptr = v_ptr + 1;
+    uint8_t *y_ptr = inp_img.data;
+    uint8_t *v_ptr = y_ptr + inp_w * inp_h;
+    uint8_t *u_ptr = v_ptr + 1;
+
+    image_data_t image_data;
+    image_data.type = YUV_DATA_T;
+    image_data.data.yuv.planes[0] = y_ptr;
+    image_data.data.yuv.planes[1] = u_ptr;
+    image_data.data.yuv.planes[2] = v_ptr;
+    image_data.data.yuv.pixel_strides[0] = 1;
+    image_data.data.yuv.pixel_strides[1] = 2;
+    image_data.data.yuv.pixel_strides[2] = 2;
+    image_data.data.yuv.row_strides[0] = inp_w;
+    image_data.data.yuv.row_strides[1] = inp_w;
+    image_data.data.yuv.row_strides[2] = inp_w;
 
     std::vector<int32_t> detections(DETECTION_COUNT);
     std::vector<uint8_t> segmentations(SEG_POSTPROCESS_COUNT);
@@ -121,12 +130,15 @@ int main() {
     status = initPoclImageProcessor(inp_w, inp_h, config_flags,
                                     codec_sources.at(0).c_str(),
                                     codec_sources.at(0).size(), fd);
+    throw_if_cl_err(status, "could not setup image processor");
 
     /* Process */
-    status = poclProcessYUVImage(
-        device_index, do_segment, compression_type, quality, rotation, y_ptr,
-        yrow_stride, ypixel_stride, u_ptr, v_ptr, uvrow_stride, uvpixel_stride,
-        detections.data(), segmentations.data());
+    //set imagetimestamp to 0 since we don't have anything providing it
+    status = poclProcessImage(device_index, do_segment, compression_type,
+                              quality, rotation, detections.data(),
+                              segmentations.data(), image_data, 0);
+    throw_if_cl_err(status, "could not enqueue image");
+    printf("detections: %d", detections[0]);
 
     close(fd);
 
