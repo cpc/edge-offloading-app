@@ -40,36 +40,33 @@ extern "C" {
 
 static int detection_count = 1 + MAX_DETECTIONS * 6;
 static int segmentation_count = MAX_DETECTIONS * MASK_W * MASK_H;
-static int seg_postprocess_count = 4 * MASK_W * MASK_H; // RGBA image
+static int seg_out_count = MASK_W * MASK_H * 4; // RGBA image
 static int total_out_count = detection_count + segmentation_count;
 
-static int colors[] = {-1651865, -6634562, -5921894,
-                       -9968734, -1277957, -2838283,
-                       -9013359, -9634954, -470042,
-                       -8997255, -4620585, -2953862,
-                       -3811878, -8603498, -2455171,
-                       -5325920, -6757258, -8214427,
-                       -5903423, -4680978, -4146958,
-                       -602947, -5396049, -9898511,
-                       -8346466, -2122577, -2304523,
-                       -4667802, -222837, -4983945,
-                       -234790, -8865559, -4660525,
-                       -3744578, -8720427, -9778035,
-                       -680538, -7942224, -7162754,
-                       -2986121, -8795194, -2772629,
-                       -4820488, -9401960, -3443339,
-                       -1781041, -4494168, -3167240,
-                       -7629631, -6685500, -6901785,
-                       -2968136, -3953703, -4545430,
-                       -6558846, -2631687, -5011272,
-                       -4983118, -9804322, -2593374,
-                       -8473686, -4006938, -7801488,
-                       -7161859, -4854121, -5654350,
-                       -817410, -8013957, -9252928,
-                       -2240041, -3625560, -6381719,
-                       -4674608, -5704237, -8466309,
-                       -1788449, -7283030, -5781889,
-                       -4207444, -8225948};
+// 80 classes
+static int SEGMENTATION_COLORS[256] = {-1651865, -6634562, -5921894, -9968734, -1277957, -2838283,
+                                       -9013359, -9634954, -470042, -8997255, -4620585, -2953862,
+                                       -3811878, -8603498, -2455171, -5325920, -6757258, -8214427,
+                                       -5903423, -4680978, -4146958, -602947, -5396049, -9898511,
+                                       -8346466, -2122577, -2304523, -4667802, -222837, -4983945,
+                                       -234790, -8865559, -4660525, -3744578, -8720427, -9778035,
+                                       -680538, -7942224, -7162754, -2986121, -8795194, -2772629,
+                                       -4820488, -9401960, -3443339, -1781041, -4494168, -3167240,
+                                       -7629631, -6685500, -6901785, -2968136, -3953703, -4545430,
+                                       -6558846, -2631687, -5011272, -4983118, -9804322, -2593374,
+                                       -8473686, -4006938, -7801488, -7161859, -4854121, -5654350,
+                                       -817410, -8013957, -9252928, -2240041, -3625560, -6381719,
+                                       -4674608, -5704237, -8466309, -1788449, -7283030, -5781889,
+                                       -4207444, -8225948, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                       0, 0};
 
 #define MAX_NUM_CL_DEVICES 4
 
@@ -93,6 +90,7 @@ static cl_kernel enc_uv_kernel = nullptr;
 static cl_kernel dec_y_kernel = nullptr;
 static cl_kernel dec_uv_kernel = nullptr;
 static cl_kernel postprocess_kernel = nullptr;
+static cl_kernel reconstruct_kernel = nullptr;
 
 // kernel execution loop related things
 static size_t tot_pixels;
@@ -126,6 +124,7 @@ static cl_mem out_mask_buf[MAX_NUM_CL_DEVICES] = {nullptr};
  * segmentation masks. output of the postprocess kernel.
  */
 static cl_mem postprocess_buf[MAX_NUM_CL_DEVICES] = {nullptr};
+static cl_mem reconstruct_buf[MAX_NUM_CL_DEVICES] = {nullptr};
 static cl_uchar *host_img_buf = nullptr;
 static size_t local_size;
 static size_t global_size;
@@ -398,7 +397,9 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     // Only create builtin kernel for basic and remote devices
     std::string dnn_kernel_name = "pocl.dnn.detection.u8";
     std::string postprocess_kernel_name = "pocl.dnn.segmentation_postprocess.u8";
-    std::string kernel_names = dnn_kernel_name + ";" + postprocess_kernel_name;
+    std::string reconstruct_kernel_name = "pocl.dnn.segmentation_reconstruct.u8";
+    std::string kernel_names =
+            dnn_kernel_name + ";" + postprocess_kernel_name + ";" + reconstruct_kernel_name;
 
     if (1 == devices_found) {
         program = clCreateProgramWithBuiltInKernels(context, 1, devices, kernel_names
@@ -426,9 +427,11 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     postprocess_kernel = clCreateKernel(program, postprocess_kernel_name.c_str(), &status);
     CHECK_AND_RETURN(status, "creating postprocess kernel failed");
 
+    reconstruct_kernel = clCreateKernel(program, reconstruct_kernel_name.c_str(), &status);
+    CHECK_AND_RETURN(status, "creating reconstruct kernel failed");
+
     // set some default values;
     rotate_cw_degrees = 90;
-
 
     inp_w = width;
     inp_h = height;
@@ -444,15 +447,19 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     CHECK_AND_RETURN(status, "failed to create the output buffer");
 
     out_mask_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                     tot_pixels * MAX_DETECTIONS * sizeof(cl_char) / 4,
+                                     MASK_W * MASK_H * MAX_DETECTIONS * sizeof(cl_char),
                                      NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
 
-    // RGBA:
     postprocess_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                        tot_pixels * 4 * sizeof(cl_char) / 4,
+                                        MASK_W * MASK_H * sizeof(cl_uchar),
                                         NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the segmentation preprocessing buffer");
+    CHECK_AND_RETURN(status, "failed to create the segmentation postprocessing buffer");
+
+    reconstruct_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                        seg_out_count * sizeof(cl_uchar),
+                                        NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the segmentation reconstructed buffer");
 
     // only allocate these buffers if the remote is also available
     if (devices_found > 1) {
@@ -475,10 +482,15 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
                                          NULL, &status);
         CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
 
-        postprocess_buf[2] = clCreateBuffer(context, CL_MEM_WRITE_ONLY,
-                                            tot_pixels * 4 * sizeof(cl_char) / 4,
+        postprocess_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                            MASK_W * MASK_H * sizeof(cl_uchar),
                                             NULL, &status);
-        CHECK_AND_RETURN(status, "failed to create the segmentation preprocessing buffer");
+        CHECK_AND_RETURN(status, "failed to create the segmentation postprocessing buffer");
+
+        reconstruct_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                            seg_out_count * sizeof(cl_uchar),
+                                            NULL, &status);
+        CHECK_AND_RETURN(status, "failed to create the segmentation reconstructed buffer");
     }
 
     //status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &img_buf);
@@ -573,6 +585,11 @@ destroy_pocl_image_processor() {
             clReleaseMemObject(postprocess_buf[i]);
             postprocess_buf[i] = nullptr;
         }
+
+        if (nullptr != reconstruct_buf[i]) {
+            clReleaseMemObject(reconstruct_buf[i]);
+            reconstruct_buf[i] = nullptr;
+        }
     }
 
     if (nullptr != out_enc_y_buf) {
@@ -620,6 +637,11 @@ destroy_pocl_image_processor() {
         postprocess_kernel = nullptr;
     }
 
+    if (reconstruct_kernel != nullptr) {
+        clReleaseKernel(reconstruct_kernel);
+        reconstruct_kernel = nullptr;
+    }
+
     if (program != nullptr) {
         clReleaseProgram(program);
         program = nullptr;
@@ -661,7 +683,7 @@ void printTime(timespec start, timespec stop, const char message[256]) {
 /**
  * Function to enqueue the opencl commands related to object detection.
  * @param wait_event event to wait on before starting these commands
- * @param device_index index of device doing object detection
+ * @param dnn_device_idx index of device doing object detection
  * @param do_segment bool to enable/disable segmentation
  * @param detection_array array of bounding boxes of detected objects
  * @param segmentation_array bitmap of segments of detected objects
@@ -669,8 +691,9 @@ void printTime(timespec start, timespec stop, const char message[256]) {
  * @return 0 if everything went well, otherwise a cl error number
  */
 cl_int
-enqueue_dnn(const cl_event *wait_event, const int device_index, const int do_segment, cl_int
-*detection_array, cl_uchar *segmentation_array, cl_int inp_format) {
+enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
+            const int do_segment, cl_int *detection_array, cl_uchar *segmentation_array,
+            cl_int inp_format) {
 
     cl_int status;
 
@@ -679,18 +702,24 @@ enqueue_dnn(const cl_event *wait_event, const int device_index, const int do_seg
     clock_gettime(CLOCK_MONOTONIC, &timespec_a);
 #endif
 
-    status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &img_buf[device_index]);
+    status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &img_buf[dnn_device_idx]);
     status |= clSetKernelArg(dnn_kernel, 4, sizeof(cl_int), &inp_format);
-    status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &out_buf[device_index]);
-    status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &out_mask_buf[device_index]);
+    status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &out_buf[dnn_device_idx]);
+    status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &out_mask_buf[dnn_device_idx]);
     CHECK_AND_RETURN(status, "could not assign buffers to DNN kernel");
 
-    status = clSetKernelArg(postprocess_kernel, 0, sizeof(cl_mem), &out_buf[device_index]);
+    status = clSetKernelArg(postprocess_kernel, 0, sizeof(cl_mem), &out_buf[dnn_device_idx]);
     status |= clSetKernelArg(postprocess_kernel, 1, sizeof(cl_mem),
-                             &out_mask_buf[device_index]);
+                             &out_mask_buf[dnn_device_idx]);
     status |= clSetKernelArg(postprocess_kernel, 2, sizeof(cl_mem),
-                             &postprocess_buf[device_index]);
+                             &postprocess_buf[dnn_device_idx]);
     CHECK_AND_RETURN(status, "could not assign buffers to postprocess kernel");
+
+    status = clSetKernelArg(reconstruct_kernel, 0, sizeof(cl_mem),
+                            &postprocess_buf[dnn_device_idx]);
+    status |= clSetKernelArg(reconstruct_kernel, 1, sizeof(cl_mem),
+                             &reconstruct_buf[out_device_idx]);
+    CHECK_AND_RETURN(status, "could not assign buffers to reconstruct kernel");
 
 #if defined(PRINT_PROFILE_TIME)
     clock_gettime(CLOCK_MONOTONIC, &timespec_b);
@@ -699,13 +728,13 @@ enqueue_dnn(const cl_event *wait_event, const int device_index, const int do_seg
 
     cl_event run_dnn_event, read_detection_event;
 
-    status = clEnqueueNDRangeKernel(commandQueue[device_index], dnn_kernel, 1, NULL,
+    status = clEnqueueNDRangeKernel(commandQueue[dnn_device_idx], dnn_kernel, 1, NULL,
                                     &global_size, &local_size, 1,
                                     wait_event, &run_dnn_event);
     CHECK_AND_RETURN(status, "failed to enqueue ND range DNN kernel");
     append_to_event_array(&event_array, run_dnn_event, VAR_NAME(dnn_event));
 
-    status = clEnqueueReadBuffer(commandQueue[device_index], out_buf[device_index],
+    status = clEnqueueReadBuffer(commandQueue[dnn_device_idx], out_buf[dnn_device_idx],
                                  CL_FALSE, 0,
                                  detection_count * sizeof(cl_int), detection_array, 1,
                                  &run_dnn_event, &read_detection_event);
@@ -713,22 +742,39 @@ enqueue_dnn(const cl_event *wait_event, const int device_index, const int do_seg
     append_to_event_array(&event_array, read_detection_event, VAR_NAME(detect_event));
 
     if (do_segment) {
-        cl_event run_postprocess_event, read_segment_event;
+        cl_event run_postprocess_event, mig_seg_event, run_reconstruct_event, read_segment_event;
 
-        status = clEnqueueNDRangeKernel(commandQueue[device_index], postprocess_kernel, 1,
+        // postprocess
+        status = clEnqueueNDRangeKernel(commandQueue[dnn_device_idx], postprocess_kernel, 1,
                                         NULL,
                                         &global_size, &local_size, 1,
                                         &run_dnn_event, &run_postprocess_event);
         CHECK_AND_RETURN(status, "failed to enqueue ND range postprocess kernel");
         append_to_event_array(&event_array, run_postprocess_event, VAR_NAME(postprocess_event));
 
-        status = clEnqueueReadBuffer(commandQueue[device_index],
-                                     postprocess_buf[device_index], CL_FALSE, 0,
-                                     seg_postprocess_count * sizeof(cl_char), segmentation_array, 1,
-                                     &run_postprocess_event, &read_segment_event);
-        CHECK_AND_RETURN(status, "failed to read segmentation postprocess result buffer");
-        append_to_event_array(&event_array, read_segment_event, VAR_NAME(segment_event));
+        // move postprocessed segmentation data to host device
+        status = clEnqueueMigrateMemObjects(commandQueue[out_device_idx], 1,
+                                            &postprocess_buf[dnn_device_idx], 0, 1,
+                                            &run_postprocess_event,
+                                            &mig_seg_event);
+        CHECK_AND_RETURN(status, "failed to enqueue migration of postprocess buffer");
+        append_to_event_array(&event_array, mig_seg_event, VAR_NAME(mig_seg_event));
 
+        // reconstruct postprocessed data to RGBA segmentation mask
+        status = clEnqueueNDRangeKernel(commandQueue[out_device_idx], reconstruct_kernel, 1,
+                                        NULL,
+                                        &global_size, &local_size, 1,
+                                        &mig_seg_event, &run_reconstruct_event);
+        CHECK_AND_RETURN(status, "failed to enqueue ND range reconstruct kernel");
+        append_to_event_array(&event_array, run_reconstruct_event, VAR_NAME(reconstruct_event));
+
+        // write RGBA segmentation mask to the result array
+        status = clEnqueueReadBuffer(commandQueue[out_device_idx],
+                                     reconstruct_buf[out_device_idx], CL_FALSE, 0,
+                                     seg_out_count * sizeof(cl_uchar), segmentation_array, 1,
+                                     &run_reconstruct_event, &read_segment_event);
+        CHECK_AND_RETURN(status, "failed to read segmentation reconstruct result buffer");
+        append_to_event_array(&event_array, read_segment_event, VAR_NAME(segment_event));
     }
 
     return 0;
@@ -1052,10 +1098,12 @@ poclProcessImage(const int device_index, const int do_segment,
         CHECK_AND_RETURN(status, "could not enqueue jpeg image");
     }
 
-    status = enqueue_dnn(&dnn_wait_event, device_index_copy, do_segment_copy, detection_array,
+    status = enqueue_dnn(&dnn_wait_event, device_index_copy, 0, do_segment_copy, detection_array,
                          segmentation_array, inp_format);
     CHECK_AND_RETURN(status, "could not enqueue dnn kernels");
 
+    status = clFinish(commandQueue[0]);
+    CHECK_AND_RETURN(status, "failed to clfinish 0");
     status = clFinish(commandQueue[device_index_copy]);
     CHECK_AND_RETURN(status, "failed to clfinish");
 
