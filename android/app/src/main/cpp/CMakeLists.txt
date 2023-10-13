@@ -166,7 +166,7 @@ set(POCL_CMAKE_ARGS
         -DONNXRUNTIME_LIBRARIES=${ONNXRUNTIME_LIBRARIES}
         -DENABLE_TURBO_JPEG_COMPRESSION=YES
         -DTURBO_JPEG_LIBRARIES=libturbojpeg
-        -DTURBO_JPEG_INCLUDE_DIR=${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/include
+        -DTURBO_JPEG_INCLUDE_DIR=${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/include
         )
 #-DENABLE_ANDROID_COMPRESSION=YES
 
@@ -239,7 +239,7 @@ target_link_libraries(
         ${ONNXRUNTIME_LIBRARIES}
         libyuv
         libturbojpeg
-        -ljnigraphics
+        jnigraphics
 )
 
 
