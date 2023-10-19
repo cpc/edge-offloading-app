@@ -37,32 +37,52 @@ print_events(const int fd, const int frame_index, event_array_t *array) {
     int status;
     cl_ulong event_time;
     cl_ulong start;
+    int ret_status = CL_SUCCESS;
 
     for (int i = 0; i < array->current_capacity; i++) {
 
         status = clGetEventProfilingInfo(array->array[i].event, CL_PROFILING_COMMAND_QUEUED,
                                          sizeof(cl_ulong),
                                          &event_time, NULL);
-        CHECK_AND_RETURN(status, "could not read event start date");
+        if (status != CL_SUCCESS) {
+            ret_status = status;
+            LOGE("ERROR: could not read queued time of %s at %s:%d returned with %d\n",
+                 array->array[i].description, __FILE__, __LINE__, status);
+            continue;
+        }
         dprintf(fd, "%d,%s,queued_ns,%lu\n", frame_index, array->array[i].description, event_time);
 
         status = clGetEventProfilingInfo(array->array[i].event, CL_PROFILING_COMMAND_SUBMIT,
                                          sizeof(cl_ulong),
                                          &event_time, NULL);
-        CHECK_AND_RETURN(status, "could not read event start date");
+        if (status != CL_SUCCESS) {
+            ret_status = status;
+            LOGE("ERROR: could not read submit time of %s at %s:%d returned with %d\n",
+                 array->array[i].description, __FILE__, __LINE__, status);
+            continue;
+        }
         dprintf(fd, "%d,%s,submit_ns,%lu\n", frame_index, array->array[i].description, event_time);
 
         status = clGetEventProfilingInfo(array->array[i].event, CL_PROFILING_COMMAND_START,
                                          sizeof(cl_ulong),
                                          &event_time, NULL);
-        CHECK_AND_RETURN(status, "could not read event start date");
+        if (status != CL_SUCCESS) {
+            ret_status = status;
+            LOGE("ERROR: could not read start time of %s at %s:%d returned with %d\n",
+                 array->array[i].description, __FILE__, __LINE__, status);
+            continue;
+        }
         dprintf(fd, "%d,%s,start_ns,%lu\n", frame_index, array->array[i].description, event_time);
-        start = event_time;
 
         status = clGetEventProfilingInfo(array->array[i].event, CL_PROFILING_COMMAND_END,
                                          sizeof(cl_ulong),
                                          &event_time, NULL);
-        CHECK_AND_RETURN(status, "could not read event end date");
+        if (status != CL_SUCCESS) {
+            ret_status = status;
+            LOGE("ERROR: could not read end time of %s at %s:%d returned with %d\n",
+                 array->array[i].description, __FILE__, __LINE__, status);
+            continue;
+        }
         dprintf(fd, "%d,%s,end_ns,%lu\n", frame_index, array->array[i].description, event_time);
 
 #ifdef PRINT_PROFILE_TIME
@@ -71,7 +91,7 @@ print_events(const int fd, const int frame_index, event_array_t *array) {
 
     }
 
-    return 0;
+    return ret_status;
 }
 
 void

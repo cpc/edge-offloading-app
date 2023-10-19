@@ -19,6 +19,7 @@
 #include <ctime>
 #include <cmath>
 #include <cstdio>
+#include <unistd.h>
 
 #include "poclImageProcessor.h" // defines LOGTAG
 #include "platform.h"
@@ -126,6 +127,7 @@ static cl_mem out_mask_buf[MAX_NUM_CL_DEVICES] = {nullptr};
 static cl_mem postprocess_buf[MAX_NUM_CL_DEVICES] = {nullptr};
 static cl_mem reconstruct_buf[MAX_NUM_CL_DEVICES] = {nullptr};
 static cl_uchar *host_img_buf = nullptr;
+static cl_uchar *host_postprocess_buf = nullptr;
 static size_t local_size;
 static size_t global_size;
 
@@ -511,6 +513,7 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     local_size = 1;
 
     host_img_buf = (cl_uchar *) malloc(img_buf_size);
+    host_postprocess_buf = (cl_uchar *) malloc(MASK_W * MASK_H * sizeof(cl_uchar));
 
     // string to write values to for logging
     c_log_string = (char *) malloc(LOG_BUFFER_SIZE * sizeof(char));
@@ -652,6 +655,11 @@ destroy_pocl_image_processor() {
         host_img_buf = nullptr;
     }
 
+    if (nullptr != host_postprocess_buf) {
+        free(host_postprocess_buf);
+        host_postprocess_buf = nullptr;
+    }
+
     if (nullptr != c_log_string) {
         free(c_log_string);
         c_log_string = nullptr;
@@ -702,23 +710,30 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
     clock_gettime(CLOCK_MONOTONIC, &timespec_a);
 #endif
 
-    status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &img_buf[dnn_device_idx]);
+    // This is to prevent having two buffers accidentally due to index errors.
+    cl_mem _img_buf = img_buf[dnn_device_idx];
+    cl_mem _out_buf = out_buf[dnn_device_idx];
+    cl_mem _out_mask_buf = out_mask_buf[dnn_device_idx];
+    cl_mem _postprocess_buf = postprocess_buf[dnn_device_idx];
+    cl_mem _reconstruct_buf = reconstruct_buf[dnn_device_idx];
+
+    status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &_img_buf);
     status |= clSetKernelArg(dnn_kernel, 4, sizeof(cl_int), &inp_format);
-    status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &out_buf[dnn_device_idx]);
-    status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &out_mask_buf[dnn_device_idx]);
+    status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &_out_buf);
+    status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &_out_mask_buf);
     CHECK_AND_RETURN(status, "could not assign buffers to DNN kernel");
 
-    status = clSetKernelArg(postprocess_kernel, 0, sizeof(cl_mem), &out_buf[dnn_device_idx]);
+    status = clSetKernelArg(postprocess_kernel, 0, sizeof(cl_mem), &_out_buf);
     status |= clSetKernelArg(postprocess_kernel, 1, sizeof(cl_mem),
-                             &out_mask_buf[dnn_device_idx]);
+                             &_out_mask_buf);
     status |= clSetKernelArg(postprocess_kernel, 2, sizeof(cl_mem),
-                             &postprocess_buf[dnn_device_idx]);
+                             &_postprocess_buf);
     CHECK_AND_RETURN(status, "could not assign buffers to postprocess kernel");
 
     status = clSetKernelArg(reconstruct_kernel, 0, sizeof(cl_mem),
-                            &postprocess_buf[dnn_device_idx]);
+                            &_postprocess_buf);
     status |= clSetKernelArg(reconstruct_kernel, 1, sizeof(cl_mem),
-                             &reconstruct_buf[out_device_idx]);
+                             &_reconstruct_buf);
     CHECK_AND_RETURN(status, "could not assign buffers to reconstruct kernel");
 
 #if defined(PRINT_PROFILE_TIME)
@@ -726,7 +741,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
     printTime(timespec_a, timespec_b, "assigning kernel params");
 #endif
 
-    cl_event run_dnn_event, read_detection_event;
+    cl_event run_dnn_event, read_detect_event;
 
     status = clEnqueueNDRangeKernel(commandQueue[dnn_device_idx], dnn_kernel, 1, NULL,
                                     &global_size, &local_size, 1,
@@ -737,9 +752,9 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
     status = clEnqueueReadBuffer(commandQueue[dnn_device_idx], out_buf[dnn_device_idx],
                                  CL_FALSE, 0,
                                  detection_count * sizeof(cl_int), detection_array, 1,
-                                 &run_dnn_event, &read_detection_event);
+                                 &run_dnn_event, &read_detect_event);
     CHECK_AND_RETURN(status, "failed to read detection result buffer");
-    append_to_event_array(&event_array, read_detection_event, VAR_NAME(detect_event));
+    append_to_event_array(&event_array, read_detect_event, VAR_NAME(read_detect_event));
 
     if (do_segment) {
         cl_event run_postprocess_event, mig_seg_event, run_reconstruct_event, read_segment_event;
@@ -753,28 +768,49 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
         append_to_event_array(&event_array, run_postprocess_event, VAR_NAME(postprocess_event));
 
         // move postprocessed segmentation data to host device
-        status = clEnqueueMigrateMemObjects(commandQueue[out_device_idx], 1,
-                                            &postprocess_buf[dnn_device_idx], 0, 1,
-                                            &run_postprocess_event,
-                                            &mig_seg_event);
-        CHECK_AND_RETURN(status, "failed to enqueue migration of postprocess buffer");
-        append_to_event_array(&event_array, mig_seg_event, VAR_NAME(mig_seg_event));
+//        status = clEnqueueMigrateMemObjects(commandQueue[out_device_idx], 1,
+//                                            &_postprocess_buf, 0, 1,
+//                                            &run_postprocess_event,
+//                                            &mig_seg_event);
+//        CHECK_AND_RETURN(status, "failed to enqueue migration of postprocess buffer");
+//        append_to_event_array(&event_array, mig_seg_event, VAR_NAME(mig_seg_event));
+
+        // ... as a workaruond, we read and write the class ID buffer ...
+//        cl_event read_postprocess_event, write_postprocess_event;
+//        clEnqueueReadBuffer(commandQueue[out_device_idx], _postprocess_buf, CL_FALSE,
+//                            0, MASK_W * MASK_H * sizeof(cl_uchar), host_postprocess_buf, 1,
+//                            &run_postprocess_event, &read_postprocess_event);
+//        CHECK_AND_RETURN(status, "failed to read postprocess buffer");
+//        append_to_event_array(&event_array, read_postprocess_event,
+//                              VAR_NAME(read_postprocess_event));
+//
+//        status = clEnqueueWriteBuffer(commandQueue[out_device_idx], _postprocess_buf,
+//                                      CL_FALSE, 0,
+//                                      MASK_W * MASK_H * sizeof(cl_uchar), host_postprocess_buf, 1,
+//                                      &read_postprocess_event, &write_postprocess_event);
+//        CHECK_AND_RETURN(status, "failed to write postprocess buffer");
+//        append_to_event_array(&event_array, write_postprocess_event,
+//                              VAR_NAME(write_postprocess_event));
+
+        // ... but this also doesn't work. Once we enqueue anything to commandQueue[out_device_idx],
+        // the synchronizatino breaks. The workaround seems to be to keep everything on the commandQueue[dnn_device_idx]
+        // and just bear with 4x larger incoming data transfer.
 
         // reconstruct postprocessed data to RGBA segmentation mask
-        status = clEnqueueNDRangeKernel(commandQueue[out_device_idx], reconstruct_kernel, 1,
+        status = clEnqueueNDRangeKernel(commandQueue[dnn_device_idx], reconstruct_kernel, 1,
                                         NULL,
                                         &global_size, &local_size, 1,
-                                        &mig_seg_event, &run_reconstruct_event);
+                                        &run_postprocess_event, &run_reconstruct_event);
         CHECK_AND_RETURN(status, "failed to enqueue ND range reconstruct kernel");
         append_to_event_array(&event_array, run_reconstruct_event, VAR_NAME(reconstruct_event));
 
         // write RGBA segmentation mask to the result array
-        status = clEnqueueReadBuffer(commandQueue[out_device_idx],
-                                     reconstruct_buf[out_device_idx], CL_FALSE, 0,
+        status = clEnqueueReadBuffer(commandQueue[dnn_device_idx],
+                                     _reconstruct_buf, CL_FALSE, 0,
                                      seg_out_count * sizeof(cl_uchar), segmentation_array, 1,
                                      &run_reconstruct_event, &read_segment_event);
         CHECK_AND_RETURN(status, "failed to read segmentation reconstruct result buffer");
-        append_to_event_array(&event_array, read_segment_event, VAR_NAME(segment_event));
+        append_to_event_array(&event_array, read_segment_event, VAR_NAME(read_segment_event));
     }
 
     return 0;
@@ -1124,7 +1160,8 @@ poclProcessImage(const int device_index, const int do_segment,
             CHECK_AND_RETURN(status, "failed to clfinish");
         }
 
-        print_events(file_descriptor, frame_index, &event_array);
+        status = print_events(file_descriptor, frame_index, &event_array);
+        CHECK_AND_RETURN(status, "failed to print events");
 
         dprintf(file_descriptor, "%d,frame,timestamp,%ld\n", frame_index,
                 image_timestamp);  // this should match device timestamp in camera log
