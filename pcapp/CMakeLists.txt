@@ -42,6 +42,9 @@ set(APP_DIR ${ROOT_DIR}/android/app/src/main/cpp)
 
 find_package(OpenCV REQUIRED COMPONENTS core dnn imgcodecs imgproc)
 
+set(ONNXRUNTIME_LIBRARIES onnxruntime)
+set(ONNXRUNTIME_INCLUDE_DIRS "${EXTERNAL_DIR}/onnxruntime-android/headers")
+
 set(POCL_CMAKE_ARGS
         -DENABLE_ASAN=${POCL_ASAN}
         -DDISABLE_PTHREAD=1
@@ -79,7 +82,7 @@ add_library(libpocl SHARED IMPORTED)
 set_target_properties(libpocl
         PROPERTIES IMPORTED_LOCATION
         ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libOpenCL.a)
- 
+
 set(LIBYUV_CMAKE_ARGS
         -DCMAKE_BUILD_TYPE=RelWithDebInfo
         -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/libyuv)
@@ -125,4 +128,3 @@ target_link_libraries(
 target_compile_definitions(
   ${PROJECT_NAME} PRIVATE CL_TARGET_OPENCL_VERSION=300
                           CL_HPP_TARGET_OPENCL_VERSION=300)
-
