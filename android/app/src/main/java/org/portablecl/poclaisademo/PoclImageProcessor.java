@@ -428,7 +428,7 @@ public class PoclImageProcessor {
                 doneTime = System.currentTimeMillis();
                 poclTime = doneTime - currentTime;
                 if (VERBOSITY >= 1) {
-                    Log.println(Log.WARN, "imageprocessloop",
+                    Log.println(Log.INFO, "imageprocessloop",
                             "pocl compute time: " + poclTime + "ms");
                 }
 

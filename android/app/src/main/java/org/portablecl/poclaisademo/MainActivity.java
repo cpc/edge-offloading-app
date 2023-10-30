@@ -394,7 +394,7 @@ public class MainActivity extends AppCompatActivity {
 
         // disable pocl logs if verbosity is 0
         if (VERBOSITY >= 1) {
-            setNativeEnv("POCL_DEBUG", "basic,proxy,remote,error,debug,warning");
+            setNativeEnv("POCL_DEBUG", "basic,proxy,error,debug,warning");
         }
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
 
@@ -421,6 +421,11 @@ public class MainActivity extends AppCompatActivity {
             compressionSwitch.setClickable(false);
             qualityText.setClickable(false);
             qualityText.setFocusable(false);
+        }
+
+        if ((JPEG_COMPRESSION & configFlags) > 0) {
+//            modeSwitch.performClick();
+//            compressionSwitch.performClick();
         }
 
         // TODO: remove this example

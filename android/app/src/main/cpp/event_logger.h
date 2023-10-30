@@ -62,14 +62,14 @@ void
 append_to_event_array(event_array_t *array, cl_event event, const char *description);
 
 /**
- * log event related data to file descriptor fd.
+ * log event-related data to file descriptor fd.
  * @param fd file descriptor to write to
  * @param frame_index of current events
  * @param array
  * @return
  */
 int
-print_events(const int fd, const int frame_index, event_array_t *array);
+print_events(int fd, int frame_index, const event_array_t *array);
 
 /**
  * call clReleaseEvent on all events.

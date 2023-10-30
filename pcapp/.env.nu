@@ -28,7 +28,7 @@ export-env {
         CXX: clang++
         OCL_ICD_VENDORS: ('../external/pocl/build/ocl-vendors' | path expand -s)
         POCL_BUILDING: 1
-        # POCL_DEBUG: 1 # error,warning,general,memory,llvm,events,cache,locking,refcounts,timing,hsa,tce,cuda,vulkan,proxy,all,1; 1 == error+warning+general
+        POCL_DEBUG: 1 # error,warning,general,memory,llvm,events,cache,locking,refcounts,timing,hsa,tce,cuda,vulkan,proxy,all,1; 1 == error+warning+general
         POCL_DEVICES: 'basic' #pthread' # basic kernels cuda vulkan pthread ttasim almaif; space-separated list
         CUDA_VERSION: '11.7'
         CUDADIR: "/usr/local/cuda-11.7"

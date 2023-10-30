@@ -33,14 +33,12 @@ append_to_event_array(event_array_t *array, cl_event event, const char *descript
 }
 
 int
-print_events(const int fd, const int frame_index, event_array_t *array) {
+print_events(int fd, int frame_index, const event_array_t *array) {
     int status;
     cl_ulong event_time;
-    cl_ulong start;
     int ret_status = CL_SUCCESS;
 
     for (int i = 0; i < array->current_capacity; i++) {
-
         status = clGetEventProfilingInfo(array->array[i].event, CL_PROFILING_COMMAND_QUEUED,
                                          sizeof(cl_ulong),
                                          &event_time, NULL);

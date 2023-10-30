@@ -8,6 +8,7 @@
 #include "unistd.h"
 
 #include <rename_opencl.h>
+
 #include <CL/cl.h>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/opencv.hpp>
@@ -76,7 +77,7 @@ int main() {
     const int rotation = 0;
 
     /* Read input image */
-    std::string inp_name = "../../android/app/src/main/assets/bus_640x480.jpg";
+    std::string inp_name = "../android/app/src/main/assets/bus_640x480.jpg";
 
     int inp_w, inp_h, nch;
     uint8_t *inp_pixels = stbi_load(inp_name.data(), &inp_w, &inp_h, &nch, 3);
@@ -87,15 +88,22 @@ int main() {
     cv::Mat inp_img(inp_h, inp_w, CV_8UC3, (void *)(inp_pixels));
     free(inp_pixels);
     cv::cvtColor(inp_img, inp_img, cv::COLOR_RGB2YUV_YV12);
-    // TODO: Remove this debug loop:
-//    for (int i = 0; i < inp_w * inp_h; ++i) {
-//        inp_img.data[i] = inp_pixels[3 * i];
-//    }
-    cv::Mat inp_gray(inp_h, inp_w, CV_8UC1, (void *)(inp_img.data));
-    cv::imwrite("inp_r.png", inp_gray);
+
+    // Convert separate U/V planes into interleaved U/V planes
+    uint8_t *inp_yuv420nv21 = (uint8_t *)(malloc(inp_w * inp_h * 3 / 2));
+    memcpy(inp_yuv420nv21, inp_img.data, inp_w * inp_h);
+
+    for (int i = 0; i < inp_w * inp_h / 4; i += 1) {
+        inp_yuv420nv21[inp_w * inp_h + 2 * i] =
+            inp_img.data[inp_w * inp_h + inp_w * inp_h / 4 + i];
+        inp_yuv420nv21[inp_w * inp_h + 2 * i + 1] =
+            inp_img.data[inp_w * inp_h + i];
+    }
+
     const int inp_count = inp_w * inp_h * 3 / 2;
     const int enc_count = inp_count / 2;
-    uint8_t *y_ptr = inp_img.data;
+
+    uint8_t *y_ptr = inp_yuv420nv21;
     uint8_t *v_ptr = y_ptr + inp_w * inp_h;
     uint8_t *u_ptr = v_ptr + 1;
 
@@ -133,14 +141,19 @@ int main() {
     throw_if_cl_err(status, "could not setup image processor");
 
     /* Process */
-    //set imagetimestamp to 0 since we don't have anything providing it
+    // set imagetimestamp to 0 since we don't have anything providing it
     status = poclProcessImage(device_index, do_segment, compression_type,
                               quality, rotation, detections.data(),
                               segmentations.data(), image_data, 0);
     throw_if_cl_err(status, "could not enqueue image");
-    printf("detections: %d", detections[0]);
+    printf("no. detections: %d", detections[0]);
+
+    cv::Mat seg_out(MASK_H, MASK_W, CV_8UC4, segmentations.data());
+    cv::cvtColor(seg_out, seg_out, cv::COLOR_RGBA2RGB);
+    cv::imwrite("seg_out.png", seg_out);
 
     close(fd);
+    free(inp_yuv420nv21);
 
     destroy_pocl_image_processor();
 
