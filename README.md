@@ -2,6 +2,12 @@
 
 This repo is the basis for the PoCL AISA demo and contains code to run an android application with OpenCL.
 
+## Useful Links
+
+### Wiki
+
+* Android-related topics: https://wiki.eduuni.fi/display/tutcpc/Android+Related
+* Topics related to AISA offloading demonstrator: https://wiki.eduuni.fi/display/tutcpc/AISA+Related
 
 ## Cloning Repo
 
