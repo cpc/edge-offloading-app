@@ -8,6 +8,7 @@ import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
 import static org.portablecl.poclaisademo.BundleKeys.TOTALLOGS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_DEVICE;
@@ -379,10 +380,10 @@ public class MainActivity extends AppCompatActivity {
             if ((YUV_COMPRESSION & configFlags) > 0) {
                 setNativeEnv("POCL_DEVICES", "basic remote remote proxy");
             } else if ((JPEG_COMPRESSION & configFlags) > 0 ||
-                    (JPEG_IMAGE & configFlags) > 0) {
+                    (JPEG_IMAGE & configFlags) > 0 || (HEVC_COMPRESSION & configFlags) > 0) {
                 setNativeEnv("POCL_DEVICES", "basic basic remote remote");
             } else {
-                Log.println(Log.ERROR, "mainActivity.java", "could not determince which " +
+                Log.println(Log.ERROR, "mainActivity.java", "could not determine which " +
                         "pocl devices are required");
             }
 

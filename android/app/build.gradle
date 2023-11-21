@@ -5,10 +5,11 @@ plugins {
 android {
     namespace 'org.portablecl.poclaisademo'
     compileSdk 33
+    ndkVersion "26.0.10792818"
 
     defaultConfig {
         applicationId "org.portablecl.poclaisademo"
-        minSdk 30
+        minSdk 33
         targetSdk 33
         versionCode 1
         versionName "1.0"

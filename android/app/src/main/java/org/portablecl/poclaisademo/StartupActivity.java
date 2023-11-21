@@ -8,6 +8,7 @@ import static org.portablecl.poclaisademo.BundleKeys.POCLLOGFILEURIKEY;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
@@ -173,6 +174,9 @@ public class StartupActivity extends AppCompatActivity {
     private ConfigStore configStore;
     private ToggleButton yuvCompButton;
     private ToggleButton jpegCompButton;
+
+    private ToggleButton hevcCompButton;
+
     private final View.OnClickListener jpegImageButtonListener = new View.OnClickListener() {
 
         @Override
@@ -187,6 +191,10 @@ public class StartupActivity extends AppCompatActivity {
 
             if (yuvCompButton.isChecked()) {
                 yuvCompButton.setChecked(false);
+            }
+
+            if (hevcCompButton.isChecked()) {
+                hevcCompButton.setChecked(false);
             }
         }
     };
@@ -209,6 +217,36 @@ public class StartupActivity extends AppCompatActivity {
             if (jpegImageButton.isChecked()) {
                 jpegImageButton.setChecked(false);
             }
+
+            if (hevcCompButton.isChecked()) {
+                hevcCompButton.setChecked(false);
+            }
+        }
+    };
+
+    /**
+     * a callback when the yuvCompButton is pressed. It forces mutual exclusivity between it and the
+     * jpecCompButton
+     */
+    private final View.OnClickListener hevcCompButtonListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started yuvCompButtonListener callback");
+            }
+
+            if (jpegCompButton.isChecked()) {
+                jpegCompButton.setChecked(false);
+            }
+
+            if (jpegImageButton.isChecked()) {
+                jpegImageButton.setChecked(false);
+            }
+
+            if (yuvCompButton.isChecked()) {
+                yuvCompButton.setChecked(false);
+            }
+
         }
     };
 
@@ -230,6 +268,10 @@ public class StartupActivity extends AppCompatActivity {
 
             if (jpegImageButton.isChecked()) {
                 jpegImageButton.setChecked(false);
+            }
+
+            if (hevcCompButton.isChecked()) {
+                hevcCompButton.setChecked(false);
             }
         }
     };
@@ -376,6 +418,8 @@ public class StartupActivity extends AppCompatActivity {
         jpegCompButton.setOnClickListener(jpegCompButtonListener);
         jpegImageButton = binding.jpegImageButton;
         jpegImageButton.setOnClickListener(jpegImageButtonListener);
+        hevcCompButton = binding.hevcCompButton;
+        hevcCompButton.setOnClickListener(hevcCompButtonListener);
 
         // code to handle the camera JPEG quality input
         DropEditText qualityText = binding.jpegQualityEditText;
@@ -405,6 +449,9 @@ public class StartupActivity extends AppCompatActivity {
         }
         if (enableLogging) {
             configFlag |= ENABLE_PROFILING;
+        }
+        if (hevcCompButton.isChecked()) {
+            configFlag |= HEVC_COMPRESSION;
         }
         return configFlag;
     }

@@ -21,6 +21,7 @@ typedef enum {
     YUV_COMPRESSION = 2,
     JPEG_COMPRESSION = 4,
     JPEG_IMAGE = (1 << 3), // if the input is already a compressed image
+    HEVC_COMPRESSION = (1 << 4),
 } compression_t;
 
 enum {
@@ -31,7 +32,8 @@ enum {
     (NO_COMPRESSION == inp) ||         \
     (YUV_COMPRESSION == inp) ||        \
     (JPEG_COMPRESSION == inp) ||       \
-    (JPEG_IMAGE == inp)
+    (JPEG_IMAGE == inp)  ||            \
+    (HEVC_COMPRESSION == inp)
 
 // 0 - RGB
 // 1 - YUV420 NV21 Android (interleaved U/V)

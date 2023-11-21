@@ -172,7 +172,6 @@ event_array_t event_array;
 // variable to check if everything is ready for execution
 int setup_success = 0;
 
-
 /**
  * @note height and width are rotated since the camera is rotated 90 degrees with respect to the
  * screen
@@ -246,17 +245,17 @@ src_size) {
     CHECK_AND_RETURN(status, "setting decode_uv kernel args failed");
 
     // set global work group sizes for codec kernels
-    enc_y_global[0] = (size_t) (inp_w / BLK_W);
-    enc_y_global[1] = (size_t) (inp_h / BLK_H);
+    enc_y_global[0] = (size_t)(inp_w / BLK_W);
+    enc_y_global[1] = (size_t)(inp_h / BLK_H);
 
-    enc_uv_global[0] = (size_t) (inp_h / BLK_H) / 2;
-    enc_uv_global[1] = (size_t) (inp_w / BLK_W) / 2;
+    enc_uv_global[0] = (size_t)(inp_h / BLK_H) / 2;
+    enc_uv_global[1] = (size_t)(inp_w / BLK_W) / 2;
 
-    dec_y_global[0] = (size_t) (inp_w / BLK_W);
-    dec_y_global[1] = (size_t) (inp_h / BLK_H);
+    dec_y_global[0] = (size_t)(inp_w / BLK_W);
+    dec_y_global[1] = (size_t)(inp_h / BLK_H);
 
-    dec_uv_global[0] = (size_t) (inp_h / BLK_H) / 2;
-    dec_uv_global[1] = (size_t) (inp_w / BLK_W) / 2;
+    dec_uv_global[0] = (size_t)(inp_h / BLK_H) / 2;
+    dec_uv_global[1] = (size_t)(inp_w / BLK_W) / 2;
 
     return 0;
 }
@@ -337,6 +336,85 @@ init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int qual
 
     clReleaseProgram(enc_program);
     clReleaseProgram(dec_program);
+
+    return 0;
+
+}
+
+static int
+init_hevc_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int quality,
+                 int enable_resize) {
+
+    // todo: set a better value
+    uint64_t out_buf_size = 2000000;
+    int status;
+    cl_program enc_program = clCreateProgramWithBuiltInKernels(context, 1, enc_device,
+                                                               "pocl.encode.hevc.yuv420nv21",
+                                                               &status);
+    CHECK_AND_RETURN(status, "could not create enc program");
+
+    status = clBuildProgram(enc_program, 1, enc_device, nullptr, nullptr, nullptr);
+    CHECK_AND_RETURN(status, "could not build enc program");
+
+    cl_program dec_program = clCreateProgramWithBuiltInKernels(context, 1, dec_device,
+                                                               "pocl.decode.hevc.yuv420nv21",
+                                                               &status);
+    CHECK_AND_RETURN(status, "could not create dec program");
+
+    status = clBuildProgram(dec_program, 1, dec_device, nullptr, nullptr, nullptr);
+    CHECK_AND_RETURN(status, "could not build dec program");
+
+    // input buffer for the encoder
+    img_buf[1] = clCreateBuffer(context, CL_MEM_READ_ONLY, img_buf_size,
+                                NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the output buffer");
+
+    // overprovision this buffer since the compressed output size can vary
+    out_enc_y_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, out_buf_size, NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the output buffer");
+
+    // needed to indicate how big the compressed image is
+    out_enc_uv_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(cl_ulong), NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the output size buffer");
+
+    // pocl content extension, allows for only the used part of the buffer to be transferred
+    // https://registry.khronos.org/OpenCL/extensions/pocl/cl_pocl_content_size.html
+    if (enable_resize > 0) {
+        status = clSetContentSizeBufferPoCL(out_enc_y_buf, out_enc_uv_buf);
+        CHECK_AND_RETURN(status, "could not apply content size extension");
+    }
+
+    enc_y_kernel = clCreateKernel(enc_program, "pocl.encode.hevc.yuv420nv21", &status);
+    CHECK_AND_RETURN(status, "failed to create enc kernel");
+
+    dec_y_kernel = clCreateKernel(dec_program, "pocl.decode.hevc.yuv420nv21", &status);
+    CHECK_AND_RETURN(status, "failed to create dec kernel");
+
+    // the kernel uses uint64_t values for sizes, so put it in a bigger type
+    uint64_t input_buf_size = img_buf_size;
+
+    status = clSetKernelArg(enc_y_kernel, 0, sizeof(cl_mem), &img_buf[1]);
+    status |= clSetKernelArg(enc_y_kernel, 1, sizeof(cl_ulong), &input_buf_size);
+    status |= clSetKernelArg(enc_y_kernel, 2, sizeof(cl_mem), &out_enc_y_buf);
+    status |= clSetKernelArg(enc_y_kernel, 3, sizeof(cl_ulong), &input_buf_size);
+    status |= clSetKernelArg(enc_y_kernel, 4, sizeof(cl_mem), &out_enc_uv_buf);
+    CHECK_AND_RETURN(status, "could not set hevc encoder kernel params \n");
+
+    status = clSetKernelArg(dec_y_kernel, 0, sizeof(cl_mem), &out_enc_y_buf);
+    status |= clSetKernelArg(dec_y_kernel, 1, sizeof(cl_mem), &out_enc_uv_buf);
+    status |= clSetKernelArg(dec_y_kernel, 2, sizeof(cl_mem), &img_buf[2]);
+    status |= clSetKernelArg(dec_y_kernel, 3, sizeof(cl_ulong), &input_buf_size);
+    CHECK_AND_RETURN(status, "could not set hevc decoder kernel params \n");
+
+    // built-in kernels, so one dimensional
+    enc_y_global[0] = 1;
+
+    dec_y_global[0] = 1;
+
+    clReleaseProgram(enc_program);
+    clReleaseProgram(dec_program);
+
+    LOGI("set up hevc codecs\n");
 
     return 0;
 
@@ -578,6 +656,9 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
         } else if (JPEG_IMAGE & config_flags) {
             status = init_jpeg_codecs(&devices[1], &devices[3], quality, 0);
             CHECK_AND_RETURN(status, "init of codec kernels failed");
+        } else if (HEVC_COMPRESSION & config_flags) {
+            status = init_hevc_codecs(&devices[1], &devices[3], quality, 1);
+            CHECK_AND_RETURN(status, "init of hevc codec kernels failed");
         }
 
     }
@@ -602,6 +683,7 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     eval_event_array = create_event_array(MAX_EVENTS);
 
     setup_success = 1;
+
     return 0;
 }
 
@@ -1017,9 +1099,13 @@ copy_yuv_to_array(const image_data_t image, cl_uchar *dest_buf) {
     // divided by 4 since u and v are subsampled by 2
     for (int i = 0; i < (inp_h * inp_w) / 4; i++) {
 
-        dest_buf[uv_start_index + 2 * i] = v_ptr[i * vpixel_stride];
+//        dest_buf[uv_start_index + 2 * i] = v_ptr[i * vpixel_stride];
+//
+//        dest_buf[uv_start_index + 1 + 2 * i] = u_ptr[i * upixel_stride];
 
-        dest_buf[uv_start_index + 1 + 2 * i] = u_ptr[i * upixel_stride];
+        dest_buf[uv_start_index + 1 + 2 * i] = v_ptr[i * vpixel_stride];
+
+        dest_buf[uv_start_index + 2 * i] = u_ptr[i * upixel_stride];
     }
 
 #if defined(PRINT_PROFILE_TIME)
@@ -1042,6 +1128,7 @@ copy_yuv_to_array(const image_data_t image, cl_uchar *dest_buf) {
 cl_int
 enqueue_yuv_compression(const cl_uchar *input_img, const size_t buf_size, const int enc_index,
                         const int dec_index, cl_event *result_event) {
+
     cl_int status;
     cl_event write_img_event, enc_y_event, enc_uv_event,
             dec_y_event, dec_uv_event, migrate_event;
@@ -1105,7 +1192,8 @@ enqueue_jpeg_compression(const cl_uchar *input_img, const size_t buf_size, const
                          const int enc_index,
                          const int dec_index, cl_event *result_event) {
 
-    assert(0 <= quality && quality <= 100);
+    assert (0 <= quality && quality <= 100);
+
     cl_int status;
 
     status = clSetKernelArg(enc_y_kernel, 3, sizeof(cl_int), &quality);
@@ -1168,7 +1256,7 @@ enqueue_jpeg_image(const cl_uchar *input_img, const uint64_t *buf_size, const in
     cl_event image_write_event, image_size_write_event, dec_event;
 
     status = clEnqueueWriteBuffer(commandQueue[dec_index], out_enc_uv_buf, CL_FALSE, 0, sizeof
-            (uint64_t), buf_size, 0, NULL, &image_size_write_event);
+    (uint64_t), buf_size, 0, NULL, &image_size_write_event);
     CHECK_AND_RETURN(status, "failed to write image size");
     append_to_event_array(&event_array, image_size_write_event, VAR_NAME(image_size_write_event));
 
@@ -1181,6 +1269,46 @@ enqueue_jpeg_image(const cl_uchar *input_img, const uint64_t *buf_size, const in
                                     NULL, 1, &image_write_event, &dec_event);
     CHECK_AND_RETURN(status, "failed to enqueue decompression kernel");
     append_to_event_array(&event_array, dec_event, VAR_NAME(dec_index));
+
+    *result_event = dec_event;
+
+    return 0;
+}
+
+cl_int
+enqueue_hevc_compression(const cl_uchar *input_img, const size_t buf_size,
+                         const int enc_index,
+                         const int dec_index, cl_event *result_event) {
+
+    cl_int status;
+
+    cl_event enc_image_event, enc_event, dec_event, mig_event;
+
+    // the compressed image and the size of the image are in these buffers respectively
+    cl_mem migrate_bufs[] = {out_enc_y_buf, out_enc_uv_buf};
+
+    // The latest intermediary buffers can be ANYWHERE, therefore preemptively migrate them to
+    // the enc device.
+    status = clEnqueueMigrateMemObjects(commandQueue[enc_index], 2, migrate_bufs,
+                                        CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, 0, NULL,
+                                        &mig_event);
+    CHECK_AND_RETURN(status, "could not migrate buffers back");
+
+    status = clEnqueueWriteBuffer(commandQueue[enc_index], img_buf[enc_index], CL_FALSE, 0,
+                                  buf_size, input_img, 0, NULL, &enc_image_event);
+    CHECK_AND_RETURN(status, "failed to write image to enc buffers");
+    append_to_event_array(&event_array, enc_image_event, VAR_NAME(enc_image_event));
+
+    cl_event wait_events[] = {enc_image_event, mig_event};
+    status = clEnqueueNDRangeKernel(commandQueue[enc_index], enc_y_kernel, 1, NULL, enc_y_global,
+                                    NULL, 2, wait_events, &enc_event);
+    CHECK_AND_RETURN(status, "failed to enqueue compression kernel");
+    append_to_event_array(&event_array, enc_event, VAR_NAME(enc_event));
+
+    status = clEnqueueNDRangeKernel(commandQueue[dec_index], dec_y_kernel, 1, NULL, dec_y_global,
+                                    NULL, 1, &enc_event, &dec_event);
+    CHECK_AND_RETURN(status, "failed to enqueue decompression kernel");
+    append_to_event_array(&event_array, dec_event, VAR_NAME(dec_event));
 
     *result_event = dec_event;
 
@@ -1285,6 +1413,12 @@ poclProcessImage(const int device_index, const int do_segment,
         status = enqueue_jpeg_compression(host_img_buf, img_buf_size, quality, 1, 3,
                                           &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
+    } else if (HEVC_COMPRESSION == compression_type) {
+        size = img_buf_size;
+        inp_format = YUV_SEMI_PLANAR;
+        copy_yuv_to_array(image_data, host_img_buf);
+        status = enqueue_hevc_compression(host_img_buf, img_buf_size, 1, 3, &dnn_wait_event);
+        CHECK_AND_RETURN(status, "could not enqueue hevc compression");
     } else {
         size = image_data.data.jpeg.capacity;
         // process jpeg images

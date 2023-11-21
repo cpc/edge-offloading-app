@@ -3,6 +3,7 @@ package org.portablecl.poclaisademo;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
@@ -180,7 +181,9 @@ public class PoclImageProcessor {
             compressionType = JPEG_COMPRESSION;
         } else if ((JPEG_IMAGE & configFlags) > 0) {
             compressionType = JPEG_IMAGE;
-        } else {
+        } else if ((HEVC_COMPRESSION) > 0) {
+            compressionType = HEVC_COMPRESSION;
+        }else {
             compressionType = NO_COMPRESSION;
         }
 

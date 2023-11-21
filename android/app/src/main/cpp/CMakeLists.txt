@@ -167,6 +167,7 @@ set(POCL_CMAKE_ARGS
         -DENABLE_TURBO_JPEG_COMPRESSION=YES
         -DTURBO_JPEG_LIBRARIES=libturbojpeg
         -DTURBO_JPEG_INCLUDE_DIR=${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/include
+        -DENABLE_ANDROID_MEDIACODEC=YES
         )
 #-DENABLE_ANDROID_COMPRESSION=YES
 
@@ -237,9 +238,9 @@ target_link_libraries(
         opencv_imgcodecs
         opencv_core
         ${ONNXRUNTIME_LIBRARIES}
-        libyuv
         libturbojpeg
         jnigraphics
+        mediandk
 )
 
 
@@ -267,4 +268,6 @@ target_link_libraries( # Specifies the target library.
         opencv_core
 
         libyuv
+        
+        mediandk
         )
