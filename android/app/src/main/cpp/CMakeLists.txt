@@ -4,7 +4,13 @@
 # Sets the minimum version of CMake required to build the native library.
 
 # set the number of cores with which to build external projects
-set(EXTERNAL_PROJECT_CORES 8)
+include(ProcessorCount)
+ProcessorCount(CORES)
+if(CORES EQUAL 0 )
+	set(EXTERNAL_PROJECT_CORES 8)
+else(CORES EQUAL 0)
+	set(EXTERNAL_PROJECT_CORES  ${CORES})
+endif(CORES EQUAL 0)
 
 cmake_minimum_required(VERSION 3.22.1)
 include(ExternalProject)
