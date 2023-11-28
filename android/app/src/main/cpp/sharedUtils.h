@@ -28,5 +28,16 @@
 
 #define VAR_NAME(var) #var
 
+#define COND_REL_MEM(memobj) \
+    if(NULL != memobj) { \
+    clReleaseMemObject(memobj); \
+    memobj = NULL; \
+    }                        \
+
+#define COND_REL_KERNEL(kernel) \
+    if(NULL != kernel) { \
+    clReleaseKernel(kernel); \
+    kernel = NULL; \
+    } \
 
 #endif //POCL_AISA_DEMO_SHAREDUTILS_H

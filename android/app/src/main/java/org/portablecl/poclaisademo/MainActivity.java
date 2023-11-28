@@ -267,6 +267,14 @@ public class MainActivity extends AppCompatActivity {
 
     private ActivityMainBinding binding;
 
+    private Switch YUVSwitch;
+
+    private Switch JPEGSwitch;
+
+    private Switch HEVCSwitch;
+
+    private Switch CamSwitch;
+
     /**
      * see https://developer.android.com/guide/components/activities/activity-lifecycle
      * what the purpose of this function is.
@@ -355,6 +363,32 @@ public class MainActivity extends AppCompatActivity {
         compressionSwitch = binding.CompressSwitch;
         compressionSwitch.setOnClickListener(compressListener);
 
+        // set up compression switches
+        YUVSwitch = binding.YUVSwitch;
+        YUVSwitch.setOnClickListener(SetCompressListener);
+        // disable switch if compression is not available
+        if(0==(YUV_COMPRESSION & configFlags)) {
+            YUVSwitch.setClickable(false);
+        }
+
+        JPEGSwitch = binding.JPEGSwitch;
+        JPEGSwitch.setOnClickListener(SetCompressListener);
+        if(0==(JPEG_COMPRESSION & configFlags)) {
+            JPEGSwitch.setClickable(false);
+        }
+
+        HEVCSwitch = binding.HEVCSwitch;
+        HEVCSwitch.setOnClickListener(SetCompressListener);
+        if(0==(HEVC_COMPRESSION & configFlags)) {
+            HEVCSwitch.setClickable(false);
+        }
+
+        CamSwitch = binding.CamSwitch;
+        CamSwitch.setOnClickListener(SetCompressListener);
+        if(0==(JPEG_IMAGE & configFlags)) {
+            CamSwitch.setClickable(false);
+        }
+
         // setup overlay
         overlayVisualizer = new OverlayVisualizer();
         overlayView = binding.overlayView;
@@ -376,17 +410,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             modeSwitch.setClickable(true);
 
-            // todo: remove this statement once init in poclimageprocessor.cpp is refactored
-            if ((YUV_COMPRESSION & configFlags) > 0) {
-                setNativeEnv("POCL_DEVICES", "basic remote remote proxy");
-            } else if ((JPEG_COMPRESSION & configFlags) > 0 ||
-                    (JPEG_IMAGE & configFlags) > 0 || (HEVC_COMPRESSION & configFlags) > 0) {
-                setNativeEnv("POCL_DEVICES", "basic basic remote remote");
-            } else {
-                Log.println(Log.ERROR, "mainActivity.java", "could not determine which " +
-                        "pocl devices are required");
-            }
-
+            setNativeEnv("POCL_DEVICES", "basic proxy remote remote");
             setNativeEnv("POCL_REMOTE0_PARAMETERS", IPAddress + ":10998/0");
             setNativeEnv("POCL_REMOTE1_PARAMETERS", IPAddress + ":10998/1");
         }
@@ -603,6 +627,41 @@ public class MainActivity extends AppCompatActivity {
             trafficMonitor.reset();
 
         }
+    };
+
+    /**
+     * callback function that sets the compression type in the java imageprocessor
+     * and unchecks all other switched
+     */
+    private final View.OnClickListener SetCompressListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+
+            if( HEVCSwitch == v) {
+                poclImageProcessor.setCompressionType(HEVC_COMPRESSION);
+            }else {
+                HEVCSwitch.setChecked(false);
+            }
+
+            if( JPEGSwitch == v) {
+                poclImageProcessor.setCompressionType(JPEG_COMPRESSION);
+            }else {
+                JPEGSwitch.setChecked(false);
+            }
+
+            if( YUVSwitch == v) {
+                poclImageProcessor.setCompressionType(YUV_COMPRESSION);
+            }else {
+                YUVSwitch.setChecked(false);
+            }
+
+            if( CamSwitch == v) {
+                poclImageProcessor.setCompressionType(JPEG_IMAGE);
+            }else {
+                CamSwitch.setChecked(false);
+            }
+        }
+
     };
 
     /**

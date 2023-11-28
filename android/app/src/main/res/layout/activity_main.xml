@@ -39,8 +39,10 @@
         android:layout_height="0dp"
         app:layout_constraintBottom_toBottomOf="@+id/cameraFeed"
         app:layout_constraintEnd_toEndOf="@+id/cameraFeed"
+        app:layout_constraintHorizontal_bias="1.0"
         app:layout_constraintStart_toStartOf="@+id/cameraFeed"
-        app:layout_constraintTop_toTopOf="@+id/cameraFeed" />
+        app:layout_constraintTop_toTopOf="@+id/cameraFeed"
+        app:layout_constraintVertical_bias="1.0" />
 
     <Switch
         android:id="@+id/modeSwitch"
@@ -60,11 +62,10 @@
         android:id="@+id/CompressSwitch"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="25dp"
-        android:text="Compress"
+        android:layout_marginEnd="25dp"
+        android:layout_marginBottom="8dp"
         app:layout_constraintBottom_toTopOf="@+id/segmentSwitch"
-        app:layout_constraintEnd_toEndOf="@+id/segmentSwitch"
-        app:layout_constraintStart_toStartOf="@+id/segmentSwitch" />
+        app:layout_constraintEnd_toEndOf="parent" />
 
     <Switch
         android:id="@+id/segmentSwitch"
@@ -83,6 +84,7 @@
         android:id="@+id/compressionEditText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginStart="25dp"
         android:layout_marginBottom="25dp"
         android:ems="3"
         android:inputType="number"
@@ -90,8 +92,116 @@
         android:text="80"
         android:textAlignment="textEnd"
         app:layout_constraintBottom_toTopOf="@+id/modeSwitch"
-        app:layout_constraintEnd_toEndOf="@+id/modeSwitch"
-        app:layout_constraintStart_toStartOf="@+id/modeSwitch" />
+        app:layout_constraintEnd_toStartOf="@+id/CamSwitch"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <EditText
+        android:id="@+id/CompText"
+        android:layout_width="51dp"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="5dp"
+        android:ems="10"
+        android:inputType="text"
+        android:text="Comp "
+        android:textAlignment="center"
+        android:textSize="14sp"
+        app:layout_constraintBottom_toTopOf="@+id/CompressSwitch"
+        app:layout_constraintEnd_toEndOf="@+id/CompressSwitch"
+        app:layout_constraintHorizontal_bias="1.0"
+        app:layout_constraintStart_toStartOf="@+id/CompressSwitch" />
+
+    <Switch
+        android:id="@+id/YUVSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="5dp"
+        app:layout_constraintBottom_toBottomOf="@+id/CompressSwitch"
+        app:layout_constraintEnd_toStartOf="@+id/CompressSwitch"
+        app:layout_constraintTop_toTopOf="@+id/CompressSwitch" />
+
+    <EditText
+        android:id="@+id/YUVText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="5dp"
+        android:ems="10"
+        android:inputType="text"
+        android:text="YUV"
+        android:textAlignment="center"
+        android:textSize="14sp"
+        app:layout_constraintBottom_toTopOf="@+id/YUVSwitch"
+        app:layout_constraintEnd_toEndOf="@+id/YUVSwitch"
+        app:layout_constraintStart_toStartOf="@+id/YUVSwitch" />
+
+    <Switch
+        android:id="@+id/JPEGSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="5dp"
+        app:layout_constraintBottom_toBottomOf="@+id/YUVSwitch"
+        app:layout_constraintEnd_toStartOf="@+id/YUVSwitch"
+        app:layout_constraintTop_toTopOf="@+id/YUVSwitch"
+        app:layout_constraintVertical_bias="0.0" />
+
+    <EditText
+        android:id="@+id/JPEGText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="5dp"
+        android:ems="10"
+        android:inputType="text"
+        android:text="JPEG"
+        android:textAlignment="center"
+        android:textSize="14sp"
+        app:layout_constraintBottom_toTopOf="@+id/JPEGSwitch"
+        app:layout_constraintEnd_toEndOf="@+id/JPEGSwitch"
+        app:layout_constraintStart_toStartOf="@+id/JPEGSwitch" />
+
+    <Switch
+        android:id="@+id/HEVCSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="5dp"
+        app:layout_constraintBottom_toBottomOf="@+id/JPEGSwitch"
+        app:layout_constraintEnd_toStartOf="@+id/JPEGSwitch"
+        app:layout_constraintTop_toTopOf="@+id/JPEGSwitch" />
+
+    <EditText
+        android:id="@+id/HEVCText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="5dp"
+        android:ems="10"
+        android:inputType="text"
+        android:text="HEVC"
+        android:textAlignment="center"
+        android:textSize="14sp"
+        app:layout_constraintBottom_toTopOf="@+id/HEVCSwitch"
+        app:layout_constraintEnd_toEndOf="@+id/HEVCSwitch"
+        app:layout_constraintStart_toStartOf="@+id/HEVCSwitch" />
+
+    <Switch
+        android:id="@+id/CamSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="5dp"
+        app:layout_constraintBottom_toBottomOf="@+id/HEVCSwitch"
+        app:layout_constraintEnd_toStartOf="@+id/HEVCSwitch"
+        app:layout_constraintTop_toTopOf="@+id/HEVCSwitch" />
+
+    <EditText
+        android:id="@+id/CamText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="5dp"
+        android:ems="10"
+        android:inputType="text"
+        android:text="CAM"
+        android:textAlignment="center"
+        android:textSize="14sp"
+        app:layout_constraintBottom_toTopOf="@+id/CamSwitch"
+        app:layout_constraintEnd_toEndOf="@+id/CamSwitch"
+        app:layout_constraintStart_toStartOf="@+id/CamSwitch" />
 
 
 </androidx.constraintlayout.widget.ConstraintLayout>

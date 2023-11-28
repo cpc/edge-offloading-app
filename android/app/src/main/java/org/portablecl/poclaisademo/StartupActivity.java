@@ -177,6 +177,9 @@ public class StartupActivity extends AppCompatActivity {
 
     private ToggleButton hevcCompButton;
 
+    /**
+     * callback function that disables compression options not compatible with the jpeg image
+     */
     private final View.OnClickListener jpegImageButtonListener = new View.OnClickListener() {
 
         @Override
@@ -200,8 +203,7 @@ public class StartupActivity extends AppCompatActivity {
     };
     private ToggleButton jpegImageButton;
     /**
-     * a callback when the yuvCompButton is pressed. It forces mutual exclusivity between it and the
-     * jpecCompButton
+     * a callback when the yuvCompButton is pressed. It disables buttons not compatible with it
      */
     private final View.OnClickListener yuvCompButtonListener = new View.OnClickListener() {
         @Override
@@ -210,23 +212,15 @@ public class StartupActivity extends AppCompatActivity {
                 Log.println(Log.INFO, "EXECUTIONFLOW", "started yuvCompButtonListener callback");
             }
 
-            if (jpegCompButton.isChecked()) {
-                jpegCompButton.setChecked(false);
-            }
-
             if (jpegImageButton.isChecked()) {
                 jpegImageButton.setChecked(false);
             }
 
-            if (hevcCompButton.isChecked()) {
-                hevcCompButton.setChecked(false);
-            }
         }
     };
 
     /**
-     * a callback when the yuvCompButton is pressed. It forces mutual exclusivity between it and the
-     * jpecCompButton
+     * a callback when the yuvCompButton is pressed. It disables buttons not compatible with it
      */
     private final View.OnClickListener hevcCompButtonListener = new View.OnClickListener() {
         @Override
@@ -235,25 +229,15 @@ public class StartupActivity extends AppCompatActivity {
                 Log.println(Log.INFO, "EXECUTIONFLOW", "started yuvCompButtonListener callback");
             }
 
-            if (jpegCompButton.isChecked()) {
-                jpegCompButton.setChecked(false);
-            }
-
             if (jpegImageButton.isChecked()) {
                 jpegImageButton.setChecked(false);
-            }
-
-            if (yuvCompButton.isChecked()) {
-                yuvCompButton.setChecked(false);
             }
 
         }
     };
 
     /**
-     * a callback when the jpecCompButton is pressed. It forces mutual exclusivity between it and
-     * the
-     * yuvCompButton
+     * a callback when the jpecCompButton is pressed. It disables buttons not compatible with it
      */
     private final View.OnClickListener jpegCompButtonListener = new View.OnClickListener() {
         @Override
@@ -262,17 +246,10 @@ public class StartupActivity extends AppCompatActivity {
                 Log.println(Log.INFO, "EXECUTIONFLOW", "started jpegCompButtonListener callback");
             }
 
-            if (yuvCompButton.isChecked()) {
-                yuvCompButton.setChecked(false);
-            }
-
             if (jpegImageButton.isChecked()) {
                 jpegImageButton.setChecked(false);
             }
 
-            if (hevcCompButton.isChecked()) {
-                hevcCompButton.setChecked(false);
-            }
         }
     };
 

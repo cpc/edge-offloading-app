@@ -173,19 +173,7 @@ public class PoclImageProcessor {
         // default value
         this.quality = 80;
 
-        // default to the first configured compression type
-        // todo: make this runtime configurable
-        if ((YUV_COMPRESSION & configFlags) > 0) {
-            compressionType = YUV_COMPRESSION;
-        } else if ((JPEG_COMPRESSION & configFlags) > 0) {
-            compressionType = JPEG_COMPRESSION;
-        } else if ((JPEG_IMAGE & configFlags) > 0) {
-            compressionType = JPEG_IMAGE;
-        } else if ((HEVC_COMPRESSION) > 0) {
-            compressionType = HEVC_COMPRESSION;
-        }else {
-            compressionType = NO_COMPRESSION;
-        }
+        this.compressionType = NO_COMPRESSION;
 
         setImageFormat(imageFormat);
 
