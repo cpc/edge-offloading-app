@@ -275,6 +275,8 @@ public class MainActivity extends AppCompatActivity {
 
     private Switch CamSwitch;
 
+    private StatLogger statLogger;
+
     /**
      * see https://developer.android.com/guide/components/activities/activity-lifecycle
      * what the purpose of this function is.
@@ -399,6 +401,8 @@ public class MainActivity extends AppCompatActivity {
         energyMonitor = new EnergyMonitor(context);
         trafficMonitor = new TrafficMonitor();
         pingMonitor = new PingMonitor(IPAddress);
+        statLogger = new StatLogger(null,
+                trafficMonitor, energyMonitor);
 
         counter = new FPSCounter();
         statUpdateScheduler = Executors.newScheduledThreadPool(2);
@@ -428,7 +432,7 @@ public class MainActivity extends AppCompatActivity {
 
         poclImageProcessor = new PoclImageProcessor(this, captureSize, null, captureFormat,
                 imageAvailableLock, configFlags, counter, LOCAL_DEVICE,
-                segmentationSwitch.isChecked(), compressionSwitch.isChecked(), uris[0]);
+                segmentationSwitch.isChecked(), compressionSwitch.isChecked(), uris[0], statLogger);
 
         // code to handle the quality input
         DropEditText qualityText = binding.compressionEditText;
@@ -735,17 +739,18 @@ public class MainActivity extends AppCompatActivity {
                 boolean streamRes = openFileOutputStream(1);
 
                 if (streamRes) {
-                    // todo: settle on desired period
-                    statLoggerFuture =
-                            statUpdateScheduler.scheduleAtFixedRate(new StatLogger(logStreams[1],
-                                            trafficMonitor, energyMonitor),
-                                    1000, 500, TimeUnit.MILLISECONDS);
+                    statLogger.setStream(logStreams[1]);
                 } else {
                     Log.println(Log.WARN, "Logging", "could not open file, disabling logging");
                     enableLogging = false;
                 }
 
             }
+
+            // todo: settle on desired period
+            statLoggerFuture =
+                    statUpdateScheduler.scheduleAtFixedRate(statLogger,
+                            1000, 500, TimeUnit.MILLISECONDS);
 
             setupCamera();
             poclImageProcessor.start();

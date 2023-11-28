@@ -220,4 +220,8 @@ public class EnergyMonitor {
 
         return (totalEnergyDelta / (totalTime * timescale));
     }
+
+    public float calculateEnergy(int volt, int amp) {
+        return (amp * currentScale) * (volt * voltageScale);
+    }
 }

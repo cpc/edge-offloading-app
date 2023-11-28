@@ -270,7 +270,7 @@ init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int qual
 int
 initPoclImageProcessor(const int width, const int height, const int init_config_flags,
                        const char *codec_sources, const size_t src_size,
-                       const int fd) {
+                       const int fd, event_array_t **return_array, event_array_t **return_eval_array) {
     cl_platform_id platform;
     cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
     cl_uint devices_found;
@@ -546,6 +546,9 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     frame_index = 0;
     event_array = create_event_array(MAX_EVENTS);
     eval_event_array = create_event_array(MAX_EVENTS);
+    // send this back to the quality algorithm
+    *return_array = &event_array;
+    *return_eval_array = &eval_event_array;
 
     setup_success = 1;
 
@@ -1070,6 +1073,10 @@ poclProcessImage(const int device_index, const int do_segment,
         CHECK_AND_RETURN(status, "failed to set rotation");
     }
 
+    // this is done at the beginning so that the quality algorithm has
+    // had the option to use the events
+    release_events(&event_array);
+
     // even though inp_format is assigned image_format_t,
     // the type is set to cl_int since underlying enum types
     // can vary and we want a known size on both the client and server.
@@ -1232,7 +1239,7 @@ poclProcessImage(const int device_index, const int do_segment,
         }
     }
 
-    release_events(&event_array);
+//    release_events(&event_array);
 
     if (is_eval_ready) {
         if (ENABLE_PROFILING & config_flags) {

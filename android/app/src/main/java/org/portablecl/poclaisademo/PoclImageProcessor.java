@@ -87,6 +87,8 @@ public class PoclImageProcessor {
 
     private int imageFormat;
 
+    private StatLogger statLogger;
+
     /**
      * constructor for pocl image processor
      *
@@ -105,10 +107,10 @@ public class PoclImageProcessor {
                               int configFlags,
                               FPSCounter fpsCounter,
                               int inferencingDevice, boolean doSegment, boolean doCompression,
-                              Uri uri) {
+                              Uri uri, StatLogger statLogger) {
         this(null, context, captureSize, imageReader, imageFormat, imageAvailableLock,
                 configFlags,
-                fpsCounter, inferencingDevice, doSegment, doCompression, uri);
+                fpsCounter, inferencingDevice, doSegment, doCompression, uri, statLogger);
     }
 
     /**
@@ -129,10 +131,10 @@ public class PoclImageProcessor {
                               Semaphore imageAvailableLock, int configFlags,
                               FPSCounter fpsCounter,
                               int inferencingDevice, boolean doSegment, boolean doCompression,
-                              Uri uri) {
+                              Uri uri, StatLogger statLogger) {
         this(activity, activity, captureSize, imageReader, imageFormat, imageAvailableLock,
                 configFlags,
-                fpsCounter, inferencingDevice, doSegment, doCompression, uri);
+                fpsCounter, inferencingDevice, doSegment, doCompression, uri, statLogger);
     }
 
     /**
@@ -154,13 +156,14 @@ public class PoclImageProcessor {
                                Semaphore imageAvailableLock, int configFlags,
                                FPSCounter fpsCounter,
                                int inferencingDevice, boolean doSegment, boolean doCompression,
-                               Uri uri) {
+                               Uri uri, StatLogger statLogger) {
         this.activity = activity;
         this.context = context;
         this.captureSize = captureSize;
         this.imageReader = imageReader;
         this.imageAvailableLock = imageAvailableLock;
 //        this.enableLogging = enableLogging;
+        this.statLogger = statLogger;
 
         counter = fpsCounter;
         this.inferencingDevice = inferencingDevice;
@@ -239,7 +242,8 @@ public class PoclImageProcessor {
                 ImageFormat.JPEG == imageFormat;
         assert ImageFormat.YUV_420_888 != imageFormat || ((YUV_COMPRESSION & configFlags) > 0) ||
                 ((JPEG_COMPRESSION & configFlags) > 0) ||
-                ((NO_COMPRESSION & configFlags) > 0);
+                ((NO_COMPRESSION & configFlags) > 0) ||
+                ((HEVC_COMPRESSION & configFlags) > 0);
         assert ImageFormat.JPEG != imageFormat || ((JPEG_IMAGE & configFlags) > 0);
 
         this.imageFormat = imageFormat;
@@ -278,6 +282,7 @@ public class PoclImageProcessor {
         int rotation, do_segment, compressionParam;
         long currentTime, doneTime, poclTime, imageAcquireTime;
         int size;
+        float energy;
 
         Image image = null;
 
@@ -356,6 +361,8 @@ public class PoclImageProcessor {
 
                 // check that the image is supported
                 assert checkImageFormat(image);
+                energy = statLogger.getCurrentEnergy();
+
                 if (ImageFormat.YUV_420_888 == imageFormat) {
 
                     ByteBuffer Y = planes[0].getBuffer();
@@ -393,7 +400,7 @@ public class PoclImageProcessor {
                     poclProcessYUVImage(inferencingDevice, do_segment, compressionParam, quality,
                             rotation, detection_results, segmentation_results, Y, YRowStride,
                             YPixelStride, U, UVRowStride, UVPixelStride, V, VRowStride,
-                            VPixelStride, imageTimestamp);
+                            VPixelStride, imageTimestamp, energy);
 
                 } else if (ImageFormat.JPEG == imageFormat) {
                     // process jpeg images. jpeg images are just one plane with row and pixel
@@ -410,7 +417,7 @@ public class PoclImageProcessor {
                     currentTime = System.currentTimeMillis();
                     poclProcessJPEGImage(inferencingDevice, do_segment, compressionParam, quality
                             , rotation, detection_results, segmentation_results, data, size,
-                            imageTimestamp);
+                            imageTimestamp, energy);
 
                 } else {
                     Log.println(Log.WARN, "imageprocessloop", "unknown image format");

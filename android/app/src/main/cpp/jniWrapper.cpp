@@ -9,6 +9,7 @@
 //#include <file_descriptor_jni.h>
 #include <jni.h>
 #include "poclImageProcessor.h"
+#include "quality_algorithm.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -16,6 +17,10 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// used for the quality algorithm
+event_array_t *qual_event_array = nullptr;
+event_array_t *eval_array = nullptr;
 
 // Global variables for smuggling our blob into PoCL so we can pretend it is a builtin kernel.
 // Please don't ever actually do this in production code.
@@ -109,7 +114,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     char *codec_sources = read_file(env, jAssetManager, "kernels/copy.cl", &src_size);
     assert((nullptr != codec_sources) && "could not read sources");
 
-    jint res = initPoclImageProcessor(width, height, config_flags, codec_sources, src_size, fd);
+    jint res = initPoclImageProcessor(width, height, config_flags, codec_sources, src_size, fd, &qual_event_array, &eval_array);
 
     destroySmugglingEvidence();
 
@@ -168,7 +173,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                                                            jobject plane2,
                                                                            jint row_stride2,
                                                                            jint pixel_stride2,
-                                                                           jlong image_timestamp) {
+                                                                           jlong image_timestamp,
+                                                                           jfloat energy) {
     // todo: look into if iscopy=true works on android
     int32_t *detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
     // pocl returns segmentation result in uint8_t, but jbyte is int8_t
@@ -186,6 +192,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     image_data.data.yuv.row_strides[0] = row_stride0;
     image_data.data.yuv.row_strides[1] = row_stride1;
     image_data.data.yuv.row_strides[2] = row_stride2;
+
+
+
+    // placeholder function
+    evaluate_parameters(energy, qual_event_array, eval_array,
+                                  (compression_t *) &do_compression);
 
     int res = poclProcessImage(device_index, do_segment, (compression_t) do_compression, quality,
                                rotation, detection_array, segmentation_array, image_data,
@@ -211,7 +223,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessJPEGImage(JNIE
                                                                             jbyteArray segmentation_result,
                                                                             jobject data,
                                                                             jint size,
-                                                                            jlong image_timestamp) {
+                                                                            jlong image_timestamp, jfloat energy) {
 
     int32_t *detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
     // pocl returns segmentation result in uint8_t, but jbyte is int8_t
@@ -222,6 +234,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessJPEGImage(JNIE
     image_data.type = JPEG_DATA_T;
     image_data.data.jpeg.data = (uint8_t *) env->GetDirectBufferAddress(data);
     image_data.data.jpeg.capacity = size;
+
+    float c_energy = (float) energy;
+
+    // placeholder function
+    evaluate_parameters(energy, qual_event_array, eval_array,
+                                  (compression_t *) &do_compression);
 
     int res = poclProcessImage(device_index, do_segment, (compression_t) do_compression, quality,
                                rotation, detection_array, segmentation_array, image_data,

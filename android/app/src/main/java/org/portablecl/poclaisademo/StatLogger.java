@@ -12,7 +12,7 @@ import java.io.IOException;
 public class StatLogger implements Runnable {
 
     private final StringBuilder builder;
-    private final FileOutputStream stream;
+    private FileOutputStream stream;
 
     private final TrafficMonitor trafficMonitor;
 
@@ -24,19 +24,40 @@ public class StatLogger implements Runnable {
 
     public StatLogger(FileOutputStream stream, TrafficMonitor trafficMonitor,
                       EnergyMonitor energyMonitor) {
-        this.stream = stream;
         this.trafficMonitor = trafficMonitor;
         this.energyMonitor = energyMonitor;
 
         builder = new StringBuilder();
 
-        builder.append("time_bandw_ns, bandw_down_B, bandw_up_B, time_eng_ns, current_mA, " +
-                "voltage_mV\n");
-        try {
-            stream.write(builder.toString().getBytes());
-        } catch (IOException e) {
-            Log.println(Log.WARN, "Mainactivity.java:statlogger", "could not write csv " +
-                    "header");
+        setStream(stream);
+    }
+
+    /**
+     * query the energymonitor to calculate current energy usage
+     * @return
+     */
+    public float getCurrentEnergy() {
+        return energyMonitor.calculateEnergy(volt, amp);
+    }
+
+    /**
+     * set the file outputstream and write the csv header if the stream is not null
+     *
+     * @param stream
+     */
+    public void setStream(FileOutputStream stream) {
+        this.stream = stream;
+
+        if (null != this.stream) {
+
+            builder.append("time_bandw_ns, bandw_down_B, bandw_up_B, time_eng_ns, current_mA, " +
+                    "voltage_mV\n");
+            try {
+                stream.write(builder.toString().getBytes());
+            } catch (IOException e) {
+                Log.println(Log.WARN, "Mainactivity.java:statlogger", "could not write csv " +
+                        "header");
+            }
         }
     }
 
@@ -57,11 +78,13 @@ public class StatLogger implements Runnable {
         builder.append(timeEnergy).append(",").append(amp).append(",").append(volt)
                 .append("\n");
 
-        try {
-            stream.write(builder.toString().getBytes());
-        } catch (IOException e) {
-            Log.println(Log.WARN, "Mainactivity.java:statlogger", "could not write monitor " +
-                    "data");
+        if (null != stream) {
+            try {
+                stream.write(builder.toString().getBytes());
+            } catch (IOException e) {
+                Log.println(Log.WARN, "Mainactivity.java:statlogger", "could not write monitor " +
+                        "data");
+            }
         }
 
     }

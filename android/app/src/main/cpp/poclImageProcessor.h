@@ -8,6 +8,7 @@
 #define LOGTAG "poclaisademo"
 
 #include "stdint.h"
+#include "event_logger.h"
 
 #define CSV_HEADER "frameindex,tag,parameter,value\n"
 
@@ -96,7 +97,7 @@ typedef struct {
  */
 int
 initPoclImageProcessor(const int width, const int height, const int config_flags,
-                       const char *codec_sources, const size_t src_size, const int fd);
+                       const char *codec_sources, const size_t src_size, const int fd, event_array_t **return_array, event_array_t **return_eval_array);
 
 int
 destroy_pocl_image_processor();

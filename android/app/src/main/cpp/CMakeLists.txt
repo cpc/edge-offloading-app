@@ -228,6 +228,7 @@ add_library(poclnative
         dnn_stage.c dnn_stage.h
         jpeg_compression.c jpeg_compression.h
         hevc_compression.c hevc_compression.h
+        quality_algorithm.cpp quality_algorithm.h
         )
 
 target_include_directories(poclnative
