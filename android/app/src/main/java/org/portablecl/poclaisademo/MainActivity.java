@@ -19,6 +19,7 @@ import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
@@ -39,6 +40,7 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.ParcelFileDescriptor;
@@ -410,22 +412,27 @@ public class MainActivity extends AppCompatActivity {
         if (disableRemote) {
             // disable this switch when remote is disabled
             modeSwitch.setClickable(false);
-            setNativeEnv("POCL_DEVICES", "basic");
+            setNativeEnv("POCL_DEVICES", "pthread");
         } else {
             modeSwitch.setClickable(true);
 
-            setNativeEnv("POCL_DEVICES", "basic proxy remote remote");
+            setNativeEnv("POCL_DEVICES", "pthread proxy remote remote");
             setNativeEnv("POCL_REMOTE0_PARAMETERS", IPAddress + ":10998/0");
             setNativeEnv("POCL_REMOTE1_PARAMETERS", IPAddress + ":10998/1");
         }
 
-        String cache_dir = getCacheDir().getAbsolutePath();
+        String nativeLibraryPath = this.getApplicationInfo().nativeLibraryDir;
+        setNativeEnv("LD_LIBRARY_PATH", nativeLibraryPath);
 
         // disable pocl logs if verbosity is 0
         if (VERBOSITY >= 1) {
-            setNativeEnv("POCL_DEBUG", "basic,proxy,error,debug,warning");
+            setNativeEnv("POCL_DEBUG", "basic,pthread,proxy,error,debug,warning");
         }
+
+        // TODO: Use this to copy the .onnx files there on startup (or try getFilesDir())
+        String cache_dir = getCacheDir().getAbsolutePath();
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
+
 
         // stop screen from turning off
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);

@@ -11,7 +11,6 @@
 
 #include <CL/cl.h>
 #include <CL/cl_ext_pocl.h>
-#include <libyuv/convert_argb.h>
 #include <string>
 #include <stdlib.h>
 #include <vector>
@@ -257,6 +256,126 @@ init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int qual
 
 }
 
+int test_vec_add() {
+    cl_platform_id platform;
+    cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
+    cl_uint devices_found;
+    cl_int status;
+
+    LOGI("<<< TMP Start <<<\n", devices_found);
+
+    status = clGetPlatformIDs(1, &platform, NULL);
+    CHECK_AND_RETURN(status, "TMP getting platform id failed");
+
+    status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, MAX_NUM_CL_DEVICES, devices,
+                            &devices_found);
+    CHECK_AND_RETURN(status, "TMP getting device id failed");
+    LOGI("TMP Platform has %d devices\n", devices_found);
+    assert(devices_found > 0);
+
+    char result_array[256];
+    for (unsigned i = 0; i < devices_found; ++i) {
+        clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
+        LOGI("TMP device %d: CL_DEVICE_NAME:    %s\n", i, result_array);
+        clGetDeviceInfo(devices[i], CL_DEVICE_VERSION, 256 * sizeof(char), result_array, NULL);
+        LOGI("TMP device %d: CL_DEVICE_VERSION: %s\n", i, result_array);
+        clGetDeviceInfo(devices[i], CL_DRIVER_VERSION, 256 * sizeof(char), result_array, NULL);
+        LOGI("TMP device %d: CL_DRIVER_VERSION: %s\n", i, result_array);
+    }
+
+    cl_context_properties cps[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
+                                   0};
+
+    cl_context tmp_context = clCreateContext(cps, devices_found, devices, NULL, NULL, &status);
+    CHECK_AND_RETURN(status, "TMP creating context failed");
+    LOGI("TMP built context\n");
+
+    cl_program tmp_program = clCreateProgramWithBuiltInKernels(tmp_context, 1, devices,
+//                                                               "pocl.add.i8;pocl.dnn.detection.u8;pocl.dnn.segmentation.postprocess.u8;pocl.dnn.segmentation.reconstruct.u8;pocl.dnn.eval.iou.f32",
+                                                               "pocl.add.i8",
+                                                               &status);
+    CHECK_AND_RETURN(status, "TMP creation of program failed");
+    LOGI("TMP built kernels\n");
+
+    status = clBuildProgram(tmp_program, 1, devices, nullptr, nullptr, nullptr);
+    CHECK_AND_RETURN(status, "TMP building of program failed");
+    LOGI("TMP Created and built program");
+
+    cl_command_queue_properties cq_properties = 0;
+    cl_command_queue tmp_command_queue = clCreateCommandQueue(tmp_context, devices[0], cq_properties,
+                                                              &status);
+    CHECK_AND_RETURN(status, "TMP creating eval command queue failed");
+    LOGI("TMP Created CQ\n");
+
+    cl_kernel tmp_kernel = clCreateKernel(tmp_program, "pocl.add.i8", &status);
+    CHECK_AND_RETURN(status, "TMP creating eval kernel failed");
+    LOGI("TMP Created kernel\n");
+
+    char A[8] = {1, 1, 1, 1, 1, 1, 1, 1};
+    char B[8] = {2, 2, 2, 2, 2, 2, 2, 2};
+    char C[8] = {0};
+
+    cl_mem tmp_buf_a = clCreateBuffer(tmp_context, CL_MEM_READ_ONLY, 8, NULL, &status);
+    CHECK_AND_RETURN(status, "TMP failed to create buffer A");
+    cl_mem tmp_buf_b = clCreateBuffer(tmp_context, CL_MEM_READ_ONLY, 8, NULL, &status);
+    CHECK_AND_RETURN(status, "TMP failed to create buffer B");
+    cl_mem tmp_buf_c = clCreateBuffer(tmp_context, CL_MEM_WRITE_ONLY, 8, NULL, &status);
+    CHECK_AND_RETURN(status, "TMP failed to create buffer C");
+    LOGI("TMP Created buffers\n");
+
+    status = clSetKernelArg(tmp_kernel, 0, sizeof(cl_mem), &tmp_buf_a);
+    status |= clSetKernelArg(tmp_kernel, 1, sizeof(cl_mem), &tmp_buf_b);
+    status |= clSetKernelArg(tmp_kernel, 2, sizeof(cl_mem), &tmp_buf_c);
+    CHECK_AND_RETURN(status, "TMP could not assign kernel args");
+    LOGI("TMP Set kernel args\n");
+
+    status = clEnqueueWriteBuffer(tmp_command_queue, tmp_buf_a, CL_TRUE, 0, 8, A, 0, NULL, NULL);
+    CHECK_AND_RETURN(status, "TMP failed to write A buffer");
+    status = clEnqueueWriteBuffer(tmp_command_queue, tmp_buf_b, CL_TRUE, 0, 8, B, 0, NULL, NULL);
+    CHECK_AND_RETURN(status, "TMP failed to write B buffer");
+    LOGI("TMP Wrote buffers\n");
+
+    global_size = 1;
+    local_size = 1;
+    status = clEnqueueNDRangeKernel(tmp_command_queue, tmp_kernel, 1, NULL, &global_size,
+                                    &local_size, 0, NULL, NULL);
+    CHECK_AND_RETURN(status, "TMP failed to enqueue ND range kernel");
+    LOGI("TMP Enqueued kernel\n");
+
+    status = clEnqueueReadBuffer(tmp_command_queue, tmp_buf_c, CL_TRUE, 0, 8, C, 0, NULL, NULL);
+    CHECK_AND_RETURN(status, "TMP failed to read C buffer");
+    LOGI("TMP Read buffers\n");
+
+    for (int i = 0; i < 8; ++i) {
+        LOGI("TMP C[%d]: %d\n", i, C[i]);
+        if (C[i] != 3) {
+            LOGE("TMP: Wrong result!\n");
+            return -1;
+        }
+    }
+
+    status = clReleaseCommandQueue(tmp_command_queue);
+    CHECK_AND_RETURN(status, "TMP failed to release CQ");
+    status = clReleaseMemObject(tmp_buf_a);
+    CHECK_AND_RETURN(status, "TMP failed to release buf a");
+    status = clReleaseMemObject(tmp_buf_b);
+    CHECK_AND_RETURN(status, "TMP failed to release buf b");
+    status = clReleaseMemObject(tmp_buf_c);
+    CHECK_AND_RETURN(status, "TMP failed to release buf c");
+    status = clReleaseKernel(tmp_kernel);
+    CHECK_AND_RETURN(status, "TMP failed to release kernel");
+    status = clReleaseProgram(tmp_program);
+    CHECK_AND_RETURN(status, "TMP failed to release program");
+    status = clReleaseDevice(devices[0]);
+    CHECK_AND_RETURN(status, "TMP failed to release device");
+    status = clReleaseContext(tmp_context);
+    CHECK_AND_RETURN(status, "TMP failed to release context");
+
+    LOGI(">>>>> TMP SUCCESS <<<<<<\n");
+
+    return CL_SUCCESS;
+}
+
 ///**
 // * setup and create the objects needed for repeated PoCL calls.
 // * PoCL can be configured by setting environment variables.
@@ -275,6 +394,12 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
     cl_uint devices_found;
     cl_int status;
+
+    // This is kept as a regression test
+    status = test_vec_add();
+    CHECK_AND_RETURN(status, "TMP Failed running test vector addition.\n");
+
+
 
     config_flags = init_config_flags;
 
@@ -320,9 +445,9 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
 
     // Only create builtin kernel for basic and remote devices
     std::string dnn_kernel_name = "pocl.dnn.detection.u8";
-    std::string postprocess_kernel_name = "pocl.dnn.segmentation_postprocess.u8";
-    std::string reconstruct_kernel_name = "pocl.dnn.segmentation_reconstruct.u8";
-    std::string eval_kernel_name = "pocl.dnn.eval_iou.f32";
+    std::string postprocess_kernel_name = "pocl.dnn.segmentation.postprocess.u8";
+    std::string reconstruct_kernel_name = "pocl.dnn.segmentation.reconstruct.u8";
+    std::string eval_kernel_name = "pocl.dnn.eval.iou.f32";
     std::string kernel_names =
             dnn_kernel_name + ";" + postprocess_kernel_name + ";" + reconstruct_kernel_name + ";" +
             eval_kernel_name;
@@ -348,7 +473,6 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
 
         status = clBuildProgram(program, 2, inference_devices, nullptr, nullptr, nullptr);
         CHECK_AND_RETURN(status, "building of program failed");
-
     }
 
     eval_command_queue = clCreateCommandQueue(context, devices[dnn_device_idx], cq_properties,
@@ -1238,8 +1362,6 @@ poclProcessImage(const int device_index, const int do_segment,
             dprintf(file_descriptor, "%d,dnn,iou,%f\n", frame_index, iou);
         }
     }
-
-//    release_events(&event_array);
 
     if (is_eval_ready) {
         if (ENABLE_PROFILING & config_flags) {

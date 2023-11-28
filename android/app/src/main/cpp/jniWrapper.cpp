@@ -107,6 +107,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
                                                                               jint height,
                                                                               jint fd) {
 
+    // TODO: Smuggling used only in basic device, not pthread
     bool smuggling_ok = smuggleONNXAsset(env, jAssetManager, "yolov8n-seg.onnx");
     assert(smuggling_ok);
 

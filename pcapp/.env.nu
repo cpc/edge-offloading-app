@@ -15,8 +15,7 @@ export-env {
     ensure-dir
 
     for p in [
-        ('../external/pocl/build/lib/CL' | path expand -s)
-        '/lib/x86_64-linux-gnu'
+        '/home/zadnik/git/cpc/aisa-demo/pcapp/build/pocl/lib/pocl'
     ] {
         if $p not-in $env.LD_LIBRARY_PATH {
             $env.LD_LIBRARY_PATH ++= [ $p ]
@@ -26,10 +25,9 @@ export-env {
     load-env {
         CC: clang
         CXX: clang++
-        OCL_ICD_VENDORS: ('../external/pocl/build/ocl-vendors' | path expand -s)
         POCL_BUILDING: 1
-        POCL_DEBUG: 1 # error,warning,general,memory,llvm,events,cache,locking,refcounts,timing,hsa,tce,cuda,vulkan,proxy,all,1; 1 == error+warning+general
-        POCL_DEVICES: 'basic' #pthread' # basic kernels cuda vulkan pthread ttasim almaif; space-separated list
+        POCL_DEBUG: 'error,warning,general,pthread' # error,warning,general,memory,llvm,events,cache,locking,refcounts,timing,hsa,tce,cuda,vulkan,proxy,all,1; 1 == error+warning+general
+        POCL_DEVICES: 'pthread' # basic kernels cuda vulkan pthread ttasim almaif; space-separated list
         CUDA_VERSION: '11.7'
         CUDADIR: "/usr/local/cuda-11.7"
         CUDA_PATH: "/usr/local/cuda-11.7"
@@ -52,16 +50,18 @@ export def compile [--force(-f)] {
     mkdir build
 
     cd build
-    cmake -G Ninja ..
+    cmake -G Ninja .. -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda-11.7
     ninja -j (nproc)
 }
 
 # Run the example
-export def run [--ld-debug] {
+export def run [--ld-debug, --gdb] {
     ensure-dir
 
     if $ld_debug {
         LD_DEBUG=libs build/pcapp
+    } else if $gdb {
+        gdb --args build/pcapp
     } else {
         build/pcapp
     }
@@ -90,7 +90,8 @@ export def build-pocl [--force(-f)] {
         -DCMAKE_BUILD_TYPE=Release
         -DENABLE_OPENCV_ONNX=YES
         -DONNXRUNTIME_INCLUDE_DIRS=/home/zadnik/.local/include
-        -DONNXRUNTIME_LIBRARIES=/home/zadnik/.local/lib/libonnxruntime.so.1.15.0
+        -DONNXRUNTIME_LIBRARIES=onnxruntime
+        -DONNXRUNTIME_SO_FILE=/home/zadnik/.local/lib/libonnxruntime.so.1.15.0
     ]
 
     cmake -G Ninja $args ..

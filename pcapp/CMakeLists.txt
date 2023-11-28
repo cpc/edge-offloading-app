@@ -44,10 +44,13 @@ find_package(OpenCV REQUIRED COMPONENTS core dnn imgcodecs imgproc)
 
 set(ONNXRUNTIME_LIBRARIES onnxruntime)
 set(ONNXRUNTIME_INCLUDE_DIRS "${EXTERNAL_DIR}/onnxruntime-android/headers")
+# TODO: Do not hard-code these
+set(ONNXRUNTIME_SO_FILE "/home/zadnik/programs/onnxruntime-linux-x64-gpu-1.15.0/lib/libonnxruntime.so")
+set(TURBOJPEG_DIR /home/zadnik/git/cpc/aisa-demo/external/libjpeg-turbo/libturbojpeg)
 
 set(POCL_CMAKE_ARGS
         -DENABLE_ASAN=${POCL_ASAN}
-        -DDISABLE_PTHREAD=1
+        # -DDISABLE_PTHREAD=1
         -DENABLE_LLVM=0
         -DENABLE_LOADABLE_DRIVERS=0
         -DENABLE_ICD=0
@@ -63,12 +66,19 @@ set(POCL_CMAKE_ARGS
         -DENABLE_EXAMPLES=0
         -DBUILD_SHARED_LIBS=0
         -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/pocl
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        -DCMAKE_BUILD_TYPE=Debug
         -DVISIBILITY_HIDDEN=0
         -DOpenCV_DIR=${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/jni
         -DENABLE_OPENCV_ONNX=YES
         -DONNXRUNTIME_INCLUDE_DIRS=${ONNXRUNTIME_INCLUDE_DIRS}
-        -DONNXRUNTIME_LIBRARIES=${ONNXRUNTIME_LIBRARIES})
+        -DONNXRUNTIME_LIBRARIES=${ONNXRUNTIME_LIBRARIES}
+        -DONNXRUNTIME_SO_FILE=${ONNXRUNTIME_SO_FILE}
+        -DENABLE_TURBO_JPEG_COMPRESSION=YES
+        -DENABLE_TURBO_JPEG_DECOMPRESSION=YES
+        -DTURBO_JPEG_INCLUDE_DIR=${TURBOJPEG_DIR}/include
+        -DTURBO_JPEG_LIBRARIES=libturbojpeg
+        -DTURBO_JPEG_LIB_FILE=${TURBOJPEG_DIR}/x86_64/libturbojpeg.so
+        -DENABLE_FFMPEG_DECODE=YES)
 
 ExternalProject_Add(pocl
         SOURCE_DIR ${EXTERNAL_DIR}/pocl
@@ -76,7 +86,13 @@ ExternalProject_Add(pocl
         CMAKE_ARGS ${POCL_CMAKE_ARGS}
         BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
         BUILD_ALWAYS True
-        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libOpenCL.a)
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libOpenCL.a
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libpocl.a
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/pocl/libpocl_add_i8.so
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/pocl/libpocl_pthread_opencv_onnx.so
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/pocl/libpocl_pthread_turbojpeg.so
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/pocl/libpocl_pthread_mediacodec_encoder.so
+        )
 
 add_library(libpocl SHARED IMPORTED)
 set_target_properties(libpocl

@@ -61,9 +61,10 @@ find_library(android-lib android)
 add_subdirectory(${EXTERNAL_PATH}/libopencl-stub libopencl-stub-dir)
 
 add_library(onnxruntime SHARED IMPORTED)
-set_target_properties(onnxruntime PROPERTIES IMPORTED_LOCATION ${EXTERNAL_PATH}/onnxruntime-android/jni/${ANDROID_ABI}/libonnxruntime.so)
-add_library(onnxruntime4j_jni SHARED IMPORTED)
-set_target_properties(onnxruntime4j_jni PROPERTIES IMPORTED_LOCATION ${EXTERNAL_PATH}/onnxruntime-android/jni/${ANDROID_ABI}/libonnxruntime4j_jni.so)
+set(ONNXRUNTIME_SO_FILE ${EXTERNAL_PATH}/onnxruntime-android/jni/${ANDROID_ABI}/libonnxruntime.so)
+set_target_properties(onnxruntime PROPERTIES IMPORTED_LOCATION ${ONNXRUNTIME_SO_FILE})
+#add_library(onnxruntime4j_jni SHARED IMPORTED)
+#set_target_properties(onnxruntime4j_jni PROPERTIES IMPORTED_LOCATION ${EXTERNAL_PATH}/onnxruntime-android/jni/${ANDROID_ABI}/libonnxruntime4j_jni.so)
 set(ONNXRUNTIME_LIBRARIES onnxruntime)
 set(ONNXRUNTIME_INCLUDE_DIRS "${EXTERNAL_PATH}/onnxruntime-android/headers")
 
@@ -133,14 +134,15 @@ ExternalProject_Add(build_turbojpeg
         BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
         BUILD_ALWAYS True
         BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/libturbojpeg.a
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/libturbojpeg.so
         )
 
 add_library(libturbojpeg SHARED IMPORTED)
-set_target_properties(libturbojpeg PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/libturbojpeg.a)
+set_target_properties(libturbojpeg PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/libturbojpeg.so)
 
 # build pocl project
 set(POCL_CMAKE_ARGS
-        -DDISABLE_PTHREAD=1
+        #-DDISABLE_PTHREAD=1
         -DENABLE_LLVM=0
         -DENABLE_LOADABLE_DRIVERS=0
         -DENABLE_ICD=0
@@ -161,7 +163,7 @@ set(POCL_CMAKE_ARGS
         -DCMAKE_MAKE_PROGRAM=${ANDROID_NDK}/prebuilt/linux-x86_64/bin/make
         -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK}/build/cmake/android.toolchain.cmake
         -DANDROID_NDK=${ANDROID_NDK}
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        -DCMAKE_BUILD_TYPE=Debug
         -DANDROID_PLATFORM=${ANDROID_PLATFORM_LEVEL}
         -DANDROID_ABI=${ANDROID_ABI}
         -DANDROID_NATIVE_API_LEVEL=${ANDROID_PLATFORM_LEVEL}
@@ -170,9 +172,11 @@ set(POCL_CMAKE_ARGS
         -DENABLE_OPENCV_ONNX=YES
         -DONNXRUNTIME_INCLUDE_DIRS=${ONNXRUNTIME_INCLUDE_DIRS}
         -DONNXRUNTIME_LIBRARIES=${ONNXRUNTIME_LIBRARIES}
+        -DONNXRUNTIME_SO_FILE=${ONNXRUNTIME_SO_FILE}
         -DENABLE_TURBO_JPEG_COMPRESSION=YES
         -DTURBO_JPEG_LIBRARIES=libturbojpeg
         -DTURBO_JPEG_INCLUDE_DIR=${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/include
+        -DTURBO_JPEG_LIB_FILE=${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/libturbojpeg.so
         -DENABLE_ANDROID_MEDIACODEC=YES
         )
 #-DENABLE_ANDROID_COMPRESSION=YES
@@ -184,36 +188,16 @@ ExternalProject_Add(pocl
         BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
         BUILD_ALWAYS True
         BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libpocl.a
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/pocl/libpocl_pthread_add_i8.so
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/pocl/libpocl_pthread_opencv_onnx.so
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/pocl/libpocl_pthread_turbojpeg.so
+        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/pocl/libpocl_pthread_mediacodec_encoder.so
         )
 # some interesting parameters set during init
 #message(WARNING "-DANDROID_NDK=${ANDROID_NDK} ")
 #message(WARNING "-DANDROID_PLATFORM=${ANDROID_PLATFORM_LEVEL}")
 #message(WARNING "-DANDROID_ABI=${ANDROID_ABI}")
 #message(WARNING "-DANDROID_NATIVE_API_LEVEL=${ANDROID_PLATFORM_LEVEL}")
-
-set(LIBYUV_CMAKE_ARGS
-        -DCMAKE_MAKE_PROGRAM=${ANDROID_NDK}/prebuilt/linux-x86_64/bin/make
-        -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK}/build/cmake/android.toolchain.cmake
-        -DANDROID_NDK=${ANDROID_NDK}
-        -DANDROID_SDK=${ANDROID_NDK}/../..
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo
-        -DANDROID_PLATFORM=${ANDROID_PLATFORM_LEVEL}
-        -DANDROID_ABI=${ANDROID_ABI}
-        -DANDROID_NATIVE_API_LEVEL=${ANDROID_PLATFORM_LEVEL}
-        -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/libyuv
-        )
-
-ExternalProject_Add(build_libyuv
-        SOURCE_DIR ${EXTERNAL_PATH}/libyuv
-        CMAKE_GENERATOR "Unix Makefiles"
-        CMAKE_ARGS ${LIBYUV_CMAKE_ARGS}
-        BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
-        BUILD_ALWAYS True
-        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/libyuv/lib/libyuv.so
-        )
-
-add_library(libyuv SHARED IMPORTED)
-set_target_properties(libyuv PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/libyuv/lib/libyuv.so)
 
 add_library(poclnative
         SHARED
@@ -231,11 +215,28 @@ add_library(poclnative
         quality_algorithm.cpp quality_algorithm.h
         )
 
+
+add_library(libpocl_pthread_add_i8 SHARED IMPORTED)
+set_target_properties(libpocl_pthread_add_i8 PROPERTIES IMPORTED_LOCATION
+        ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/pocl/libpocl_pthread_add_i8.so)
+
+add_library(libpocl_pthread_opencv_onnx SHARED IMPORTED)
+set_target_properties(libpocl_pthread_opencv_onnx PROPERTIES IMPORTED_LOCATION
+        ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/pocl/libpocl_pthread_opencv_onnx.so)
+
+add_library(libpocl_pthread_turbojpeg SHARED IMPORTED)
+set_target_properties(libpocl_pthread_turbojpeg PROPERTIES IMPORTED_LOCATION
+        ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/pocl/libpocl_pthread_turbojpeg.so)
+
+add_library(libpocl_pthread_mediacodec_encoder SHARED IMPORTED)
+set_target_properties(libpocl_pthread_mediacodec_encoder PROPERTIES IMPORTED_LOCATION
+        ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/pocl/libpocl_pthread_mediacodec_encoder.so)
+
+
 target_include_directories(poclnative
         PRIVATE
         ${EXTERNAL_PATH}/pocl/include
         ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/jni/include
-        ${EXTERNAL_PATH}/libyuv/include
         )
 
 target_link_libraries(
@@ -251,12 +252,17 @@ target_link_libraries(
         ${ONNXRUNTIME_LIBRARIES}
         libturbojpeg
         jnigraphics
-        mediandk
+		mediandk
+        libpocl_pthread_add_i8
+        libpocl_pthread_opencv_onnx
+        libpocl_pthread_turbojpeg
+        libpocl_pthread_mediacodec_encoder
 )
 
 
+#add_dependencies(libpocl_pthread_opencv_onnx ${ONNXRUNTIME_LIBRARIES})
 add_dependencies(pocl build_opencv build_turbojpeg)
-add_dependencies(poclnative pocl build_libyuv)
+add_dependencies(poclnative pocl)
 add_dependencies(poclaisademo poclnative)
 
 # Specifies libraries CMake should link to your target library. You
@@ -277,8 +283,6 @@ target_link_libraries( # Specifies the target library.
         opencv_imgcodecs
 
         opencv_core
-
-        libyuv
         
         mediandk
         )
