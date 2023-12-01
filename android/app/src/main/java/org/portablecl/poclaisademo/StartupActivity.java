@@ -45,7 +45,7 @@ public class StartupActivity extends AppCompatActivity {
     /**
      * suggestion ip addresses
      */
-    private final static String[] IPAddresses = {"192.168.36.206", "192.168.50.112", "10.1.200.5"};
+    private final static String[] IPAddresses = {"192.168.36.206", "192.168.50.112", "10.1.200.5", "192.168.88.232"};
 
     /**
      * A callback that loses focus when the done button is pressed on a TextView.

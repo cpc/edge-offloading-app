@@ -10,6 +10,7 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclGetLastIou;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessJPEGImage;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessYUVImage;
 
@@ -88,6 +89,8 @@ public class PoclImageProcessor {
     private int imageFormat;
 
     private StatLogger statLogger;
+
+    private float lastIou = -4.0f;
 
     /**
      * constructor for pocl image processor
@@ -252,6 +255,14 @@ public class PoclImageProcessor {
     private boolean checkImageFormat(Image image) {
         int format = image.getFormat();
         return (ImageFormat.YUV_420_888 == format) || (ImageFormat.JPEG == format);
+    }
+
+    public float getLastIou() {
+        return this.lastIou;
+    }
+
+    public void resetLastIou() {
+        this.lastIou = -4.0f;
     }
 
     /**
@@ -423,12 +434,15 @@ public class PoclImageProcessor {
                     Log.println(Log.WARN, "imageprocessloop", "unknown image format");
                     currentTime = 0;
                 }
+
                 doneTime = System.currentTimeMillis();
                 poclTime = doneTime - currentTime;
                 if (VERBOSITY >= 1) {
                     Log.println(Log.INFO, "imageprocessloop",
                             "pocl compute time: " + poclTime + "ms");
                 }
+
+                this.lastIou = poclGetLastIou();
 
                 if (null != activity) {
                     activity.drawOverlay(do_segment, detection_results, segmentation_results,
@@ -439,7 +453,6 @@ public class PoclImageProcessor {
                 if (null != counter) {
                     counter.tickFrame();
                 }
-
 
                 // don't forget to close the image when done
                 image.close();

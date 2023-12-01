@@ -19,7 +19,6 @@ import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
@@ -40,7 +39,6 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.ParcelFileDescriptor;
@@ -582,6 +580,13 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
+    private void resetMonitors() {
+        counter.reset();
+        energyMonitor.reset();
+        trafficMonitor.reset();
+        poclImageProcessor.resetLastIou();
+    }
+
     /**
      * A listener that hands interactions with the mode switch.
      * This switch sets the device variable and resets monitors
@@ -604,9 +609,8 @@ public class MainActivity extends AppCompatActivity {
                 poclImageProcessor.setInferencingDevice(LOCAL_DEVICE);
             }
 
-            counter.reset();
-            energyMonitor.reset();
-            trafficMonitor.reset();
+            resetMonitors();
+
             if (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) {
                 pingMonitor.start();
             } else {
@@ -633,10 +637,7 @@ public class MainActivity extends AppCompatActivity {
                 poclImageProcessor.setDoSegment(false);
             }
 
-            counter.reset();
-            energyMonitor.reset();
-            trafficMonitor.reset();
-
+            resetMonitors();
         }
     };
 
@@ -671,6 +672,10 @@ public class MainActivity extends AppCompatActivity {
             }else {
                 CamSwitch.setChecked(false);
             }
+
+            if (compressionSwitch.isChecked()) {
+                resetMonitors();
+            }
         }
 
     };
@@ -700,10 +705,7 @@ public class MainActivity extends AppCompatActivity {
                 poclImageProcessor.setDoCompression(false);
             }
 
-            counter.reset();
-            energyMonitor.reset();
-            trafficMonitor.reset();
-
+            resetMonitors();
         }
     };
 
@@ -723,9 +725,7 @@ public class MainActivity extends AppCompatActivity {
 
         startBackgroundThreads();
 
-        counter.reset();
-        energyMonitor.reset();
-        trafficMonitor.reset();
+        resetMonitors();
 
         if (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) {
             pingMonitor.start();
@@ -823,7 +823,7 @@ public class MainActivity extends AppCompatActivity {
                         "pow: %5.2f W  AVG: %5.2f W\n" +
                         "EPF: %5.2f J  AVG: %5.2f J\n" +
                         "bandwidth: ∇ %s | ∆ %s\n" +
-                        "ping: %5.1f ms  AVG: %5.1f ms\n";
+                        "ping: %5.1fms AVG: %5.1fms | IoU: %6.4f\n";
 
                 float fps = counter.getEMAFPS();
                 float avgfps = counter.getAverageFPS();
@@ -833,6 +833,7 @@ public class MainActivity extends AppCompatActivity {
                 float avgfpssecs = (0 != avgfps) ? 1000 / avgfps : 0;
                 float epf = (0 != fps) ? eps / fps : 0;
                 float avgepf = (0 != avgfps) ? avgeps / avgfps : 0;
+                float iou = poclImageProcessor.getLastIou();
                 String statString = String.format(Locale.US, formatString,
                         fps, fpssecs,
                         avgfps, avgfpssecs,
@@ -843,7 +844,8 @@ public class MainActivity extends AppCompatActivity {
                         (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) ?
                                 pingMonitor.getPing() : 0,
                         (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) ?
-                                pingMonitor.getAveragePing() : 0
+                                pingMonitor.getAveragePing() : 0,
+                        iou
                 );
 
                 // needed since only the uithread is allowed to make changes to the textview

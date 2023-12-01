@@ -41,8 +41,8 @@ extern "C" {
 #define MASK_W 160
 #define MASK_H 120
 
-#define EVAL_INTERVAL 9999999
-#define VERBOSITY 0
+#define EVAL_INTERVAL 10
+#define VERBOSITY 1
 
 static int detection_count = 1 + MAX_DETECTIONS * 6;
 static int segmentation_count = MAX_DETECTIONS * MASK_W * MASK_H;
@@ -103,9 +103,10 @@ static cl_mem eval_out_buf = nullptr;
 static cl_mem eval_out_mask_buf = nullptr;
 static cl_mem eval_postprocess_buf = nullptr;
 static cl_mem eval_iou_buf = nullptr;
-static cl_event dnn_postprocess_event, eval_read_event;
+static cl_mem tmp_out_buf[MAX_NUM_CL_DEVICES] = {nullptr};
+static cl_mem tmp_postprocess_buf[MAX_NUM_CL_DEVICES] = {nullptr};
+static cl_event tmp_detect_copy_event, tmp_postprocess_copy_event, eval_read_event;
 static int is_eval_running = 0;
-cl_float iou = -1.0f;
 event_array_t eval_event_array;
 
 // kernel execution loop related things
@@ -302,7 +303,8 @@ int test_vec_add() {
     LOGI("TMP Created and built program");
 
     cl_command_queue_properties cq_properties = 0;
-    cl_command_queue tmp_command_queue = clCreateCommandQueue(tmp_context, devices[0], cq_properties,
+    cl_command_queue tmp_command_queue = clCreateCommandQueue(tmp_context, devices[0],
+                                                              cq_properties,
                                                               &status);
     CHECK_AND_RETURN(status, "TMP creating eval command queue failed");
     LOGI("TMP Created CQ\n");
@@ -389,7 +391,8 @@ int test_vec_add() {
 int
 initPoclImageProcessor(const int width, const int height, const int init_config_flags,
                        const char *codec_sources, const size_t src_size,
-                       const int fd, event_array_t **return_array, event_array_t **return_eval_array) {
+                       const int fd, event_array_t **return_array,
+                       event_array_t **return_eval_array) {
     cl_platform_id platform;
     cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
     cl_uint devices_found;
@@ -398,7 +401,6 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     // This is kept as a regression test
     status = test_vec_add();
     CHECK_AND_RETURN(status, "TMP Failed running test vector addition.\n");
-
 
 
     config_flags = init_config_flags;
@@ -520,13 +522,17 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     tot_pixels = inp_w * inp_h;
     // yuv420 so 6 bytes for every 4 pixels
     img_buf_size = (tot_pixels * 3) / 2;
-    img_buf[0] = clCreateBuffer(context, (CL_MEM_READ_ONLY),
+    img_buf[0] = clCreateBuffer(context, (CL_MEM_READ_WRITE),
                                 img_buf_size, NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the image buffer");
 
-    out_buf[0] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, total_out_count * sizeof(cl_int),
+    out_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE, total_out_count * sizeof(cl_int),
                                 NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the output buffer");
+
+    tmp_out_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE, total_out_count * sizeof(cl_int),
+                                    NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the reference output buffer");
 
     out_mask_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE,
                                      MASK_W * MASK_H * MAX_DETECTIONS * sizeof(cl_char),
@@ -536,6 +542,11 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     postprocess_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE,
                                         MASK_W * MASK_H * sizeof(cl_uchar),
                                         NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the tmp segmentation postprocessing buffer");
+
+    tmp_postprocess_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                            MASK_W * MASK_H * sizeof(cl_uchar),
+                                            NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation postprocessing buffer");
 
     reconstruct_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE,
@@ -555,9 +566,14 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
         }
         CHECK_AND_RETURN(status, "failed to create the image buffer");
 
-        out_buf[2] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, total_out_count * sizeof(cl_int),
+        out_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE, total_out_count * sizeof(cl_int),
                                     NULL, &status);
         CHECK_AND_RETURN(status, "failed to create the output buffer");
+
+        tmp_out_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                        total_out_count * sizeof(cl_int),
+                                        NULL, &status);
+        CHECK_AND_RETURN(status, "failed to create the reference output buffer");
 
         out_mask_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE, tot_pixels * MAX_DETECTIONS *
                                                                      sizeof(cl_char) / 4,
@@ -568,6 +584,11 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
                                             MASK_W * MASK_H * sizeof(cl_uchar),
                                             NULL, &status);
         CHECK_AND_RETURN(status, "failed to create the segmentation postprocessing buffer");
+
+        tmp_postprocess_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                                MASK_W * MASK_H * sizeof(cl_uchar),
+                                                NULL, &status);
+        CHECK_AND_RETURN(status, "failed to create the tmp segmentation postprocessing buffer");
 
         reconstruct_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE,
                                             seg_out_count * sizeof(cl_uchar),
@@ -703,6 +724,11 @@ destroy_pocl_image_processor() {
             out_buf[i] = nullptr;
         }
 
+        if (nullptr != tmp_out_buf[i]) {
+            clReleaseMemObject(tmp_out_buf[i]);
+            tmp_out_buf[i] = nullptr;
+        }
+
         if (nullptr != out_mask_buf[i]) {
             clReleaseMemObject(out_mask_buf[i]);
             out_mask_buf[i] = nullptr;
@@ -711,6 +737,11 @@ destroy_pocl_image_processor() {
         if (nullptr != postprocess_buf[i]) {
             clReleaseMemObject(postprocess_buf[i]);
             postprocess_buf[i] = nullptr;
+        }
+
+        if (nullptr != tmp_postprocess_buf[i]) {
+            clReleaseMemObject(tmp_postprocess_buf[i]);
+            tmp_postprocess_buf[i] = nullptr;
         }
 
         if (nullptr != reconstruct_buf[i]) {
@@ -860,8 +891,9 @@ void printTime(timespec start, timespec stop, const char message[256]) {
 cl_int
 enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
             const int do_segment, cl_int *detection_array, cl_uchar *segmentation_array,
-            cl_int inp_format, cl_event *out_postprocess_event, cl_event *out_event,
-            cl_mem inp_buf) {
+            cl_int inp_format, int save_out_buf,
+            cl_event *out_tmp_detect_copy_event, cl_event *out_tmp_postprocess_copy_event,
+            cl_event *out_event, cl_mem inp_buf) {
 
     cl_int status;
 
@@ -870,19 +902,13 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
     clock_gettime(CLOCK_MONOTONIC, &timespec_a);
 #endif
 
-    cl_mem _img_buf = img_buf[dnn_device_idx];
-    if (NULL != inp_buf) {
-        _img_buf = inp_buf;
-    }
-
     // This is to prevent having two buffers accidentally due to index errors.
-
     cl_mem _out_buf = out_buf[dnn_device_idx];
     cl_mem _out_mask_buf = out_mask_buf[dnn_device_idx];
     cl_mem _postprocess_buf = postprocess_buf[dnn_device_idx];
     cl_mem _reconstruct_buf = reconstruct_buf[dnn_device_idx];
 
-    status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &_img_buf);
+    status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &inp_buf);
     status |= clSetKernelArg(dnn_kernel, 4, sizeof(cl_int), &inp_format);
     status |= clSetKernelArg(dnn_kernel, 5, sizeof(cl_mem), &_out_buf);
     status |= clSetKernelArg(dnn_kernel, 6, sizeof(cl_mem), &_out_mask_buf);
@@ -914,15 +940,27 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
     CHECK_AND_RETURN(status, "failed to enqueue ND range DNN kernel");
     append_to_event_array(&event_array, run_dnn_event, VAR_NAME(dnn_event));
 
-    status = clEnqueueReadBuffer(commandQueue[dnn_device_idx], out_buf[dnn_device_idx],
+
+    status = clEnqueueReadBuffer(commandQueue[dnn_device_idx], _out_buf,
                                  CL_FALSE, 0,
                                  detection_count * sizeof(cl_int), detection_array, 1,
                                  &run_dnn_event, &read_detect_event);
     CHECK_AND_RETURN(status, "failed to read detection result buffer");
     append_to_event_array(&event_array, read_detect_event, VAR_NAME(read_detect_event));
 
-    *out_postprocess_event = run_dnn_event;
-    *out_event = read_detect_event;
+    if (save_out_buf) {
+        // Save detections to a temporary buffer for the quality evaluation pipeline
+        size_t sz = detection_count * sizeof(cl_int);
+
+        cl_event tmp_copy_event;
+        status = clEnqueueCopyBuffer(commandQueue[dnn_device_idx], _out_buf,
+                                     tmp_out_buf[dnn_device_idx],
+                                     0, 0, sz, 1, &run_dnn_event, &tmp_copy_event);
+        CHECK_AND_RETURN(status, "failed to copy result buffer");
+        append_to_event_array(&eval_event_array, tmp_copy_event, VAR_NAME(tmp_copy_event));
+
+        *out_tmp_detect_copy_event = tmp_copy_event;
+    }
 
     if (do_segment) {
         cl_event run_postprocess_event, mig_seg_event, run_reconstruct_event, read_segment_event;
@@ -935,60 +973,57 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
         CHECK_AND_RETURN(status, "failed to enqueue ND range postprocess kernel");
         append_to_event_array(&event_array, run_postprocess_event, VAR_NAME(postprocess_event));
 
+
+        if (save_out_buf) {
+            // save postprocessed buffer for the quality eval pipeline
+            size_t sz = MASK_W * MASK_H * sizeof(cl_uchar);
+
+            cl_event tmp_copy_event;
+            status = clEnqueueCopyBuffer(commandQueue[dnn_device_idx], _postprocess_buf,
+                                         tmp_postprocess_buf[dnn_device_idx],
+                                         0, 0, sz, 1, &run_postprocess_event, &tmp_copy_event);
+            CHECK_AND_RETURN(status, "failed to copy result buffer");
+            append_to_event_array(&eval_event_array, tmp_copy_event, VAR_NAME(tmp_copy_event));
+
+            *out_tmp_postprocess_copy_event = tmp_copy_event;
+        }
+
         // move postprocessed segmentation data to host device
-//        status = clEnqueueMigrateMemObjects(commandQueue[out_device_idx], 1,
-//                                            &_postprocess_buf, 0, 1,
-//                                            &run_postprocess_event,
-//                                            &mig_seg_event);
-//        CHECK_AND_RETURN(status, "failed to enqueue migration of postprocess buffer");
-//        append_to_event_array(&event_array, mig_seg_event, VAR_NAME(mig_seg_event));
-
-        // ... as a workaruond, we read and write the class ID buffer ...
-//        cl_event read_postprocess_event, write_postprocess_event;
-//        clEnqueueReadBuffer(commandQueue[out_device_idx], _postprocess_buf, CL_FALSE,
-//                            0, MASK_W * MASK_H * sizeof(cl_uchar), host_postprocess_buf, 1,
-//                            &run_postprocess_event, &read_postprocess_event);
-//        CHECK_AND_RETURN(status, "failed to read postprocess buffer");
-//        append_to_event_array(&event_array, read_postprocess_event,
-//                              VAR_NAME(read_postprocess_event));
-//
-//        status = clEnqueueWriteBuffer(commandQueue[out_device_idx], _postprocess_buf,
-//                                      CL_FALSE, 0,
-//                                      MASK_W * MASK_H * sizeof(cl_uchar), host_postprocess_buf, 1,
-//                                      &read_postprocess_event, &write_postprocess_event);
-//        CHECK_AND_RETURN(status, "failed to write postprocess buffer");
-//        append_to_event_array(&event_array, write_postprocess_event,
-//                              VAR_NAME(write_postprocess_event));
-
-        // ... but this also doesn't work. Once we enqueue anything to commandQueue[out_device_idx],
-        // the synchronizatino breaks. The workaround seems to be to keep everything on the commandQueue[dnn_device_idx]
-        // and just bear with 4x larger incoming data transfer.
+        status = clEnqueueMigrateMemObjects(commandQueue[out_device_idx], 1,
+                                            &_postprocess_buf, 0, 1,
+                                            &run_postprocess_event,
+                                            &mig_seg_event);
+        CHECK_AND_RETURN(status, "failed to enqueue migration of postprocess buffer");
+        append_to_event_array(&event_array, mig_seg_event, VAR_NAME(mig_seg_event));
 
         // reconstruct postprocessed data to RGBA segmentation mask
-        status = clEnqueueNDRangeKernel(commandQueue[dnn_device_idx], reconstruct_kernel, 1,
+        status = clEnqueueNDRangeKernel(commandQueue[out_device_idx], reconstruct_kernel, 1,
                                         NULL,
                                         &global_size, &local_size, 1,
-                                        &run_postprocess_event, &run_reconstruct_event);
+                                        &mig_seg_event, &run_reconstruct_event);
         CHECK_AND_RETURN(status, "failed to enqueue ND range reconstruct kernel");
         append_to_event_array(&event_array, run_reconstruct_event, VAR_NAME(reconstruct_event));
 
         // write RGBA segmentation mask to the result array
-        status = clEnqueueReadBuffer(commandQueue[dnn_device_idx],
+        status = clEnqueueReadBuffer(commandQueue[out_device_idx],
                                      _reconstruct_buf, CL_FALSE, 0,
                                      seg_out_count * sizeof(cl_uchar), segmentation_array, 1,
                                      &run_reconstruct_event, &read_segment_event);
         CHECK_AND_RETURN(status, "failed to read segmentation reconstruct result buffer");
         append_to_event_array(&event_array, read_segment_event, VAR_NAME(read_segment_event));
 
-        *out_postprocess_event = run_postprocess_event;
         *out_event = read_segment_event;
+    } else {
+        *out_event = read_detect_event;
     }
 
     return 0;
 }
 
 cl_int
-enqueue_dnn_eval(const cl_event *wait_compressed_event, int dnn_device_idx, int do_segment,
+enqueue_dnn_eval(const cl_event *wait_tmp_detect_copy_event,
+                 const cl_event *wait_tmp_postprocess_copy_event,
+                 int dnn_device_idx, int do_segment,
                  cl_float *out_iou, cl_event *result_event) {
     cl_int status;
 
@@ -1005,10 +1040,10 @@ enqueue_dnn_eval(const cl_event *wait_compressed_event, int dnn_device_idx, int 
     status |= clSetKernelArg(postprocess_kernel, 2, sizeof(cl_mem), &eval_postprocess_buf);
     CHECK_AND_RETURN(status, "could not assign buffers to eval postprocess kernel");
 
-    status = clSetKernelArg(eval_kernel, 0, sizeof(cl_mem), &eval_out_buf);
-    status |= clSetKernelArg(eval_kernel, 1, sizeof(cl_mem), &eval_postprocess_buf);
-    status |= clSetKernelArg(eval_kernel, 2, sizeof(cl_mem), &out_buf[dnn_device_idx]);
-    status |= clSetKernelArg(eval_kernel, 3, sizeof(cl_mem), &postprocess_buf[dnn_device_idx]);
+    status = clSetKernelArg(eval_kernel, 0, sizeof(cl_mem), &tmp_out_buf[dnn_device_idx]);
+    status |= clSetKernelArg(eval_kernel, 1, sizeof(cl_mem), &tmp_postprocess_buf[dnn_device_idx]);
+    status |= clSetKernelArg(eval_kernel, 2, sizeof(cl_mem), &eval_out_buf);
+    status |= clSetKernelArg(eval_kernel, 3, sizeof(cl_mem), &eval_postprocess_buf);
     status |= clSetKernelArg(eval_kernel, 4, sizeof(cl_int), &do_segment);
     status |= clSetKernelArg(eval_kernel, 5, sizeof(cl_mem), &eval_iou_buf);
     CHECK_AND_RETURN(status, "could not assign buffers to eval kernel");
@@ -1026,6 +1061,7 @@ enqueue_dnn_eval(const cl_event *wait_compressed_event, int dnn_device_idx, int 
     append_to_event_array(&eval_event_array, eval_dnn_event, VAR_NAME(eval_dnn_event));
 
     cl_event wait_event = eval_dnn_event;
+    int num_wait_events = 2;
 
     if (do_segment) {
         status = clEnqueueNDRangeKernel(eval_command_queue, postprocess_kernel, 1, NULL,
@@ -1036,11 +1072,13 @@ enqueue_dnn_eval(const cl_event *wait_compressed_event, int dnn_device_idx, int 
                               VAR_NAME(eval_postprocess_event));
 
         wait_event = eval_postprocess_event;
+        // wait for the last event only when segmentation is used
+        num_wait_events = 3;
     }
 
-    cl_event wait_events[] = {wait_event, *wait_compressed_event};
+    cl_event wait_events[] = {wait_event, *wait_tmp_detect_copy_event, *wait_tmp_postprocess_copy_event };
     status = clEnqueueNDRangeKernel(eval_command_queue, eval_kernel, 1, NULL, &global_size,
-                                    &local_size, 2, wait_events, &eval_iou_event);
+                                    &local_size, num_wait_events, wait_events, &eval_iou_event);
     CHECK_AND_RETURN(status, "failed to enqueue ND range eval kernel");
     append_to_event_array(&eval_event_array, eval_iou_event, VAR_NAME(eval_iou_event));
 
@@ -1061,7 +1099,8 @@ enqueue_dnn_eval(const cl_event *wait_compressed_event, int dnn_device_idx, int 
  * nv21 format.
  */
 void
-copy_yuv_to_array(const image_data_t image, cl_uchar *dest_buf) {
+copy_yuv_to_array(const image_data_t image, const compression_t compression_type,
+                  cl_uchar *dest_buf) {
 
 #if defined(PRINT_PROFILE_TIME)
     struct timespec timespec_a, timespec_b;
@@ -1089,14 +1128,13 @@ copy_yuv_to_array(const image_data_t image, cl_uchar *dest_buf) {
     // interleave u and v regardless of if planar or semiplanar
     // divided by 4 since u and v are subsampled by 2
     for (int i = 0; i < (inp_h * inp_w) / 4; i++) {
-
-//        dest_buf[uv_start_index + 2 * i] = v_ptr[i * vpixel_stride];
-//
-//        dest_buf[uv_start_index + 1 + 2 * i] = u_ptr[i * upixel_stride];
-
-        dest_buf[uv_start_index + 1 + 2 * i] = v_ptr[i * vpixel_stride];
-
-        dest_buf[uv_start_index + 2 * i] = u_ptr[i * upixel_stride];
+        if (HEVC_COMPRESSION == compression_type) {
+            dest_buf[uv_start_index + 1 + 2 * i] = v_ptr[i * vpixel_stride];
+            dest_buf[uv_start_index + 2 * i] = u_ptr[i * upixel_stride];
+        } else {
+            dest_buf[uv_start_index + 2 * i] = v_ptr[i * vpixel_stride];
+            dest_buf[uv_start_index + 1 + 2 * i] = u_ptr[i * upixel_stride];
+        }
     }
 
 #if defined(PRINT_PROFILE_TIME)
@@ -1122,7 +1160,7 @@ enqueue_jpeg_image(const cl_uchar *input_img, const uint64_t *buf_size, const in
     cl_event image_write_event, image_size_write_event, dec_event;
 
     status = clEnqueueWriteBuffer(commandQueue[dec_index], out_enc_uv_buf, CL_FALSE, 0, sizeof
-    (uint64_t), buf_size, 0, NULL, &image_size_write_event);
+            (uint64_t), buf_size, 0, NULL, &image_size_write_event);
     CHECK_AND_RETURN(status, "failed to write image size");
     append_to_event_array(&event_array, image_size_write_event, VAR_NAME(image_size_write_event));
 
@@ -1163,7 +1201,8 @@ int
 poclProcessImage(const int device_index, const int do_segment,
                  const compression_t compressionType,
                  const int quality, const int rotation, int32_t *detection_array,
-                 uint8_t *segmentation_array, image_data_t image_data, long image_timestamp) {
+                 uint8_t *segmentation_array, image_data_t image_data, long image_timestamp,
+                 float *iou) {
 
     int is_eval_frame = 0;
     if (frame_index % EVAL_INTERVAL == 1) {
@@ -1225,36 +1264,34 @@ poclProcessImage(const int device_index, const int do_segment,
         // normal execution
         inp_format = YUV_SEMI_PLANAR;
         // copy the yuv image data over to the host_img_buf and make sure it's semiplanar.
-        copy_yuv_to_array(image_data, host_img_buf);
+        copy_yuv_to_array(image_data, compression_type, host_img_buf);
         status = clEnqueueWriteBuffer(commandQueue[device_index_copy], img_buf[device_index_copy],
                                       CL_FALSE, 0,
                                       img_buf_size, host_img_buf,
                                       0, NULL, &dnn_wait_event);
         CHECK_AND_RETURN(status, "failed to write image to ocl buffers");
         append_to_event_array(&event_array, dnn_wait_event, "write_img_event");
+        inp_buf = img_buf[device_index_copy];
     } else if (YUV_COMPRESSION == compression_type) {
         size = img_buf_size;
         inp_format = yuv_context->output_format;
-
-        copy_yuv_to_array(image_data, yuv_context->host_img_buf);
+        copy_yuv_to_array(image_data, compression_type, yuv_context->host_img_buf);
         status = enqueue_yuv_compression(yuv_context, &event_array, &dnn_wait_event);
         inp_buf = yuv_context->out_buf;
         CHECK_AND_RETURN(status, "could not enqueue yuv compression work");
     } else if (JPEG_COMPRESSION == compression_type) {
         inp_format = jpeg_context->output_format;
         jpeg_context->quality = quality;
-        copy_yuv_to_array(image_data, jpeg_context->host_img_buf);
+        copy_yuv_to_array(image_data, compression_type, jpeg_context->host_img_buf);
         status = enqueue_jpeg_compression(jpeg_context, &event_array, &dnn_wait_event);
         inp_buf = jpeg_context->out_buf;
-
         CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
     } else if (HEVC_COMPRESSION == compression_type) {
         size = img_buf_size;
         inp_format = hevc_context->output_format;
-        copy_yuv_to_array(image_data, hevc_context->host_img_buf);
+        copy_yuv_to_array(image_data, compression_type, hevc_context->host_img_buf);
         status = enqueue_hevc_compression(hevc_context, &event_array, &dnn_wait_event);
         inp_buf = hevc_context->out_buf;
-
         CHECK_AND_RETURN(status, "could not enqueue hevc compression");
     } else {
         // process jpeg images
@@ -1264,11 +1301,12 @@ poclProcessImage(const int device_index, const int do_segment,
                                     (const uint64_t *) &image_data.data.jpeg.capacity,
                                     3, &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue jpeg image");
+        inp_buf = img_buf[device_index_copy];
     }
 
     status = enqueue_dnn(&dnn_wait_event, device_index_copy, 0, do_segment_copy, detection_array,
-                         segmentation_array, inp_format, &dnn_postprocess_event, &dnn_read_event,
-                         inp_buf);
+                         segmentation_array, inp_format, is_eval_frame, &tmp_detect_copy_event,
+                         &tmp_postprocess_copy_event, &dnn_read_event, inp_buf);
     CHECK_AND_RETURN(status, "could not enqueue dnn kernels");
 
     int is_eval_ready = 0;
@@ -1281,48 +1319,37 @@ poclProcessImage(const int device_index, const int do_segment,
 
         if (eval_status == CL_COMPLETE) {
             // eval finished
-            // TODO: This branch is never reached due to synchronization problems
             is_eval_running = 0;
             is_eval_ready = 1;
 
             if (VERBOSITY >= 1) {
                 LOGI("=== Frame %3d: EVAL IOU: finished\n", frame_index);
             }
-            // Not releasing the dnn_postprocess_event, it will be released automatically via release_events()
         } else {
             // eval not finished
             if (VERBOSITY >= 1) {
                 LOGI("=== Frame %3d: EVAL IOU: still running...\n", frame_index);
             }
-
-            // Retain dnn_postprocess_event to keep it for the next frames (it will be released with release_events()
-            // by the end of this frame)
-            status = clRetainEvent(dnn_postprocess_event);
-            CHECK_AND_RETURN(status, "could not retain dnn_postprocess_event");
         }
     } else if (is_eval_frame) {
         // eval is not running and it's time to start a new eval run
         if (VERBOSITY >= 1) {
             LOGI("=== Frame %3d: EVAL IOU: started eval\n", frame_index);
         }
-        iou = -1.0f;
 
-        status = enqueue_dnn_eval(&dnn_postprocess_event, device_index_copy, do_segment_copy, &iou,
-                                  &eval_read_event);
+        status = enqueue_dnn_eval(&tmp_detect_copy_event, &tmp_postprocess_copy_event,
+                                  device_index_copy, do_segment_copy, iou, &eval_read_event);
         CHECK_AND_RETURN(status, "could not enqueue eval kernels");
 
-        // Retain dnn_postprocess_event to keep it for the next frames (it will be released with release_events()
-        // by the end of this frame)
-        status = clRetainEvent(dnn_postprocess_event);
-        CHECK_AND_RETURN(status, "could not retain dnn_postprocess_event");
-
-        // TODO: Waiting is necessary because of synchronization problems, otherwise it should be removed
-        status = clWaitForEvents(1, &eval_read_event);
-        CHECK_AND_RETURN(status, "could not wait for eval event");
+        is_eval_running = 1;
+    } else {
+        if (VERBOSITY >= 1) {
+            LOGI("=== Frame %3d: EVAL IOU: nothing\n", frame_index);
+        }
     }
 
     if (VERBOSITY >= 1) {
-        LOGI("=== Frame %3d, EVAL IOU = %f, no. detections: %d\n", frame_index, iou,
+        LOGI("=== Frame %3d, EVAL IOU = %f, no. detections: %d\n", frame_index, *iou,
              detection_array[0]);
     }
 
@@ -1337,13 +1364,14 @@ poclProcessImage(const int device_index, const int do_segment,
 
     if (ENABLE_PROFILING & config_flags) {
         if (JPEG_COMPRESSION == compression_type) {
+            cl_event sz_read_event;
             status = clEnqueueReadBuffer(commandQueue[1], out_enc_uv_buf, CL_FALSE, 0,
                                          sizeof(cl_ulong),
-                                         &size, 0, NULL, NULL);
+                                         &size, 1, &dnn_wait_event, &sz_read_event);
             CHECK_AND_RETURN(status, "could not read size buffer");
 
-            status = clFinish(commandQueue[1]);
-            CHECK_AND_RETURN(status, "failed to clfinish");
+            status = clWaitForEvents(1, &sz_read_event);
+            CHECK_AND_RETURN(status, "failed to wait for sz read event");
         }
 
         status = print_events(file_descriptor, frame_index, &event_array);
@@ -1359,7 +1387,7 @@ poclProcessImage(const int device_index, const int do_segment,
         dprintf(file_descriptor, "%d,compression,quality,%d\n", frame_index, quality);
         dprintf(file_descriptor, "%d,compression,size,%llu\n", frame_index, size);
         if (is_eval_ready) {
-            dprintf(file_descriptor, "%d,dnn,iou,%f\n", frame_index, iou);
+            dprintf(file_descriptor, "%d,dnn,iou,%f\n", frame_index, *iou);
         }
     }
 
@@ -1370,6 +1398,7 @@ poclProcessImage(const int device_index, const int do_segment,
         }
 
         release_events(&eval_event_array);
+        reset_event_array(&eval_event_array);
     }
 
     clock_gettime(CLOCK_MONOTONIC, &timespec_stop);

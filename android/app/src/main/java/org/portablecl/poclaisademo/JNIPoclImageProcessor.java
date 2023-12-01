@@ -31,6 +31,8 @@ public class JNIPoclImageProcessor {
 
     public static native int destroyPoclImageProcessor();
 
+    public static native float poclGetLastIou();
+
     //    public static native int poclProcessYUVImage(int deviceIndex, int do_segment,
 //                                                 int doCompression, int quality, int rotation,
 //                                                 ByteBuffer Y, int YRowStride, int YPixelStride,

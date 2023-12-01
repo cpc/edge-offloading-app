@@ -106,7 +106,8 @@ int
 poclProcessImage(const int device_index, const int do_segment,
                  const compression_t compressionType,
                  const int quality, const int rotation, int32_t *detection_array,
-                 uint8_t *segmentation_array, image_data_t image_data, long image_timestamp);
+                 uint8_t *segmentation_array, image_data_t image_data, long image_timestamp,
+                 float *iou);
 
 char *
 get_c_log_string_pocl();

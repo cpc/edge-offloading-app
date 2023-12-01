@@ -22,6 +22,8 @@ extern "C" {
 event_array_t *qual_event_array = nullptr;
 event_array_t *eval_array = nullptr;
 
+static float LAST_IOU = -5.0f;
+
 // Global variables for smuggling our blob into PoCL so we can pretend it is a builtin kernel.
 // Please don't ever actually do this in production code.
 const char *pocl_onnx_blob = NULL;
@@ -115,7 +117,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     char *codec_sources = read_file(env, jAssetManager, "kernels/copy.cl", &src_size);
     assert((nullptr != codec_sources) && "could not read sources");
 
-    jint res = initPoclImageProcessor(width, height, config_flags, codec_sources, src_size, fd, &qual_event_array, &eval_array);
+    jint res = initPoclImageProcessor(width, height, config_flags, codec_sources, src_size, fd,
+                                      &qual_event_array, &eval_array);
 
     destroySmugglingEvidence();
 
@@ -137,6 +140,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
     return destroy_pocl_image_processor();
 }
 
+
+JNIEXPORT jfloat JNICALL
+Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclGetLastIou(JNIEnv *env, jclass clazz) {
+    return LAST_IOU;
+}
+
 /**
  * process the image with PoCL.
  *  assumes that image format is YUV420_888
@@ -154,7 +163,6 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
  * @param result
  * @return
  */
-
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEnv *env,
                                                                            jclass clazz,
@@ -198,11 +206,11 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
 
     // placeholder function
     evaluate_parameters(energy, qual_event_array, eval_array,
-                                  (compression_t *) &do_compression);
+                        (compression_t *) &do_compression);
 
     int res = poclProcessImage(device_index, do_segment, (compression_t) do_compression, quality,
                                rotation, detection_array, segmentation_array, image_data,
-                               image_timestamp);
+                               image_timestamp, &LAST_IOU);
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
@@ -224,7 +232,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessJPEGImage(JNIE
                                                                             jbyteArray segmentation_result,
                                                                             jobject data,
                                                                             jint size,
-                                                                            jlong image_timestamp, jfloat energy) {
+                                                                            jlong image_timestamp,
+                                                                            jfloat energy) {
 
     int32_t *detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
     // pocl returns segmentation result in uint8_t, but jbyte is int8_t
@@ -240,11 +249,11 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessJPEGImage(JNIE
 
     // placeholder function
     evaluate_parameters(energy, qual_event_array, eval_array,
-                                  (compression_t *) &do_compression);
+                        (compression_t *) &do_compression);
 
     int res = poclProcessImage(device_index, do_segment, (compression_t) do_compression, quality,
                                rotation, detection_array, segmentation_array, image_data,
-                               image_timestamp);
+                               image_timestamp, &LAST_IOU);
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
@@ -253,6 +262,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessJPEGImage(JNIE
 
     return res;
 }
+
 
 /**
  * return a string that contains log lines that can be written to a file.
