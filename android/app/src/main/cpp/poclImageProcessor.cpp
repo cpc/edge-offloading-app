@@ -1287,7 +1287,6 @@ poclProcessImage(const int device_index, const int do_segment,
         inp_buf = jpeg_context->out_buf;
         CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
     } else if (HEVC_COMPRESSION == compression_type) {
-        size = img_buf_size;
         inp_format = hevc_context->output_format;
         copy_yuv_to_array(image_data, compression_type, hevc_context->host_img_buf);
         status = enqueue_hevc_compression(hevc_context, &event_array, &dnn_wait_event);
@@ -1363,16 +1362,29 @@ poclProcessImage(const int device_index, const int do_segment,
 #endif
 
     if (ENABLE_PROFILING & config_flags) {
+        cl_mem sz_buf = nullptr;
+        cl_command_queue sz_queue = nullptr;
+
         if (JPEG_COMPRESSION == compression_type) {
+            sz_buf = jpeg_context->size_buf;
+            sz_queue = jpeg_context->enc_queue;
+        } else if (HEVC_COMPRESSION == compression_type) {
+            sz_buf = hevc_context->size_buf;
+            sz_queue = hevc_context->enc_queue;
+        }
+
+        // read size buffer
+        if (sz_buf != nullptr && sz_queue != nullptr) {
             cl_event sz_read_event;
-            status = clEnqueueReadBuffer(commandQueue[1], out_enc_uv_buf, CL_FALSE, 0,
-                                         sizeof(cl_ulong),
+            status = clEnqueueReadBuffer(sz_queue, sz_buf,
+                                         CL_FALSE, 0, sizeof(cl_ulong),
                                          &size, 1, &dnn_wait_event, &sz_read_event);
             CHECK_AND_RETURN(status, "could not read size buffer");
 
             status = clWaitForEvents(1, &sz_read_event);
             CHECK_AND_RETURN(status, "failed to wait for sz read event");
         }
+
 
         status = print_events(file_descriptor, frame_index, &event_array);
         CHECK_AND_RETURN(status, "failed to print events");
@@ -1431,6 +1443,8 @@ get_compression_name(const compression_t compression_id) {
             return "yuv";
         case JPEG_COMPRESSION:
             return "jpeg";
+        case HEVC_COMPRESSION:
+            return "hevc";
         case JPEG_IMAGE:
             return "jpeg_image";
         default:
