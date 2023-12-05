@@ -941,7 +941,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
     append_to_event_array(&event_array, run_dnn_event, VAR_NAME(dnn_event));
 
 
-    status = clEnqueueReadBuffer(commandQueue[dnn_device_idx], _out_buf,
+    status = clEnqueueReadBuffer(commandQueue[out_device_idx], _out_buf,
                                  CL_FALSE, 0,
                                  detection_count * sizeof(cl_int), detection_array, 1,
                                  &run_dnn_event, &read_detect_event);
