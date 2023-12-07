@@ -27,6 +27,7 @@
 #include "yuv_compression.h"
 #include "jpeg_compression.h"
 #include "hevc_compression.h"
+#include "testapps.h"
 
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -48,35 +49,8 @@ static int detection_count = 1 + MAX_DETECTIONS * 6;
 static int segmentation_count = MAX_DETECTIONS * MASK_W * MASK_H;
 static int seg_out_count = MASK_W * MASK_H * 4; // RGBA image
 static int total_out_count = detection_count + segmentation_count;
-
-// 80 classes
-static int SEGMENTATION_COLORS[256] = {-1651865, -6634562, -5921894, -9968734, -1277957, -2838283,
-                                       -9013359, -9634954, -470042, -8997255, -4620585, -2953862,
-                                       -3811878, -8603498, -2455171, -5325920, -6757258, -8214427,
-                                       -5903423, -4680978, -4146958, -602947, -5396049, -9898511,
-                                       -8346466, -2122577, -2304523, -4667802, -222837, -4983945,
-                                       -234790, -8865559, -4660525, -3744578, -8720427, -9778035,
-                                       -680538, -7942224, -7162754, -2986121, -8795194, -2772629,
-                                       -4820488, -9401960, -3443339, -1781041, -4494168, -3167240,
-                                       -7629631, -6685500, -6901785, -2968136, -3953703, -4545430,
-                                       -6558846, -2631687, -5011272, -4983118, -9804322, -2593374,
-                                       -8473686, -4006938, -7801488, -7161859, -4854121, -5654350,
-                                       -817410, -8013957, -9252928, -2240041, -3625560, -6381719,
-                                       -4674608, -5704237, -8466309, -1788449, -7283030, -5781889,
-                                       -4207444, -8225948, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0};
-
-#define MAX_NUM_CL_DEVICES 4
-
 static cl_context context = nullptr;
+
 /**
  * all the devices, order:
  * 0: local basic
@@ -175,6 +149,7 @@ int setup_success = 0;
 yuv_codec_context_t *yuv_context = NULL;
 jpeg_codec_context_t *jpeg_context = NULL;
 hevc_codec_context_t *hevc_context = NULL;
+ping_fillbuffer_context_t *PING_CTX = NULL;
 
 /**
  * setup up everything needed to process jpeg images
@@ -257,137 +232,16 @@ init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int qual
 
 }
 
-int test_vec_add() {
-    cl_platform_id platform;
-    cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
-    cl_uint devices_found;
-    cl_int status;
-
-    LOGI("<<< TMP Start <<<\n", devices_found);
-
-    status = clGetPlatformIDs(1, &platform, NULL);
-    CHECK_AND_RETURN(status, "TMP getting platform id failed");
-
-    status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, MAX_NUM_CL_DEVICES, devices,
-                            &devices_found);
-    CHECK_AND_RETURN(status, "TMP getting device id failed");
-    LOGI("TMP Platform has %d devices\n", devices_found);
-    assert(devices_found > 0);
-
-    char result_array[256];
-    for (unsigned i = 0; i < devices_found; ++i) {
-        clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
-        LOGI("TMP device %d: CL_DEVICE_NAME:    %s\n", i, result_array);
-        clGetDeviceInfo(devices[i], CL_DEVICE_VERSION, 256 * sizeof(char), result_array, NULL);
-        LOGI("TMP device %d: CL_DEVICE_VERSION: %s\n", i, result_array);
-        clGetDeviceInfo(devices[i], CL_DRIVER_VERSION, 256 * sizeof(char), result_array, NULL);
-        LOGI("TMP device %d: CL_DRIVER_VERSION: %s\n", i, result_array);
-    }
-
-    cl_context_properties cps[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
-                                   0};
-
-    cl_context tmp_context = clCreateContext(cps, devices_found, devices, NULL, NULL, &status);
-    CHECK_AND_RETURN(status, "TMP creating context failed");
-    LOGI("TMP built context\n");
-
-    cl_program tmp_program = clCreateProgramWithBuiltInKernels(tmp_context, 1, devices,
-//                                                               "pocl.add.i8;pocl.dnn.detection.u8;pocl.dnn.segmentation.postprocess.u8;pocl.dnn.segmentation.reconstruct.u8;pocl.dnn.eval.iou.f32",
-                                                               "pocl.add.i8",
-                                                               &status);
-    CHECK_AND_RETURN(status, "TMP creation of program failed");
-    LOGI("TMP built kernels\n");
-
-    status = clBuildProgram(tmp_program, 1, devices, nullptr, nullptr, nullptr);
-    CHECK_AND_RETURN(status, "TMP building of program failed");
-    LOGI("TMP Created and built program");
-
-    cl_command_queue_properties cq_properties = 0;
-    cl_command_queue tmp_command_queue = clCreateCommandQueue(tmp_context, devices[0],
-                                                              cq_properties,
-                                                              &status);
-    CHECK_AND_RETURN(status, "TMP creating eval command queue failed");
-    LOGI("TMP Created CQ\n");
-
-    cl_kernel tmp_kernel = clCreateKernel(tmp_program, "pocl.add.i8", &status);
-    CHECK_AND_RETURN(status, "TMP creating eval kernel failed");
-    LOGI("TMP Created kernel\n");
-
-    char A[8] = {1, 1, 1, 1, 1, 1, 1, 1};
-    char B[8] = {2, 2, 2, 2, 2, 2, 2, 2};
-    char C[8] = {0};
-
-    cl_mem tmp_buf_a = clCreateBuffer(tmp_context, CL_MEM_READ_ONLY, 8, NULL, &status);
-    CHECK_AND_RETURN(status, "TMP failed to create buffer A");
-    cl_mem tmp_buf_b = clCreateBuffer(tmp_context, CL_MEM_READ_ONLY, 8, NULL, &status);
-    CHECK_AND_RETURN(status, "TMP failed to create buffer B");
-    cl_mem tmp_buf_c = clCreateBuffer(tmp_context, CL_MEM_WRITE_ONLY, 8, NULL, &status);
-    CHECK_AND_RETURN(status, "TMP failed to create buffer C");
-    LOGI("TMP Created buffers\n");
-
-    status = clSetKernelArg(tmp_kernel, 0, sizeof(cl_mem), &tmp_buf_a);
-    status |= clSetKernelArg(tmp_kernel, 1, sizeof(cl_mem), &tmp_buf_b);
-    status |= clSetKernelArg(tmp_kernel, 2, sizeof(cl_mem), &tmp_buf_c);
-    CHECK_AND_RETURN(status, "TMP could not assign kernel args");
-    LOGI("TMP Set kernel args\n");
-
-    status = clEnqueueWriteBuffer(tmp_command_queue, tmp_buf_a, CL_TRUE, 0, 8, A, 0, NULL, NULL);
-    CHECK_AND_RETURN(status, "TMP failed to write A buffer");
-    status = clEnqueueWriteBuffer(tmp_command_queue, tmp_buf_b, CL_TRUE, 0, 8, B, 0, NULL, NULL);
-    CHECK_AND_RETURN(status, "TMP failed to write B buffer");
-    LOGI("TMP Wrote buffers\n");
-
-    global_size = 1;
-    local_size = 1;
-    status = clEnqueueNDRangeKernel(tmp_command_queue, tmp_kernel, 1, NULL, &global_size,
-                                    &local_size, 0, NULL, NULL);
-    CHECK_AND_RETURN(status, "TMP failed to enqueue ND range kernel");
-    LOGI("TMP Enqueued kernel\n");
-
-    status = clEnqueueReadBuffer(tmp_command_queue, tmp_buf_c, CL_TRUE, 0, 8, C, 0, NULL, NULL);
-    CHECK_AND_RETURN(status, "TMP failed to read C buffer");
-    LOGI("TMP Read buffers\n");
-
-    for (int i = 0; i < 8; ++i) {
-        LOGI("TMP C[%d]: %d\n", i, C[i]);
-        if (C[i] != 3) {
-            LOGE("TMP: Wrong result!\n");
-            return -1;
-        }
-    }
-
-    status = clReleaseCommandQueue(tmp_command_queue);
-    CHECK_AND_RETURN(status, "TMP failed to release CQ");
-    status = clReleaseMemObject(tmp_buf_a);
-    CHECK_AND_RETURN(status, "TMP failed to release buf a");
-    status = clReleaseMemObject(tmp_buf_b);
-    CHECK_AND_RETURN(status, "TMP failed to release buf b");
-    status = clReleaseMemObject(tmp_buf_c);
-    CHECK_AND_RETURN(status, "TMP failed to release buf c");
-    status = clReleaseKernel(tmp_kernel);
-    CHECK_AND_RETURN(status, "TMP failed to release kernel");
-    status = clReleaseProgram(tmp_program);
-    CHECK_AND_RETURN(status, "TMP failed to release program");
-    status = clReleaseDevice(devices[0]);
-    CHECK_AND_RETURN(status, "TMP failed to release device");
-    status = clReleaseContext(tmp_context);
-    CHECK_AND_RETURN(status, "TMP failed to release context");
-
-    LOGI(">>>>> TMP SUCCESS <<<<<<\n");
-
-    return CL_SUCCESS;
-}
-
-///**
-// * setup and create the objects needed for repeated PoCL calls.
-// * PoCL can be configured by setting environment variables.
-// * @param width of the image
-// * @param height of the image
-// * @param enableProfiling enable
-// * @param codec_sources the kernel sources of the codecs
-// * @param src_size the size of the codec_sources
-// * @return
-// */
+/**
+ * setup and create the objects needed for repeated PoCL calls.
+ * PoCL can be configured by setting environment variables.
+ * @param width of the image
+ * @param height of the image
+ * @param enableProfiling enable
+ * @param codec_sources the kernel sources of the codecs
+ * @param src_size the size of the codec_sources
+ * @return
+ */
 int
 initPoclImageProcessor(const int width, const int height, const int init_config_flags,
                        const char *codec_sources, const size_t src_size,
@@ -695,6 +549,10 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     *return_array = &event_array;
     *return_eval_array = &eval_event_array;
 
+    // setup ping monitor
+    status = ping_fillbuffer_init(&PING_CTX, context);
+    CHECK_AND_RETURN(status, "PING failed to init");
+
     setup_success = 1;
 
     return 0;
@@ -856,6 +714,8 @@ destroy_pocl_image_processor() {
     destory_yuv_context(&yuv_context);
     destory_jpeg_context(&jpeg_context);
     destory_hevc_context(&hevc_context);
+
+    ping_fillbuffer_destroy(&PING_CTX);
 
     return 0;
 }
@@ -1179,6 +1039,7 @@ enqueue_jpeg_image(const cl_uchar *input_img, const uint64_t *buf_size, const in
     return 0;
 }
 
+
 /**
  * process the image with PoCL.
  * assumes that image format is YUV420_888
@@ -1204,6 +1065,10 @@ poclProcessImage(const int device_index, const int do_segment,
                  uint8_t *segmentation_array, image_data_t image_data, long image_timestamp,
                  float *iou) {
 
+    struct timespec timespec_start, timespec_stop;
+    clock_gettime(CLOCK_MONOTONIC, &timespec_start);
+    cl_int status;
+
     int is_eval_frame = 0;
     if (frame_index % EVAL_INTERVAL == 1) {
         is_eval_frame = 1;
@@ -1227,7 +1092,6 @@ poclProcessImage(const int device_index, const int do_segment,
     // when the user presses a button.
     const int device_index_copy = device_index;
     const int do_segment_copy = do_segment;
-    cl_int status;
 
     if (rotation != rotate_cw_degrees) {
         rotate_cw_degrees = rotation;
@@ -1245,9 +1109,6 @@ poclProcessImage(const int device_index, const int do_segment,
     // can vary and we want a known size on both the client and server.
     cl_int inp_format;
     cl_event dnn_wait_event, dnn_read_event;
-
-    struct timespec timespec_start, timespec_stop;
-    clock_gettime(CLOCK_MONOTONIC, &timespec_start);
 
     reset_event_array(&event_array);
 
@@ -1303,6 +1164,11 @@ poclProcessImage(const int device_index, const int do_segment,
         inp_buf = img_buf[device_index_copy];
     }
 
+    // Testing ping with CL calls to fill a buffer
+    cl_event fill_event;
+    status = ping_fillbuffer_run(PING_CTX, commandQueue[device_index], &event_array, &fill_event);
+    CHECK_AND_RETURN(status, "PING failed to run");
+
     status = enqueue_dnn(&dnn_wait_event, device_index_copy, 0, do_segment_copy, detection_array,
                          segmentation_array, inp_format, is_eval_frame, &tmp_detect_copy_event,
                          &tmp_postprocess_copy_event, &dnn_read_event, inp_buf);
@@ -1352,8 +1218,9 @@ poclProcessImage(const int device_index, const int do_segment,
              detection_array[0]);
     }
 
-    status = clWaitForEvents(1, &dnn_read_event);
-    CHECK_AND_RETURN(status, "could not wait for final event");
+    cl_event wait_events[] = { dnn_read_event, fill_event };
+    status = clWaitForEvents(2, wait_events);
+    CHECK_AND_RETURN(status, "could not wait for final events");
 
 #if defined(PRINT_PROFILE_TIME)
     timespec timespec_b;

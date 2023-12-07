@@ -11,6 +11,7 @@
 #include "event_logger.h"
 
 #define CSV_HEADER "frameindex,tag,parameter,value\n"
+#define MAX_NUM_CL_DEVICES 4
 
 #ifdef __cplusplus
 extern "C" {

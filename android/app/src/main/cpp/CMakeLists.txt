@@ -163,7 +163,7 @@ set(POCL_CMAKE_ARGS
         -DCMAKE_MAKE_PROGRAM=${ANDROID_NDK}/prebuilt/linux-x86_64/bin/make
         -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK}/build/cmake/android.toolchain.cmake
         -DANDROID_NDK=${ANDROID_NDK}
-        -DCMAKE_BUILD_TYPE=Debug
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo
         -DANDROID_PLATFORM=${ANDROID_PLATFORM_LEVEL}
         -DANDROID_ABI=${ANDROID_ABI}
         -DANDROID_NATIVE_API_LEVEL=${ANDROID_PLATFORM_LEVEL}
@@ -213,6 +213,7 @@ add_library(poclnative
         jpeg_compression.c jpeg_compression.h
         hevc_compression.c hevc_compression.h
         quality_algorithm.cpp quality_algorithm.h
+		testapps.c testapps.h
         )
 
 
