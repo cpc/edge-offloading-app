@@ -70,7 +70,7 @@ static cl_kernel postprocess_kernel = nullptr;
 static cl_kernel reconstruct_kernel = nullptr;
 
 // objects related to quality evaluation
-static cl_command_queue eval_command_queue = nullptr;
+static cl_command_queue eval_command_queues[MAX_NUM_CL_DEVICES] = { nullptr };
 static cl_kernel eval_kernel = nullptr;
 static cl_mem eval_img_buf = nullptr;
 static cl_mem eval_out_buf = nullptr;
@@ -331,9 +331,11 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
         CHECK_AND_RETURN(status, "building of program failed");
     }
 
-    eval_command_queue = clCreateCommandQueue(context, devices[dnn_device_idx], cq_properties,
-                                              &status);
-    CHECK_AND_RETURN(status, "creating eval command queue failed");
+    for (unsigned i = 0; i < devices_found; ++i) {
+        eval_command_queues[i] = clCreateCommandQueue(context, devices[i], cq_properties,
+                                                  &status);
+        CHECK_AND_RETURN(status, "creating eval command queue failed");
+    }
 
 
     eval_kernel = clCreateKernel(program, eval_kernel_name.c_str(), &status);
@@ -606,11 +608,11 @@ destroy_pocl_image_processor() {
             clReleaseMemObject(reconstruct_buf[i]);
             reconstruct_buf[i] = nullptr;
         }
-    }
 
-    if (eval_command_queue != nullptr) {
-        clReleaseCommandQueue(eval_command_queue);
-        eval_command_queue = nullptr;
+        if (eval_command_queues[i] != nullptr) {
+            clReleaseCommandQueue(eval_command_queues[i]);
+            eval_command_queues[i] = nullptr;
+        }
     }
 
     if (eval_iou_buf != nullptr) {
@@ -812,14 +814,14 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
         // Save detections to a temporary buffer for the quality evaluation pipeline
         size_t sz = detection_count * sizeof(cl_int);
 
-        cl_event tmp_copy_event;
+        cl_event tmp_copy_det_event;
         status = clEnqueueCopyBuffer(commandQueue[dnn_device_idx], _out_buf,
                                      tmp_out_buf[dnn_device_idx],
-                                     0, 0, sz, 1, &run_dnn_event, &tmp_copy_event);
+                                     0, 0, sz, 1, &run_dnn_event, &tmp_copy_det_event);
         CHECK_AND_RETURN(status, "failed to copy result buffer");
-        append_to_event_array(&eval_event_array, tmp_copy_event, VAR_NAME(tmp_copy_event));
+        append_to_event_array(&eval_event_array, tmp_copy_det_event, VAR_NAME(tmp_copy_det_event));
 
-        *out_tmp_detect_copy_event = tmp_copy_event;
+        *out_tmp_detect_copy_event = tmp_copy_det_event;
     }
 
     if (do_segment) {
@@ -838,14 +840,14 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
             // save postprocessed buffer for the quality eval pipeline
             size_t sz = MASK_W * MASK_H * sizeof(cl_uchar);
 
-            cl_event tmp_copy_event;
+            cl_event tmp_copy_seg_event;
             status = clEnqueueCopyBuffer(commandQueue[dnn_device_idx], _postprocess_buf,
                                          tmp_postprocess_buf[dnn_device_idx],
-                                         0, 0, sz, 1, &run_postprocess_event, &tmp_copy_event);
+                                         0, 0, sz, 1, &run_postprocess_event, &tmp_copy_seg_event);
             CHECK_AND_RETURN(status, "failed to copy result buffer");
-            append_to_event_array(&eval_event_array, tmp_copy_event, VAR_NAME(tmp_copy_event));
+            append_to_event_array(&eval_event_array, tmp_copy_seg_event, VAR_NAME(tmp_copy_seg_event));
 
-            *out_tmp_postprocess_copy_event = tmp_copy_event;
+            *out_tmp_postprocess_copy_event = tmp_copy_seg_event;
         }
 
         // move postprocessed segmentation data to host device
@@ -883,7 +885,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
 cl_int
 enqueue_dnn_eval(const cl_event *wait_tmp_detect_copy_event,
                  const cl_event *wait_tmp_postprocess_copy_event,
-                 int dnn_device_idx, int do_segment,
+                 int dnn_device_idx, int out_device_idx, int do_segment,
                  cl_float *out_iou, cl_event *result_event) {
     cl_int status;
 
@@ -910,12 +912,12 @@ enqueue_dnn_eval(const cl_event *wait_tmp_detect_copy_event,
 
     cl_event eval_write_img_event, eval_dnn_event, eval_postprocess_event, eval_iou_event, eval_read_iou_event;
 
-    status = clEnqueueWriteBuffer(eval_command_queue, eval_img_buf, CL_FALSE, 0,
+    status = clEnqueueWriteBuffer(eval_command_queues[dnn_device_idx], eval_img_buf, CL_FALSE, 0,
                                   img_buf_size, host_img_buf, 0, NULL, &eval_write_img_event);
     CHECK_AND_RETURN(status, "failed to write eval img buffer");
     append_to_event_array(&eval_event_array, eval_write_img_event, VAR_NAME(eval_write_img_event));
 
-    status = clEnqueueNDRangeKernel(eval_command_queue, dnn_kernel, 1, NULL, &global_size,
+    status = clEnqueueNDRangeKernel(eval_command_queues[dnn_device_idx], dnn_kernel, 1, NULL, &global_size,
                                     &local_size, 1, &eval_write_img_event, &eval_dnn_event);
     CHECK_AND_RETURN(status, "failed to enqueue ND range eval DNN kernel");
     append_to_event_array(&eval_event_array, eval_dnn_event, VAR_NAME(eval_dnn_event));
@@ -924,7 +926,7 @@ enqueue_dnn_eval(const cl_event *wait_tmp_detect_copy_event,
     int num_wait_events = 2;
 
     if (do_segment) {
-        status = clEnqueueNDRangeKernel(eval_command_queue, postprocess_kernel, 1, NULL,
+        status = clEnqueueNDRangeKernel(eval_command_queues[dnn_device_idx], postprocess_kernel, 1, NULL,
                                         &global_size, &local_size, 1, &eval_dnn_event,
                                         &eval_postprocess_event);
         CHECK_AND_RETURN(status, "failed to enqueue ND range eval postprocess kernel");
@@ -937,12 +939,12 @@ enqueue_dnn_eval(const cl_event *wait_tmp_detect_copy_event,
     }
 
     cl_event wait_events[] = {wait_event, *wait_tmp_detect_copy_event, *wait_tmp_postprocess_copy_event };
-    status = clEnqueueNDRangeKernel(eval_command_queue, eval_kernel, 1, NULL, &global_size,
+    status = clEnqueueNDRangeKernel(eval_command_queues[dnn_device_idx], eval_kernel, 1, NULL, &global_size,
                                     &local_size, num_wait_events, wait_events, &eval_iou_event);
     CHECK_AND_RETURN(status, "failed to enqueue ND range eval kernel");
     append_to_event_array(&eval_event_array, eval_iou_event, VAR_NAME(eval_iou_event));
 
-    status = clEnqueueReadBuffer(eval_command_queue, eval_iou_buf, CL_FALSE, 0,
+    status = clEnqueueReadBuffer(eval_command_queues[out_device_idx], eval_iou_buf, CL_FALSE, 0,
                                  1 * sizeof(cl_float), out_iou, 1, &eval_iou_event,
                                  &eval_read_iou_event);
     CHECK_AND_RETURN(status, "failed to read eval iou result buffer");
@@ -1216,7 +1218,7 @@ poclProcessImage(const int device_index, const int do_segment,
         }
 
         status = enqueue_dnn_eval(&tmp_detect_copy_event, &tmp_postprocess_copy_event,
-                                  device_index_copy, do_segment_copy, iou, &eval_read_event);
+                                  device_index_copy, 0, do_segment_copy, iou, &eval_read_event);
         CHECK_AND_RETURN(status, "could not enqueue eval kernels");
 
         is_eval_running = 1;
