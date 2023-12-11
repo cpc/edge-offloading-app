@@ -34,6 +34,28 @@ typedef struct {
     size_t dec_global_size[3];
     int32_t output_format;
 
+    /**
+     * used to indicate that the codec has been configured
+     */
+    int32_t codec_configured;
+    /**
+     * the number of seconds between I-frames
+     */
+    int32_t i_frame_interval;
+    /**
+     * the number of bits sent per second
+     */
+    int32_t bitrate;
+    /**
+     * the target number of frames per second
+     */
+    int32_t framerate;
+    /**
+     * kernel used to configure the codec
+     */
+    cl_kernel config_kernel;
+
+
 } hevc_codec_context_t;
 
 hevc_codec_context_t *create_hevc_context();
@@ -44,7 +66,11 @@ init_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
 
 cl_int
 enqueue_hevc_compression(const hevc_codec_context_t *cxt, event_array_t *event_array,
-                         cl_event *result_event);
+                         cl_event *wait_event, cl_event *result_event);
+
+cl_int
+configure_hevc_codec(hevc_codec_context_t *const codec_context, event_array_t *event_array,
+                     cl_event *result_event);
 
 cl_int
 destory_hevc_context(hevc_codec_context_t **context);

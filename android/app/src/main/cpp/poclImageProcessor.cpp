@@ -1150,7 +1150,20 @@ poclProcessImage(const int device_index, const int do_segment,
     } else if (HEVC_COMPRESSION == compression_type) {
         inp_format = hevc_context->output_format;
         copy_yuv_to_array(image_data, compression_type, hevc_context->host_img_buf);
-        status = enqueue_hevc_compression(hevc_context, &event_array, &dnn_wait_event);
+
+        cl_event configure_event = NULL;
+        // note: if you want to configure the codec,
+        // set the variables you want in the context and
+        // set isconfigured to 0
+        if(1 != hevc_context->codec_configured) {
+            // todo: remove these defaults once dynamic configuration is implemented
+            hevc_context->i_frame_interval = 2;
+            hevc_context->framerate = 5;
+            hevc_context->bitrate = 640*480;
+            configure_hevc_codec(hevc_context, &event_array, &configure_event);
+        }
+
+        status = enqueue_hevc_compression(hevc_context, &event_array, &configure_event, &dnn_wait_event);
         inp_buf = hevc_context->out_buf;
         CHECK_AND_RETURN(status, "could not enqueue hevc compression");
     } else {
