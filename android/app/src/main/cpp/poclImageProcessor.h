@@ -30,11 +30,13 @@ enum {
     ENABLE_PROFILING = (1 << 8)
 };
 
+int supports_config_flags(const int input);
+
 #define CHECK_COMPRESSION_T(inp)                    \
     (NO_COMPRESSION == inp) ||         \
     (YUV_COMPRESSION == inp) ||        \
     (JPEG_COMPRESSION == inp) ||       \
-    (JPEG_IMAGE == inp)  ||            \
+    (JPEG_IMAGE == inp)  ||                         \
     (HEVC_COMPRESSION == inp)
 
 // 0 - RGB

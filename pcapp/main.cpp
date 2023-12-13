@@ -7,7 +7,6 @@
 #include "sys/stat.h"
 #include "unistd.h"
 
-// #include <rename_opencl.h>
 #include <CL/cl.h>
 
 #include <opencv2/imgproc.hpp>
@@ -224,8 +223,8 @@ int main() {
     const int quality = 80;
     const int rotation = 0;
 
-    /* Read input image */
-    std::string inp_name = "../android/app/src/main/assets/bus_640x480.jpg";
+    /* Read input image, assumes app is in a build dir */
+    std::string inp_name = "../../android/app/src/main/assets/bus_640x480.jpg";
 
     int inp_w, inp_h, nch;
     uint8_t *inp_pixels = stbi_load(inp_name.data(), &inp_w, &inp_h, &nch, 3);
@@ -285,14 +284,15 @@ int main() {
 
     status = initPoclImageProcessor(inp_w, inp_h, config_flags,
                                     codec_sources.at(0).c_str(),
-                                    codec_sources.at(0).size(), fd);
+                                    codec_sources.at(0).size(), fd, NULL, NULL);
     throw_if_cl_err(status, "could not setup image processor");
 
+    float iou;
     /* Process */
     // set imagetimestamp to 0 since we don't have anything providing it
     status = poclProcessImage(device_index, do_segment, compression_type,
                               quality, rotation, detections.data(),
-                              segmentations.data(), image_data, 0);
+                              segmentations.data(), image_data, 0, &iou);
     throw_if_cl_err(status, "could not enqueue image");
     printf("no. detections: %d", detections[0]);
 

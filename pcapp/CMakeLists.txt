@@ -29,32 +29,31 @@ set(POCL_ASAN 1)
 endif(ENABLE_ASAN)
 
 ProcessorCount(CORES)
-if(CORES EQUAL 0 )
-set(EXTERNAL_PROJECT_CORES 8)
-else(CORES EQUAL 0)
-set(EXTERNAL_PROJECT_CORES  ${CORES})
-endif(CORES EQUAL 0)
+if (CORES EQUAL 0)
+    set(EXTERNAL_PROJECT_CORES 8)
+else (CORES EQUAL 0)
+    set(EXTERNAL_PROJECT_CORES ${CORES})
+endif (CORES EQUAL 0)
 MESSAGE("EXTERNAL_PROJECT_CORES: ${EXTERNAL_PROJECT_CORES}")
 
 set(ROOT_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
 set(EXTERNAL_DIR ${ROOT_DIR}/external)
 set(APP_DIR ${ROOT_DIR}/android/app/src/main/cpp)
 
+option(DISABLE_HEVC "do not build hevc backend" ON)
+configure_file("${APP_DIR}/config.h.in.cmake" "config.h" ESCAPE_QUOTES)
+include_directories("${CMAKE_BINARY_DIR}")
+
 find_package(OpenCV REQUIRED COMPONENTS core dnn imgcodecs imgproc)
 
 set(ONNXRUNTIME_LIBRARIES onnxruntime)
-set(ONNXRUNTIME_INCLUDE_DIRS "${EXTERNAL_DIR}/onnxruntime-android/headers")
-# TODO: Do not hard-code these
-set(ONNXRUNTIME_SO_FILE "/home/zadnik/programs/onnxruntime-linux-x64-gpu-1.15.0/lib/libonnxruntime.so")
-set(TURBOJPEG_DIR /home/zadnik/git/cpc/aisa-demo/external/libjpeg-turbo/libturbojpeg)
 
 set(POCL_CMAKE_ARGS
         -DENABLE_ASAN=${POCL_ASAN}
-        # -DDISABLE_PTHREAD=1
         -DENABLE_LLVM=0
         -DENABLE_LOADABLE_DRIVERS=0
         -DENABLE_ICD=0
-#        -DENABLE_PROXY_DEVICE=1
+        #        -DENABLE_PROXY_DEVICE=1
         -DENABLE_REMOTE_CLIENT=1
         -DENABLE_REMOTE_SERVER=0
         -DENABLE_HOST_CPU_DEVICES=1
@@ -68,17 +67,23 @@ set(POCL_CMAKE_ARGS
         -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/pocl
         -DCMAKE_BUILD_TYPE=Debug
         -DVISIBILITY_HIDDEN=0
+
+        # STILL USED?
         -DOpenCV_DIR=${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/jni
+
         -DENABLE_OPENCV_ONNX=YES
+        -DONNXRUNTIME_LIBRARIES=onnxruntime
         -DONNXRUNTIME_INCLUDE_DIRS=${ONNXRUNTIME_INCLUDE_DIRS}
-        -DONNXRUNTIME_LIBRARIES=${ONNXRUNTIME_LIBRARIES}
         -DONNXRUNTIME_SO_FILE=${ONNXRUNTIME_SO_FILE}
-        -DENABLE_TURBO_JPEG_COMPRESSION=YES
+
         -DENABLE_TURBO_JPEG_DECOMPRESSION=YES
-        -DTURBO_JPEG_INCLUDE_DIR=${TURBOJPEG_DIR}/include
         -DTURBO_JPEG_LIBRARIES=libturbojpeg
-        -DTURBO_JPEG_LIB_FILE=${TURBOJPEG_DIR}/x86_64/libturbojpeg.so
-        -DENABLE_FFMPEG_DECODE=YES)
+        -DTURBO_JPEG_INCLUDE_DIR=${TURBO_JPEG_INCLUDE_DIR}
+        -DTURBO_JPEG_LIB_FILE=${TURBO_JPEG_LIB_FILE}
+
+        -DENABLE_TURBO_JPEG_DECOMPRESSION=YES
+        -DENABLE_FFMPEG_DECODE=YES
+        )
 
 ExternalProject_Add(pocl
         SOURCE_DIR ${EXTERNAL_DIR}/pocl
@@ -99,46 +104,33 @@ set_target_properties(libpocl
         PROPERTIES IMPORTED_LOCATION
         ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libOpenCL.a)
 
-set(LIBYUV_CMAKE_ARGS
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo
-        -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/libyuv)
-
-ExternalProject_Add(build_libyuv
-        SOURCE_DIR ${EXTERNAL_DIR}/libyuv
-        CMAKE_GENERATOR "Unix Makefiles"
-        CMAKE_ARGS ${LIBYUV_CMAKE_ARGS}
-        BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
-        BUILD_ALWAYS True
-        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/libyuv/lib/libyuv.so)
-
-add_library(libyuv SHARED IMPORTED)
-set_target_properties(libyuv
-        PROPERTIES IMPORTED_LOCATION
-        ${CMAKE_CURRENT_BINARY_DIR}/libyuv/lib/libyuv.so)
-
 add_executable(
-  ${PROJECT_NAME}
-  main.cpp ${APP_DIR}/poclImageProcessor.cpp ${APP_DIR}/poclImageProcessor.h
-  ${APP_DIR}/sharedUtils.h ${APP_DIR}/event_logger.c ${APP_DIR}/event_logger.h)
+        ${PROJECT_NAME}
+        main.cpp ${APP_DIR}/poclImageProcessor.cpp ${APP_DIR}/poclImageProcessor.h
+        ${APP_DIR}/sharedUtils.h
+        ${APP_DIR}/event_logger.c ${APP_DIR}/event_logger.h
+        ${APP_DIR}/yuv_compression.c ${APP_DIR}/yuv_compression.h
+        ${APP_DIR}/jpeg_compression.c ${APP_DIR}/jpeg_compression.h
+        ${APP_DIR}/testapps.c ${APP_DIR}/testapps.h
+)
 
 target_include_directories(
-  ${PROJECT_NAME} PUBLIC ${EXTERNAL_DIR}/pocl/include
-                         ${EXTERNAL_DIR}/libyuv/include ${APP_DIR})
+        ${PROJECT_NAME} PUBLIC
+        ${EXTERNAL_DIR}/pocl/include
+        ${APP_DIR})
 
 
 add_dependencies(${PROJECT_NAME}
-        pocl
-        build_libyuv)
+        pocl)
 
 target_link_libraries(
-    ${PROJECT_NAME}
-    libpocl
-    opencv_core
-    opencv_dnn
-    opencv_imgproc
-    opencv_imgcodecs
-    libyuv
-    ${ONNXRUNTIME_LIBRARIES}
+        ${PROJECT_NAME}
+        libpocl
+        opencv_core
+        opencv_dnn
+        opencv_imgproc
+        opencv_imgcodecs
+        ${ONNXRUNTIME_SO_FILE}
 )
 
 target_compile_definitions(

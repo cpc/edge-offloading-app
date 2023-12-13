@@ -199,6 +199,10 @@ ExternalProject_Add(pocl
 #message(WARNING "-DANDROID_ABI=${ANDROID_ABI}")
 #message(WARNING "-DANDROID_NATIVE_API_LEVEL=${ANDROID_PLATFORM_LEVEL}")
 
+# create and configure a config file
+configure_file("config.h.in.cmake" "config.h" ESCAPE_QUOTES)
+include_directories("${CMAKE_BINARY_DIR}")
+
 add_library(poclnative
         SHARED
         poclRemoteExample.cpp

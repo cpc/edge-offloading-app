@@ -2,12 +2,14 @@
 #define CL_HPP_MINIMUM_OPENCL_VERSION 300
 #define CL_HPP_TARGET_OPENCL_VERSION 300
 
-
-#if __ANDROID__
-// required for proxy device http://portablecl.org/docs/html/proxy.html
+// todo: remove this since the pcapp also doesn't build without rename_opencl.h
+//#if __ANDROID__
+//// required for proxy device http://portablecl.org/docs/html/proxy.html
+//#include <rename_opencl.h>
+//
+//#endif
 #include <rename_opencl.h>
-
-#endif
+#include "config.h"
 
 #include <CL/cl.h>
 #include <CL/cl_ext_pocl.h>
@@ -25,8 +27,19 @@
 #include "sharedUtils.h"
 #include "event_logger.h"
 #include "yuv_compression.h"
+
+#ifndef DISABLE_JPEG
+
 #include "jpeg_compression.h"
+
+#endif // DISABLE_JPEG
+
+#ifndef DISABLE_HEVC
+
 #include "hevc_compression.h"
+
+#endif // DISABLE_HEVC
+
 #include "testapps.h"
 
 #include <opencv2/imgproc.hpp>
@@ -147,9 +160,34 @@ event_array_t event_array;
 int setup_success = 0;
 
 yuv_codec_context_t *yuv_context = NULL;
+
+#ifndef DISABLE_JPEG
 jpeg_codec_context_t *jpeg_context = NULL;
+#endif // DISABLE_JPEG
+#ifndef DISABLE_HEVC
 hevc_codec_context_t *hevc_context = NULL;
+#endif // DISABLE_HEVC
 ping_fillbuffer_context_t *PING_CTX = NULL;
+
+int
+supports_config_flags(const int config_flags) {
+
+#ifdef DISABLE_HEVC
+    if(config_flags & HEVC_COMPRESSION) {
+        LOGE("poclImageProcessor was built without HEVC compression");
+        return -1;
+    }
+#endif
+
+#ifdef DISABLE_JPEG
+    if(config_flags & JPEG_COMPRESSION) {
+        LOGE("poclImageProcessor was built without JPEG compression");
+        return -1;
+    }
+#endif
+
+    return 0;
+}
 
 /**
  * setup up everything needed to process jpeg images
@@ -251,6 +289,10 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
     cl_uint devices_found;
     cl_int status;
+
+    if (supports_config_flags(init_config_flags) != 0) {
+        return -1;
+    }
 
     // This is kept as a regression test
     status = test_vec_add();
@@ -494,6 +536,8 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
 
             CHECK_AND_RETURN(status, "init of codec kernels failed");
         }
+
+#ifndef DISABLE_JPEG
         if ((JPEG_COMPRESSION & config_flags)) {
 
             jpeg_context = create_jpeg_context();
@@ -508,10 +552,12 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
 
             CHECK_AND_RETURN(status, "init of codec kernels failed");
         }
+#endif // DISABLE_JPEG
         if (JPEG_IMAGE & config_flags) {
             status = init_jpeg_codecs(&devices[0], &devices[3], quality, 0);
             CHECK_AND_RETURN(status, "init of codec kernels failed");
         }
+#ifndef DISABLE_HEVC
         if (HEVC_COMPRESSION & config_flags) {
 
             hevc_context = create_hevc_context();
@@ -526,6 +572,7 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
 
             CHECK_AND_RETURN(status, "init of hevc codec kernels failed");
         }
+#endif // DISABLE_HEVC
 
     }
 
@@ -548,8 +595,12 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     event_array = create_event_array(MAX_EVENTS);
     eval_event_array = create_event_array(MAX_EVENTS);
     // send this back to the quality algorithm
-    *return_array = &event_array;
-    *return_eval_array = &eval_event_array;
+    if(NULL != return_array ) {
+        *return_array = &event_array;
+    }
+    if(NULL != return_eval_array) {
+        *return_eval_array = &eval_event_array;
+    }
 
     // setup ping monitor
     status = ping_fillbuffer_init(&PING_CTX, context);
@@ -714,9 +765,12 @@ destroy_pocl_image_processor() {
     free_event_array(&eval_event_array);
 
     destory_yuv_context(&yuv_context);
+#ifndef DISABLE_JPEG
     destory_jpeg_context(&jpeg_context);
+#endif //  DISABLE_JPEG
+#ifndef DISABLE_HEVC
     destory_hevc_context(&hevc_context);
-
+#endif // DISABLE_HEVC
     ping_fillbuffer_destroy(&PING_CTX);
 
     return 0;
@@ -1142,14 +1196,19 @@ poclProcessImage(const int device_index, const int do_segment,
         status = enqueue_yuv_compression(yuv_context, &event_array, &dnn_wait_event);
         inp_buf = yuv_context->out_buf;
         CHECK_AND_RETURN(status, "could not enqueue yuv compression work");
-    } else if (JPEG_COMPRESSION == compression_type) {
+    }
+#ifndef DISABLE_JPEG
+    else if (JPEG_COMPRESSION == compression_type) {
         inp_format = jpeg_context->output_format;
         jpeg_context->quality = quality;
         copy_yuv_to_array(image_data, compression_type, jpeg_context->host_img_buf);
         status = enqueue_jpeg_compression(jpeg_context, &event_array, &dnn_wait_event);
         inp_buf = jpeg_context->out_buf;
         CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
-    } else if (HEVC_COMPRESSION == compression_type) {
+    }
+#endif // DISABLE_JPEG
+#ifndef DISABLE_HEVC
+    else if (HEVC_COMPRESSION == compression_type) {
         inp_format = hevc_context->output_format;
         copy_yuv_to_array(image_data, compression_type, hevc_context->host_img_buf);
 
@@ -1168,7 +1227,9 @@ poclProcessImage(const int device_index, const int do_segment,
         status = enqueue_hevc_compression(hevc_context, &event_array, &configure_event, &dnn_wait_event);
         inp_buf = hevc_context->out_buf;
         CHECK_AND_RETURN(status, "could not enqueue hevc compression");
-    } else {
+    }
+#endif // DISABLE_HEVC
+    else {
         // process jpeg images
         size = image_data.data.jpeg.capacity;
         inp_format = RGB;
@@ -1247,13 +1308,18 @@ poclProcessImage(const int device_index, const int do_segment,
         cl_mem sz_buf = nullptr;
         cl_command_queue sz_queue = nullptr;
 
+#ifndef DISABLE_JPEG
         if (JPEG_COMPRESSION == compression_type) {
             sz_buf = jpeg_context->size_buf;
             sz_queue = jpeg_context->enc_queue;
-        } else if (HEVC_COMPRESSION == compression_type) {
+        }
+#endif // DISABLE_JPEG
+#ifndef DISABLE_HEVC
+        if (HEVC_COMPRESSION == compression_type) {
             sz_buf = hevc_context->size_buf;
             sz_queue = hevc_context->enc_queue;
         }
+#endif // DISABLE_HEVC
 
         // read size buffer
         if (sz_buf != nullptr && sz_queue != nullptr) {
