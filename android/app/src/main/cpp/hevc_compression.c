@@ -137,7 +137,7 @@ init_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
     codec_context->enc_global_size[0] = 1;
     codec_context->dec_global_size[0] = 1;
 
-    codec_context->output_format = YUV_SEMI_PLANAR;
+    codec_context->output_format = YUV_PLANAR;
 
     clReleaseProgram(enc_program);
     clReleaseProgram(dec_program);
