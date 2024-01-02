@@ -30,6 +30,20 @@ enum {
     ENABLE_PROFILING = (1 << 8)
 };
 
+/**
+ * Host device timestamps (in nanoseconds) in the image processing loop. Should be ordered.
+ */
+typedef struct {
+    int64_t start;
+    int64_t before_enc;
+    int64_t before_fill;
+    int64_t before_dnn;
+    int64_t before_eval;
+    int64_t before_wait;
+    int64_t after_wait;
+    int64_t stop;
+} host_ts_ns_t;
+
 int supports_config_flags(const int input);
 
 #define CHECK_COMPRESSION_T(inp)                    \
@@ -100,18 +114,20 @@ typedef struct {
  */
 int
 initPoclImageProcessor(const int width, const int height, const int config_flags,
-                       const char *codec_sources, const size_t src_size, const int fd, event_array_t **return_array, event_array_t **return_eval_array);
+                       const char *codec_sources, const size_t src_size, const int fd,
+                       event_array_t *event_array, event_array_t *eval_event_array);
 
 int
 destroy_pocl_image_processor();
 
-int
-poclProcessImage(const int device_index, const int do_segment,
-                 const compression_t compressionType,
-                 const int quality, const int rotation, int32_t *detection_array,
-                 uint8_t *segmentation_array, image_data_t image_data, long image_timestamp,
-                 float *iou);
+int64_t get_timestamp_ns();
 
+int
+poclProcessImage(int device_index, int frame_index, int do_segment, compression_t compressionType,
+                 int is_eval_frame, int quality, int rotation, int32_t *detection_array,
+                 uint8_t *segmentation_array, event_array_t *event_array,
+                 event_array_t *eval_event_array, image_data_t image_data, long image_timestamp,
+                 float *iou, uint64_t *size_bytes, host_ts_ns_t *host_ts_ns);
 char *
 get_c_log_string_pocl();
 

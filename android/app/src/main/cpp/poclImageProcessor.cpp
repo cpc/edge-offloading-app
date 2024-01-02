@@ -55,8 +55,7 @@ extern "C" {
 #define MASK_W 160
 #define MASK_H 120
 
-#define EVAL_INTERVAL 10
-#define VERBOSITY 1
+#define IMGPROC_VERBOSITY 0
 
 static int detection_count = 1 + MAX_DETECTIONS * 6;
 static int segmentation_count = MAX_DETECTIONS * MASK_W * MASK_H;
@@ -83,7 +82,7 @@ static cl_kernel postprocess_kernel = nullptr;
 static cl_kernel reconstruct_kernel = nullptr;
 
 // objects related to quality evaluation
-static cl_command_queue eval_command_queues[MAX_NUM_CL_DEVICES] = { nullptr };
+static cl_command_queue eval_command_queues[MAX_NUM_CL_DEVICES] = {nullptr};
 static cl_kernel eval_kernel = nullptr;
 static cl_mem eval_img_buf = nullptr;
 static cl_mem eval_out_buf = nullptr;
@@ -94,7 +93,6 @@ static cl_mem tmp_out_buf[MAX_NUM_CL_DEVICES] = {nullptr};
 static cl_mem tmp_postprocess_buf[MAX_NUM_CL_DEVICES] = {nullptr};
 static cl_event tmp_detect_copy_event, tmp_postprocess_copy_event, eval_read_event;
 static int is_eval_running = 0;
-event_array_t eval_event_array;
 
 // kernel execution loop related things
 static size_t tot_pixels;
@@ -102,10 +100,7 @@ static size_t img_buf_size;
 static cl_int inp_w;
 static cl_int inp_h;
 static cl_int rotate_cw_degrees;
-//static cl_int inp_format;
-//static int compression_type;
 
-//static int compression_flags;
 static int config_flags;
 
 /**
@@ -139,22 +134,12 @@ static size_t enc_y_global[2], enc_uv_global[2];
 static size_t dec_y_global[2], dec_uv_global[2];
 static cl_mem out_enc_y_buf = nullptr, out_enc_uv_buf = nullptr;
 
-// make these variables global, just in case
-// they don't get set properly during processing.
-//int device_index_copy = 0;
-//int do_segment_copy = 0;
-//int local_do_compression = 0;
-//unsigned char enable_profiling = 0;
-
 char *c_log_string = nullptr;
 #define DATA_POINT_SIZE 22  // number of decimal digits for 2^64 + ', '
 // allows for 9 datapoints plus 3 single digit configs, newline and term char
 #define LOG_BUFFER_SIZE (DATA_POINT_SIZE * 9 + 9 +2)
 #define MAX_EVENTS 99
 int file_descriptor;
-int frame_index;
-// used to both log and free events
-event_array_t event_array;
 
 // variable to check if everything is ready for execution
 int setup_success = 0;
@@ -283,8 +268,8 @@ init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int qual
 int
 initPoclImageProcessor(const int width, const int height, const int init_config_flags,
                        const char *codec_sources, const size_t src_size,
-                       const int fd, event_array_t **return_array,
-                       event_array_t **return_eval_array) {
+                       const int fd, event_array_t *event_array,
+                       event_array_t *eval_event_array) {
     cl_platform_id platform;
     cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
     cl_uint devices_found;
@@ -331,10 +316,11 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     CHECK_AND_RETURN(status, "creating context failed");
 
     cl_command_queue_properties cq_properties = 0;
-    if (ENABLE_PROFILING & config_flags) {
-        LOGI("enabling profiling\n");
-        cq_properties = CL_QUEUE_PROFILING_ENABLE;
-    }
+    // Always enable profiling
+//    if (ENABLE_PROFILING & config_flags) {
+    LOGI("enabling profiling\n");
+    cq_properties = CL_QUEUE_PROFILING_ENABLE;
+//    }
 
     for (unsigned i = 0; i < devices_found; ++i) {
         commandQueue[i] = clCreateCommandQueue(context, devices[i], cq_properties, &status);
@@ -375,7 +361,7 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
 
     for (unsigned i = 0; i < devices_found; ++i) {
         eval_command_queues[i] = clCreateCommandQueue(context, devices[i], cq_properties,
-                                                  &status);
+                                                      &status);
         CHECK_AND_RETURN(status, "creating eval command queue failed");
     }
 
@@ -591,16 +577,9 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
         status = dprintf(file_descriptor, "-1,unix_timestamp,time_s,%ld\n", t);
         CHECK_AND_RETURN((status < 0), "could not write timestamp");
     }
-    frame_index = 0;
-    event_array = create_event_array(MAX_EVENTS);
-    eval_event_array = create_event_array(MAX_EVENTS);
-    // send this back to the quality algorithm
-    if(NULL != return_array ) {
-        *return_array = &event_array;
-    }
-    if(NULL != return_eval_array) {
-        *return_eval_array = &eval_event_array;
-    }
+
+    *event_array = create_event_array(MAX_EVENTS);
+    *eval_event_array = create_event_array(MAX_EVENTS);
 
     // setup ping monitor
     status = ping_fillbuffer_init(&PING_CTX, context);
@@ -761,9 +740,6 @@ destroy_pocl_image_processor() {
         c_log_string = nullptr;
     }
 
-    free_event_array(&event_array);
-    free_event_array(&eval_event_array);
-
     destory_yuv_context(&yuv_context);
 #ifndef DISABLE_JPEG
     destory_jpeg_context(&jpeg_context);
@@ -807,9 +783,9 @@ void printTime(timespec start, timespec stop, const char message[256]) {
 cl_int
 enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
             const int do_segment, cl_int *detection_array, cl_uchar *segmentation_array,
-            cl_int inp_format, int save_out_buf,
-            cl_event *out_tmp_detect_copy_event, cl_event *out_tmp_postprocess_copy_event,
-            cl_event *out_event, cl_mem inp_buf) {
+            cl_int inp_format, int save_out_buf, event_array_t *event_array,
+            event_array_t *eval_event_array, cl_event *out_tmp_detect_copy_event,
+            cl_event *out_tmp_postprocess_copy_event, cl_event *out_event, cl_mem inp_buf) {
 
     cl_int status;
 
@@ -854,7 +830,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
                                     &global_size, &local_size, 1,
                                     wait_event, &run_dnn_event);
     CHECK_AND_RETURN(status, "failed to enqueue ND range DNN kernel");
-    append_to_event_array(&event_array, run_dnn_event, VAR_NAME(dnn_event));
+    append_to_event_array(event_array, run_dnn_event, VAR_NAME(dnn_event));
 
 
     status = clEnqueueReadBuffer(commandQueue[out_device_idx], _out_buf,
@@ -862,7 +838,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
                                  detection_count * sizeof(cl_int), detection_array, 1,
                                  &run_dnn_event, &read_detect_event);
     CHECK_AND_RETURN(status, "failed to read detection result buffer");
-    append_to_event_array(&event_array, read_detect_event, VAR_NAME(read_detect_event));
+    append_to_event_array(event_array, read_detect_event, VAR_NAME(read_detect_event));
 
     if (save_out_buf) {
         // Save detections to a temporary buffer for the quality evaluation pipeline
@@ -873,7 +849,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
                                      tmp_out_buf[dnn_device_idx],
                                      0, 0, sz, 1, &run_dnn_event, &tmp_copy_det_event);
         CHECK_AND_RETURN(status, "failed to copy result buffer");
-        append_to_event_array(&eval_event_array, tmp_copy_det_event, VAR_NAME(tmp_copy_det_event));
+        append_to_event_array(eval_event_array, tmp_copy_det_event, VAR_NAME(tmp_copy_det_event));
 
         *out_tmp_detect_copy_event = tmp_copy_det_event;
     }
@@ -887,7 +863,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
                                         &global_size, &local_size, 1,
                                         &run_dnn_event, &run_postprocess_event);
         CHECK_AND_RETURN(status, "failed to enqueue ND range postprocess kernel");
-        append_to_event_array(&event_array, run_postprocess_event, VAR_NAME(postprocess_event));
+        append_to_event_array(event_array, run_postprocess_event, VAR_NAME(postprocess_event));
 
 
         if (save_out_buf) {
@@ -899,7 +875,8 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
                                          tmp_postprocess_buf[dnn_device_idx],
                                          0, 0, sz, 1, &run_postprocess_event, &tmp_copy_seg_event);
             CHECK_AND_RETURN(status, "failed to copy result buffer");
-            append_to_event_array(&eval_event_array, tmp_copy_seg_event, VAR_NAME(tmp_copy_seg_event));
+            append_to_event_array(eval_event_array, tmp_copy_seg_event,
+                                  VAR_NAME(tmp_copy_seg_event));
 
             *out_tmp_postprocess_copy_event = tmp_copy_seg_event;
         }
@@ -910,7 +887,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
                                             &run_postprocess_event,
                                             &mig_seg_event);
         CHECK_AND_RETURN(status, "failed to enqueue migration of postprocess buffer");
-        append_to_event_array(&event_array, mig_seg_event, VAR_NAME(mig_seg_event));
+        append_to_event_array(event_array, mig_seg_event, VAR_NAME(mig_seg_event));
 
         // reconstruct postprocessed data to RGBA segmentation mask
         status = clEnqueueNDRangeKernel(commandQueue[out_device_idx], reconstruct_kernel, 1,
@@ -918,7 +895,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
                                         &global_size, &local_size, 1,
                                         &mig_seg_event, &run_reconstruct_event);
         CHECK_AND_RETURN(status, "failed to enqueue ND range reconstruct kernel");
-        append_to_event_array(&event_array, run_reconstruct_event, VAR_NAME(reconstruct_event));
+        append_to_event_array(event_array, run_reconstruct_event, VAR_NAME(reconstruct_event));
 
         // write RGBA segmentation mask to the result array
         status = clEnqueueReadBuffer(commandQueue[out_device_idx],
@@ -926,7 +903,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
                                      seg_out_count * sizeof(cl_uchar), segmentation_array, 1,
                                      &run_reconstruct_event, &read_segment_event);
         CHECK_AND_RETURN(status, "failed to read segmentation reconstruct result buffer");
-        append_to_event_array(&event_array, read_segment_event, VAR_NAME(read_segment_event));
+        append_to_event_array(event_array, read_segment_event, VAR_NAME(read_segment_event));
 
         *out_event = read_segment_event;
     } else {
@@ -938,9 +915,9 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
 
 cl_int
 enqueue_dnn_eval(const cl_event *wait_tmp_detect_copy_event,
-                 const cl_event *wait_tmp_postprocess_copy_event,
-                 int dnn_device_idx, int out_device_idx, int do_segment,
-                 cl_float *out_iou, cl_event *result_event) {
+                 const cl_event *wait_tmp_postprocess_copy_event, int dnn_device_idx,
+                 int out_device_idx, int do_segment, cl_float *out_iou,
+                 event_array_t *eval_event_array, cl_event *result_event) {
     cl_int status;
 
     cl_int inp_format = YUV_SEMI_PLANAR;
@@ -969,22 +946,24 @@ enqueue_dnn_eval(const cl_event *wait_tmp_detect_copy_event,
     status = clEnqueueWriteBuffer(eval_command_queues[dnn_device_idx], eval_img_buf, CL_FALSE, 0,
                                   img_buf_size, host_img_buf, 0, NULL, &eval_write_img_event);
     CHECK_AND_RETURN(status, "failed to write eval img buffer");
-    append_to_event_array(&eval_event_array, eval_write_img_event, VAR_NAME(eval_write_img_event));
+    append_to_event_array(eval_event_array, eval_write_img_event, VAR_NAME(eval_write_img_event));
 
-    status = clEnqueueNDRangeKernel(eval_command_queues[dnn_device_idx], dnn_kernel, 1, NULL, &global_size,
+    status = clEnqueueNDRangeKernel(eval_command_queues[dnn_device_idx], dnn_kernel, 1, NULL,
+                                    &global_size,
                                     &local_size, 1, &eval_write_img_event, &eval_dnn_event);
     CHECK_AND_RETURN(status, "failed to enqueue ND range eval DNN kernel");
-    append_to_event_array(&eval_event_array, eval_dnn_event, VAR_NAME(eval_dnn_event));
+    append_to_event_array(eval_event_array, eval_dnn_event, VAR_NAME(eval_dnn_event));
 
     cl_event wait_event = eval_dnn_event;
     int num_wait_events = 2;
 
     if (do_segment) {
-        status = clEnqueueNDRangeKernel(eval_command_queues[dnn_device_idx], postprocess_kernel, 1, NULL,
+        status = clEnqueueNDRangeKernel(eval_command_queues[dnn_device_idx], postprocess_kernel, 1,
+                                        NULL,
                                         &global_size, &local_size, 1, &eval_dnn_event,
                                         &eval_postprocess_event);
         CHECK_AND_RETURN(status, "failed to enqueue ND range eval postprocess kernel");
-        append_to_event_array(&eval_event_array, eval_postprocess_event,
+        append_to_event_array(eval_event_array, eval_postprocess_event,
                               VAR_NAME(eval_postprocess_event));
 
         wait_event = eval_postprocess_event;
@@ -992,17 +971,19 @@ enqueue_dnn_eval(const cl_event *wait_tmp_detect_copy_event,
         num_wait_events = 3;
     }
 
-    cl_event wait_events[] = {wait_event, *wait_tmp_detect_copy_event, *wait_tmp_postprocess_copy_event };
-    status = clEnqueueNDRangeKernel(eval_command_queues[dnn_device_idx], eval_kernel, 1, NULL, &global_size,
+    cl_event wait_events[] = {wait_event, *wait_tmp_detect_copy_event,
+                              *wait_tmp_postprocess_copy_event};
+    status = clEnqueueNDRangeKernel(eval_command_queues[dnn_device_idx], eval_kernel, 1, NULL,
+                                    &global_size,
                                     &local_size, num_wait_events, wait_events, &eval_iou_event);
     CHECK_AND_RETURN(status, "failed to enqueue ND range eval kernel");
-    append_to_event_array(&eval_event_array, eval_iou_event, VAR_NAME(eval_iou_event));
+    append_to_event_array(eval_event_array, eval_iou_event, VAR_NAME(eval_iou_event));
 
     status = clEnqueueReadBuffer(eval_command_queues[out_device_idx], eval_iou_buf, CL_FALSE, 0,
                                  1 * sizeof(cl_float), out_iou, 1, &eval_iou_event,
                                  &eval_read_iou_event);
     CHECK_AND_RETURN(status, "failed to read eval iou result buffer");
-    append_to_event_array(&eval_event_array, eval_read_iou_event, VAR_NAME(eval_read_iou_event));
+    append_to_event_array(eval_event_array, eval_read_iou_event, VAR_NAME(eval_read_iou_event));
 
     *result_event = eval_read_iou_event;
 
@@ -1070,7 +1051,7 @@ copy_yuv_to_array(const image_data_t image, const compression_t compression_type
  */
 cl_int
 enqueue_jpeg_image(const cl_uchar *input_img, const uint64_t *buf_size, const int dec_index,
-                   cl_event *result_event) {
+                   event_array_t *event_array, cl_event *result_event) {
 
     cl_int status;
     cl_event image_write_event, image_size_write_event, dec_event;
@@ -1078,57 +1059,42 @@ enqueue_jpeg_image(const cl_uchar *input_img, const uint64_t *buf_size, const in
     status = clEnqueueWriteBuffer(commandQueue[dec_index], out_enc_uv_buf, CL_FALSE, 0, sizeof
             (uint64_t), buf_size, 0, NULL, &image_size_write_event);
     CHECK_AND_RETURN(status, "failed to write image size");
-    append_to_event_array(&event_array, image_size_write_event, VAR_NAME(image_size_write_event));
+    append_to_event_array(event_array, image_size_write_event, VAR_NAME(image_size_write_event));
 
     status = clEnqueueWriteBuffer(commandQueue[dec_index], out_enc_y_buf, CL_FALSE, 0, *buf_size,
                                   input_img, 1, &image_size_write_event, &image_write_event);
     CHECK_AND_RETURN(status, "failed to write image to enc buffer");
-    append_to_event_array(&event_array, image_write_event, VAR_NAME(image_write_event));
+    append_to_event_array(event_array, image_write_event, VAR_NAME(image_write_event));
 
     status = clEnqueueNDRangeKernel(commandQueue[dec_index], dec_y_kernel, 1, NULL, dec_y_global,
                                     NULL, 1, &image_write_event, &dec_event);
     CHECK_AND_RETURN(status, "failed to enqueue decompression kernel");
-    append_to_event_array(&event_array, dec_event, VAR_NAME(dec_index));
+    append_to_event_array(event_array, dec_event, VAR_NAME(dec_index));
 
     *result_event = dec_event;
 
     return 0;
 }
 
+int64_t get_timestamp_ns() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000000000 + ts.tv_nsec;
+}
 
 /**
  * process the image with PoCL.
  * assumes that image format is YUV420_888
- * @param device_index
- * @param do_segment
- * @param do_compression
- * @param rotation
- * @param y_ptr
- * @param yrow_stride
- * @param ypixel_stride
- * @param u_ptr
- * @param v_ptr
- * @param uvrow_stride
- * @param uvpixel_stride
- * @param detection_array
- * @param segmentation_array
- * @return
  */
 int
-poclProcessImage(const int device_index, const int do_segment,
-                 const compression_t compressionType,
-                 const int quality, const int rotation, int32_t *detection_array,
-                 uint8_t *segmentation_array, image_data_t image_data, long image_timestamp,
-                 float *iou) {
+poclProcessImage(int device_index, int frame_index, int do_segment, compression_t compressionType,
+                 int is_eval_frame, int quality, int rotation, int32_t *detection_array,
+                 uint8_t *segmentation_array, event_array_t *event_array,
+                 event_array_t *eval_event_array, image_data_t image_data, long image_timestamp,
+                 float *iou, uint64_t *size_bytes, host_ts_ns_t *host_ts_ns) {
 
-    struct timespec timespec_start, timespec_stop;
-    clock_gettime(CLOCK_MONOTONIC, &timespec_start);
+    int64_t start_ns = get_timestamp_ns();
     cl_int status;
-
-    int is_eval_frame = 0;
-    if (frame_index % EVAL_INTERVAL == 1) {
-        is_eval_frame = 1;
-    }
 
     if (!setup_success) {
         LOGE("poclProcessImage called but setup did not complete successfully\n");
@@ -1158,26 +1124,26 @@ poclProcessImage(const int device_index, const int do_segment,
 
     // this is done at the beginning so that the quality algorithm has
     // had the option to use the events
-    release_events(&event_array);
+    release_events(event_array);
 
     // even though inp_format is assigned image_format_t,
     // the type is set to cl_int since underlying enum types
-    // can vary and we want a known size on both the client and server.
+    // can vary and we want a known size_bytes on both the client and server.
     cl_int inp_format;
     cl_event dnn_wait_event, dnn_read_event;
 
-    reset_event_array(&event_array);
-
-    uint64_t size = 0;
+    reset_event_array(event_array);
 
     // used to pass the buffer with the output contents to the dnn
     cl_mem inp_buf = NULL;
+
+    int64_t before_enc_ns = get_timestamp_ns();
 
     // the local device does not support other compression types, but this this function with
     // local devices should only be called with no compression, so other paths will not be
     // reached. There is also an assert to make sure of this.
     if (NO_COMPRESSION == compressionType) {
-        size = img_buf_size;
+        *size_bytes = img_buf_size;
         // normal execution
         inp_format = YUV_SEMI_PLANAR;
         // copy the yuv image data over to the host_img_buf and make sure it's semiplanar.
@@ -1187,13 +1153,13 @@ poclProcessImage(const int device_index, const int do_segment,
                                       img_buf_size, host_img_buf,
                                       0, NULL, &dnn_wait_event);
         CHECK_AND_RETURN(status, "failed to write image to ocl buffers");
-        append_to_event_array(&event_array, dnn_wait_event, "write_img_event");
+        append_to_event_array(event_array, dnn_wait_event, "write_img_event");
         inp_buf = img_buf[device_index_copy];
     } else if (YUV_COMPRESSION == compression_type) {
-        size = img_buf_size;
+        *size_bytes = img_buf_size;
         inp_format = yuv_context->output_format;
         copy_yuv_to_array(image_data, compression_type, yuv_context->host_img_buf);
-        status = enqueue_yuv_compression(yuv_context, &event_array, &dnn_wait_event);
+        status = enqueue_yuv_compression(yuv_context, event_array, &dnn_wait_event);
         inp_buf = yuv_context->out_buf;
         CHECK_AND_RETURN(status, "could not enqueue yuv compression work");
     }
@@ -1202,7 +1168,7 @@ poclProcessImage(const int device_index, const int do_segment,
         inp_format = jpeg_context->output_format;
         jpeg_context->quality = quality;
         copy_yuv_to_array(image_data, compression_type, jpeg_context->host_img_buf);
-        status = enqueue_jpeg_compression(jpeg_context, &event_array, &dnn_wait_event);
+        status = enqueue_jpeg_compression(jpeg_context, event_array, &dnn_wait_event);
         inp_buf = jpeg_context->out_buf;
         CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
     }
@@ -1216,39 +1182,47 @@ poclProcessImage(const int device_index, const int do_segment,
         // note: if you want to configure the codec,
         // set the variables you want in the context and
         // set isconfigured to 0
-        if(1 != hevc_context->codec_configured) {
+        if (1 != hevc_context->codec_configured) {
             // todo: remove these defaults once dynamic configuration is implemented
             hevc_context->i_frame_interval = 2;
             hevc_context->framerate = 5;
-            hevc_context->bitrate = 640*480;
-            configure_hevc_codec(hevc_context, &event_array, &configure_event);
+            hevc_context->bitrate = 640 * 480;
+            configure_hevc_codec(hevc_context, event_array, &configure_event);
         }
 
-        status = enqueue_hevc_compression(hevc_context, &event_array, &configure_event, &dnn_wait_event);
+        status = enqueue_hevc_compression(hevc_context, event_array, &configure_event,
+                                          &dnn_wait_event);
         inp_buf = hevc_context->out_buf;
         CHECK_AND_RETURN(status, "could not enqueue hevc compression");
     }
 #endif // DISABLE_HEVC
     else {
         // process jpeg images
-        size = image_data.data.jpeg.capacity;
+        *size_bytes = image_data.data.jpeg.capacity;
         inp_format = RGB;
         status = enqueue_jpeg_image(image_data.data.jpeg.data,
                                     (const uint64_t *) &image_data.data.jpeg.capacity,
-                                    3, &dnn_wait_event);
+                                    3, event_array, &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue jpeg image");
         inp_buf = img_buf[device_index_copy];
     }
 
+    int64_t before_fill_ns = get_timestamp_ns();
+
     // Testing ping with CL calls to fill a buffer
     cl_event fill_event;
-    status = ping_fillbuffer_run(PING_CTX, commandQueue[device_index], &event_array, &fill_event);
+    status = ping_fillbuffer_run(PING_CTX, commandQueue[device_index], event_array, &fill_event);
     CHECK_AND_RETURN(status, "PING failed to run");
 
+    int64_t before_dnn_ns = get_timestamp_ns();
+
     status = enqueue_dnn(&dnn_wait_event, device_index_copy, 0, do_segment_copy, detection_array,
-                         segmentation_array, inp_format, is_eval_frame, &tmp_detect_copy_event,
-                         &tmp_postprocess_copy_event, &dnn_read_event, inp_buf);
+                         segmentation_array, inp_format, is_eval_frame, event_array,
+                         eval_event_array, &tmp_detect_copy_event, &tmp_postprocess_copy_event,
+                         &dnn_read_event, inp_buf);
     CHECK_AND_RETURN(status, "could not enqueue dnn kernels");
+
+    int64_t before_eval_ns = get_timestamp_ns();
 
     int is_eval_ready = 0;
     if (is_eval_running) {
@@ -1263,40 +1237,45 @@ poclProcessImage(const int device_index, const int do_segment,
             is_eval_running = 0;
             is_eval_ready = 1;
 
-            if (VERBOSITY >= 1) {
+            if (IMGPROC_VERBOSITY >= 1) {
                 LOGI("=== Frame %3d: EVAL IOU: finished\n", frame_index);
             }
         } else {
             // eval not finished
-            if (VERBOSITY >= 1) {
+            if (IMGPROC_VERBOSITY >= 1) {
                 LOGI("=== Frame %3d: EVAL IOU: still running...\n", frame_index);
             }
         }
     } else if (is_eval_frame) {
         // eval is not running and it's time to start a new eval run
-        if (VERBOSITY >= 1) {
+        if (IMGPROC_VERBOSITY >= 1) {
             LOGI("=== Frame %3d: EVAL IOU: started eval\n", frame_index);
         }
 
         status = enqueue_dnn_eval(&tmp_detect_copy_event, &tmp_postprocess_copy_event,
-                                  device_index_copy, 0, do_segment_copy, iou, &eval_read_event);
+                                  device_index_copy, 0, do_segment_copy, iou, eval_event_array,
+                                  &eval_read_event);
         CHECK_AND_RETURN(status, "could not enqueue eval kernels");
 
         is_eval_running = 1;
     } else {
-        if (VERBOSITY >= 1) {
+        if (IMGPROC_VERBOSITY >= 1) {
             LOGI("=== Frame %3d: EVAL IOU: nothing\n", frame_index);
         }
     }
 
-    if (VERBOSITY >= 1) {
+    if (IMGPROC_VERBOSITY >= 1) {
         LOGI("=== Frame %3d, EVAL IOU = %f, no. detections: %d\n", frame_index, *iou,
              detection_array[0]);
     }
 
-    cl_event wait_events[] = { dnn_read_event, fill_event };
+    int64_t before_wait_ns = get_timestamp_ns();
+
+    cl_event wait_events[] = {dnn_read_event, fill_event};
     status = clWaitForEvents(2, wait_events);
     CHECK_AND_RETURN(status, "could not wait for final events");
+
+    int64_t after_wait_ns = get_timestamp_ns();
 
 #if defined(PRINT_PROFILE_TIME)
     timespec timespec_b;
@@ -1304,37 +1283,37 @@ poclProcessImage(const int device_index, const int do_segment,
     printTime(timespec_start, timespec_b, "total cl stuff");
 #endif
 
-    if (ENABLE_PROFILING & config_flags) {
-        cl_mem sz_buf = nullptr;
-        cl_command_queue sz_queue = nullptr;
+//    if (ENABLE_PROFILING & config_flags) {
+    cl_mem sz_buf = nullptr;
+    cl_command_queue sz_queue = nullptr;
 
 #ifndef DISABLE_JPEG
-        if (JPEG_COMPRESSION == compression_type) {
-            sz_buf = jpeg_context->size_buf;
-            sz_queue = jpeg_context->enc_queue;
-        }
+    if (JPEG_COMPRESSION == compression_type) {
+        sz_buf = jpeg_context->size_buf;
+        sz_queue = jpeg_context->enc_queue;
+    }
 #endif // DISABLE_JPEG
 #ifndef DISABLE_HEVC
-        if (HEVC_COMPRESSION == compression_type) {
-            sz_buf = hevc_context->size_buf;
-            sz_queue = hevc_context->enc_queue;
-        }
+    if (HEVC_COMPRESSION == compression_type) {
+        sz_buf = hevc_context->size_buf;
+        sz_queue = hevc_context->enc_queue;
+    }
 #endif // DISABLE_HEVC
 
-        // read size buffer
-        if (sz_buf != nullptr && sz_queue != nullptr) {
-            cl_event sz_read_event;
-            status = clEnqueueReadBuffer(sz_queue, sz_buf,
-                                         CL_FALSE, 0, sizeof(cl_ulong),
-                                         &size, 1, &dnn_wait_event, &sz_read_event);
-            CHECK_AND_RETURN(status, "could not read size buffer");
+    // read size_bytes buffer
+    if (sz_buf != nullptr && sz_queue != nullptr) {
+        cl_event sz_read_event;
+        status = clEnqueueReadBuffer(sz_queue, sz_buf,
+                                     CL_FALSE, 0, sizeof(cl_ulong),
+                                     size_bytes, 1, &dnn_wait_event, &sz_read_event);
+        CHECK_AND_RETURN(status, "could not read size_bytes buffer");
 
-            status = clWaitForEvents(1, &sz_read_event);
-            CHECK_AND_RETURN(status, "failed to wait for sz read event");
-        }
+        status = clWaitForEvents(1, &sz_read_event);
+        CHECK_AND_RETURN(status, "failed to wait for sz read event");
+    }
 
-
-        status = print_events(file_descriptor, frame_index, &event_array);
+    if (ENABLE_PROFILING & config_flags) {
+        status = print_events(file_descriptor, frame_index, event_array);
         CHECK_AND_RETURN(status, "failed to print events");
 
         dprintf(file_descriptor, "%d,frame,timestamp,%ld\n", frame_index,
@@ -1345,7 +1324,7 @@ poclProcessImage(const int device_index, const int do_segment,
         dprintf(file_descriptor, "%d,compression,name,%s\n", frame_index,
                 get_compression_name(compression_type));
         dprintf(file_descriptor, "%d,compression,quality,%d\n", frame_index, quality);
-        dprintf(file_descriptor, "%d,compression,size,%llu\n", frame_index, size);
+        dprintf(file_descriptor, "%d,compression,size_bytes,%lu\n", frame_index, size_bytes);
         if (is_eval_ready) {
             dprintf(file_descriptor, "%d,dnn,iou,%f\n", frame_index, *iou);
         }
@@ -1353,27 +1332,39 @@ poclProcessImage(const int device_index, const int do_segment,
 
     if (is_eval_ready) {
         if (ENABLE_PROFILING & config_flags) {
-            status = print_events(file_descriptor, frame_index, &eval_event_array);
+            status = print_events(file_descriptor, frame_index, eval_event_array);
             CHECK_AND_RETURN(status, "failed to print eval events");
         }
 
-        release_events(&eval_event_array);
-        reset_event_array(&eval_event_array);
+        release_events(eval_event_array);
+        reset_event_array(eval_event_array);
     }
 
-    clock_gettime(CLOCK_MONOTONIC, &timespec_stop);
+    int64_t stop_ns = get_timestamp_ns();
 #if defined(PRINT_PROFILE_TIME)
     printTime(timespec_b, timespec_stop, "printing messages");
 #endif
 
     if (ENABLE_PROFILING & config_flags) {
-        dprintf(file_descriptor, "%d,frame_time,start_ns,%lu\n", frame_index,
-                (timespec_start.tv_sec * 1000000000) + timespec_start.tv_nsec);
-        dprintf(file_descriptor, "%d,frame_time,stop_ns,%lu\n", frame_index,
-                (timespec_stop.tv_sec * 1000000000) + timespec_stop.tv_nsec);
+        dprintf(file_descriptor, "%d,frame_time,start_ns,%lu\n", frame_index, start_ns);
+        dprintf(file_descriptor, "%d,frame_time,before_enc_ns,%lu\n", frame_index, before_enc_ns);
+        dprintf(file_descriptor, "%d,frame_time,before_fill_ns,%lu\n", frame_index, before_fill_ns);
+        dprintf(file_descriptor, "%d,frame_time,before_dnn_ns,%lu\n", frame_index, before_dnn_ns);
+        dprintf(file_descriptor, "%d,frame_time,before_eval_ns,%lu\n", frame_index, before_eval_ns);
+        dprintf(file_descriptor, "%d,frame_time,before_wait_ns,%lu\n", frame_index, before_wait_ns);
+        dprintf(file_descriptor, "%d,frame_time,after_wait_ns,%lu\n", frame_index, after_wait_ns);
+        dprintf(file_descriptor, "%d,frame_time,stop_ns,%lu\n", frame_index, stop_ns);
     }
 
-    frame_index++;
+    host_ts_ns->start = start_ns;
+    host_ts_ns->before_enc = before_enc_ns;
+    host_ts_ns->before_fill = before_fill_ns;
+    host_ts_ns->before_dnn = before_dnn_ns;
+    host_ts_ns->before_eval = before_eval_ns;
+    host_ts_ns->before_wait = before_wait_ns;
+    host_ts_ns->after_wait = after_wait_ns;
+    host_ts_ns->stop = stop_ns;
+
     return 0;
 }
 

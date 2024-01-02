@@ -14,6 +14,11 @@ extern "C" {
 #include "event_logger.h"
 
 typedef struct {
+    int32_t quality;
+    int32_t bitrate;
+} hevc_config_t;
+
+typedef struct {
     cl_mem inp_buf;
     cl_mem comp_buf;
     cl_mem size_buf;

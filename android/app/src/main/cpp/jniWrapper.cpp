@@ -18,9 +18,9 @@
 extern "C" {
 #endif
 
-// used for the quality algorithm
-event_array_t *qual_event_array = nullptr;
-event_array_t *eval_array = nullptr;
+// used for the quality algorithm and image processing loop
+event_array_t event_array;
+event_array_t eval_event_array;
 
 static float LAST_IOU = -5.0f;
 
@@ -118,7 +118,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     assert((nullptr != codec_sources) && "could not read sources");
 
     jint res = initPoclImageProcessor(width, height, config_flags, codec_sources, src_size, fd,
-                                      &qual_event_array, &eval_array);
+                                      &event_array, &eval_event_array);
 
     destroySmugglingEvidence();
 
@@ -137,6 +137,8 @@ JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor(JNIEnv *env,
                                                                                  jclass clazz) {
 
+    free_event_array(&event_array);
+    free_event_array(&eval_event_array);
     return destroy_pocl_image_processor();
 }
 
@@ -202,21 +204,30 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     image_data.data.yuv.row_strides[1] = row_stride1;
     image_data.data.yuv.row_strides[2] = row_stride2;
 
+    int auto_select_compression = 0; // TODO: Set this from Java
+    static int is_eval_frame = 0;
+    static host_ts_ns_t host_ts_ns;
+    static int frame_index = 0;
+    static uint64_t size_bytes = 0;
+
+    int res = poclProcessImage(device_index, frame_index, do_segment,
+                               (compression_t) do_compression, is_eval_frame, quality, rotation,
+                               detection_array, segmentation_array, &event_array, &eval_event_array,
+                               image_data, image_timestamp, &LAST_IOU, &size_bytes, &host_ts_ns);
 
 
-    // placeholder function
-    evaluate_parameters(energy, qual_event_array, eval_array,
-                        (compression_t *) &do_compression);
-
-    int res = poclProcessImage(device_index, do_segment, (compression_t) do_compression, quality,
-                               rotation, detection_array, segmentation_array, image_data,
-                               image_timestamp, &LAST_IOU);
+    if (auto_select_compression) {
+        is_eval_frame = evaluate_parameters(frame_index, energy, LAST_IOU, size_bytes, &event_array,
+                                            &eval_event_array, &host_ts_ns,
+                                            (compression_t *) &do_compression);
+    }
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
     env->ReleaseByteArrayElements(segmentation_result,
                                   reinterpret_cast<jbyte *>(segmentation_array), JNI_FALSE);
 
+    ++frame_index;
     return res;
 }
 
@@ -245,21 +256,29 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessJPEGImage(JNIE
     image_data.data.jpeg.data = (uint8_t *) env->GetDirectBufferAddress(data);
     image_data.data.jpeg.capacity = size;
 
-    float c_energy = (float) energy;
+    int auto_select_compression = 0; // TODO: Set this from Java
+    static int is_eval_frame = 0;
+    static host_ts_ns_t host_ts_ns;
+    static int frame_index = 0;
+    static uint64_t size_bytes = 0;
 
-    // placeholder function
-    evaluate_parameters(energy, qual_event_array, eval_array,
-                        (compression_t *) &do_compression);
+    int res = poclProcessImage(device_index, frame_index, do_segment,
+                               (compression_t) do_compression, is_eval_frame, quality, rotation,
+                               detection_array, segmentation_array, &event_array, &eval_event_array,
+                               image_data, image_timestamp, &LAST_IOU, &size_bytes, &host_ts_ns);
 
-    int res = poclProcessImage(device_index, do_segment, (compression_t) do_compression, quality,
-                               rotation, detection_array, segmentation_array, image_data,
-                               image_timestamp, &LAST_IOU);
+    if (auto_select_compression) {
+        is_eval_frame = evaluate_parameters(frame_index, energy, LAST_IOU, size_bytes, &event_array,
+                                            &eval_event_array,
+                                            &host_ts_ns, (compression_t *) &do_compression);
+    }
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
     env->ReleaseByteArrayElements(segmentation_result,
                                   reinterpret_cast<jbyte *>(segmentation_array), JNI_FALSE);
 
+    ++frame_index;
     return res;
 }
 

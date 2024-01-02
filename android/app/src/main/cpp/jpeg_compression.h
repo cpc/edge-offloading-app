@@ -13,6 +13,9 @@ extern "C" {
 #include <CL/cl.h>
 #include "event_logger.h"
 
+typedef struct {
+    int32_t quality;
+} jpeg_config_t;
 
 typedef struct {
     cl_mem inp_buf;

@@ -10,8 +10,7 @@
 #define MASK_W 160
 #define MASK_H 120
 
-#define EVAL_INTERVAL 9999999
-#define VERBOSITY 0
+#define DNN_VERBOSITY 0
 
 const static int detection_count = 1 + MAX_DETECTIONS * 6;
 const static int segmentation_count = MAX_DETECTIONS * MASK_W * MASK_H;
