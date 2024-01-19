@@ -12,8 +12,10 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.HEVC_COMPRESSION
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_DEVICE;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.REMOTE_DEVICE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getButtonConfig;
 import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 
 import android.Manifest;
@@ -275,6 +277,11 @@ public class MainActivity extends AppCompatActivity {
 
     private Switch CamSwitch;
 
+    private Switch modeSwitch;
+
+    private DropEditText qualityText;
+
+
     private StatLogger statLogger;
 
     /**
@@ -356,7 +363,7 @@ public class MainActivity extends AppCompatActivity {
         previewView = binding.cameraFeed;
         previewView.setSurfaceTextureListener(surfaceTextureListener);
 
-        Switch modeSwitch = binding.modeSwitch;
+        modeSwitch = binding.modeSwitch;
         modeSwitch.setOnClickListener(modeListener);
 
         Switch segmentationSwitch = binding.segmentSwitch;
@@ -435,12 +442,14 @@ public class MainActivity extends AppCompatActivity {
         // stop screen from turning off
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
+        boolean enableQualityAlgorithm = configStore.getQualityAlgorithmOption();
         poclImageProcessor = new PoclImageProcessor(this, captureSize, null, captureFormat,
                 imageAvailableLock, configFlags, counter, LOCAL_DEVICE,
-                segmentationSwitch.isChecked(), compressionSwitch.isChecked(), uris[0], statLogger);
+                segmentationSwitch.isChecked(), compressionSwitch.isChecked(), uris[0],
+                statLogger, enableQualityAlgorithm);
 
         // code to handle the quality input
-        DropEditText qualityText = binding.compressionEditText;
+        qualityText = binding.compressionEditText;
         qualityText.setOnEditorActionListener(qualityTextListener);
         qualityText.setOnFocusChangeListener(qualityFocusListener);
         qualityText.setText(Integer.toString(jpegQuality));
@@ -457,9 +466,18 @@ public class MainActivity extends AppCompatActivity {
             qualityText.setFocusable(false);
         }
 
-        if ((JPEG_COMPRESSION & configFlags) > 0) {
-//            modeSwitch.performClick();
-//            compressionSwitch.performClick();
+
+        // if the quality algorithm is on, the user has no say
+        // so disable all the buttons
+        if (enableQualityAlgorithm) {
+            compressionSwitch.setClickable(false);
+            HEVCSwitch.setClickable(false);
+            YUVSwitch.setClickable(false);
+            JPEGSwitch.setClickable(false);
+            CamSwitch.setClickable(false);
+            compressionSwitch.setClickable(false);
+            modeSwitch.setClickable(false);
+            qualityText.setClickable(false);
         }
 
         // TODO: remove this example
@@ -867,6 +885,55 @@ public class MainActivity extends AppCompatActivity {
             , Size captureSize, boolean orientationsSwapped) {
         runOnUiThread(() -> overlayVisualizer.drawOverlay(doSegment, detectionResults,
                 segmentationResults, captureSize, orientationsSwapped, overlayView));
+    }
+
+    static class ButtonConfig {
+        private final int compressiontType;
+        private final int deviceIndex;
+        private final int configIndex;
+
+        public ButtonConfig(int compressiontType, int deviceIndex, int configIndex) {
+            this.compressiontType = compressiontType;
+            this.deviceIndex = deviceIndex;
+            this.configIndex = configIndex;
+        }
+    }
+
+    /**
+     * A function that changes the state of all buttons on the screen depending on the given
+     * config
+     */
+    public void setButtonsFromJNI() {
+
+        runOnUiThread(() -> {
+
+            // jni function to get values that the quality algorithm set
+            ButtonConfig config = getButtonConfig();
+
+            // flip the right compression type switch
+            HEVCSwitch.setChecked(HEVC_COMPRESSION == config.compressiontType);
+            JPEGSwitch.setChecked(JPEG_COMPRESSION == config.compressiontType);
+            YUVSwitch.setChecked(YUV_COMPRESSION == config.compressiontType);
+            CamSwitch.setChecked(JPEG_IMAGE == config.compressiontType);
+
+            // flip the compression switch
+            if (NO_COMPRESSION == config.compressiontType) {
+                compressionSwitch.setChecked(false);
+                HEVCSwitch.setChecked(false);
+                YUVSwitch.setChecked(false);
+                JPEGSwitch.setChecked(false);
+                CamSwitch.setChecked(false);
+            } else {
+                compressionSwitch.setChecked(true);
+            }
+
+            // show if we are using remote or not
+            modeSwitch.setChecked(REMOTE_DEVICE == config.deviceIndex);
+
+            // set the quality text that corresponds to a algorithm config
+            qualityText.setText(Integer.toString(config.configIndex));
+        });
+
     }
 
     /**

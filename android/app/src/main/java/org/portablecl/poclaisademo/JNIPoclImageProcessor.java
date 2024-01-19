@@ -40,7 +40,8 @@ public class JNIPoclImageProcessor {
 //                                                 int UVPixelStride, int[] detection_result,
 //                                                 byte[] segmentation_result);
     public static native int poclProcessYUVImage(int deviceIndex, int doSegment, int doCompression,
-                                                 int quality, int rotation, int[] detectionResult,
+                                                 int quality, int rotation, int doAlgorithm,
+                                                 int[] detectionResult,
                                                  byte[] segmentationResult,
                                                  ByteBuffer plane0, int rowStride0,
                                                  int pixelStride0,
@@ -62,5 +63,7 @@ public class JNIPoclImageProcessor {
     public static native byte[] getProfilingStatsbytes();
 
     public static native TrafficMonitor.DataPoint getRemoteTrafficStats();
+
+    public static native MainActivity.ButtonConfig getButtonConfig();
 
 }

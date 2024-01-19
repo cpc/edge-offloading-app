@@ -31,6 +31,8 @@ public class ConfigStore {
 
     private final static String ipAddressTextKey = keyPrefix + "ipaddresstextkey";
 
+    private final static String qualityAlgorithmKey = keyPrefix + "qualityalgorithmkey";
+
     /**
      * @param context can be an activity for example
      */
@@ -108,10 +110,23 @@ public class ConfigStore {
 
     /**
      * get the stored ip address
+     *
      * @return ip address as a string
      */
     public String getIpAddressText() {
         return preferences.getString(ipAddressTextKey, "0.0.0.0");
+    }
+
+    public boolean getQualityAlgorithmOption() {
+        return preferences.getBoolean(qualityAlgorithmKey, false);
+    }
+
+    public void setQualityAlgorithmOtion(boolean value) {
+        if (VERBOSITY >= 2) {
+            Log.println(Log.INFO, logTag, String.format("setting quality algorithm option to: %b"
+                    , value));
+        }
+        editor.putBoolean(qualityAlgorithmKey, value);
     }
 
     /**

@@ -24,6 +24,12 @@ event_array_t eval_event_array;
 
 static float LAST_IOU = -5.0f;
 
+static int FILE_DESCRIPTOR;
+static int CONFIG_FLAGS;
+
+// always configure the codec with the user set parameters the first time
+static codec_config_t config = {.device_index = -1};
+
 // Global variables for smuggling our blob into PoCL so we can pretend it is a builtin kernel.
 // Please don't ever actually do this in production code.
 const char *pocl_onnx_blob = NULL;
@@ -113,12 +119,15 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     bool smuggling_ok = smuggleONNXAsset(env, jAssetManager, "yolov8n-seg.onnx");
     assert(smuggling_ok);
 
+    FILE_DESCRIPTOR = fd;
+    CONFIG_FLAGS = config_flags;
+
     size_t src_size;
     char *codec_sources = read_file(env, jAssetManager, "kernels/copy.cl", &src_size);
     assert((nullptr != codec_sources) && "could not read sources");
 
-    jint res = initPoclImageProcessor(width, height, config_flags, codec_sources, src_size, fd,
-                                      &event_array, &eval_event_array);
+    jint res = initPoclImageProcessor(width, height, CONFIG_FLAGS, codec_sources, src_size,
+                                      FILE_DESCRIPTOR, &event_array, &eval_event_array);
 
     destroySmugglingEvidence();
 
@@ -173,6 +182,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                                                            jint do_compression,
                                                                            jint quality,
                                                                            jint rotation,
+                                                                           jint do_algorithm,
                                                                            jintArray detection_result,
                                                                            jbyteArray segmentation_result,
                                                                            jobject plane0,
@@ -203,23 +213,41 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     image_data.data.yuv.row_strides[0] = row_stride0;
     image_data.data.yuv.row_strides[1] = row_stride1;
     image_data.data.yuv.row_strides[2] = row_stride2;
-
-    int auto_select_compression = 0; // TODO: Set this from Java
+    
     static int is_eval_frame = 0;
     static host_ts_ns_t host_ts_ns;
     static int frame_index = 0;
     static uint64_t size_bytes = 0;
 
-    int res = poclProcessImage(device_index, frame_index, do_segment,
-                               (compression_t) do_compression, is_eval_frame, quality, rotation,
-                               detection_array, segmentation_array, &event_array, &eval_event_array,
-                               image_data, image_timestamp, &LAST_IOU, &size_bytes, &host_ts_ns);
+    // map the quality parameter to the codec config when auto_select_compression is not on
+    // also use the user provides values if there is no auto select option
+    if (!do_algorithm || -1 == config.device_index) {
+        config.compression_type = (compression_t) (do_compression);
+        if (HEVC_COMPRESSION == do_compression) {
+            // TODO: tune framerate and frame interval
+            const int framerate = 5;
+            config.config.hevc.framerate = framerate;
+            config.config.hevc.i_frame_interval = 2;
+            // heuristical map of the bitrate to quality parameter
+            // (640 * 480 * (3 / 2) * 8 / (1 / framerate)) * (quality / 100)
+            // equation can be simplied to equation below
+            config.config.hevc.bitrate = 36864 * framerate * quality;
+        } else if (JPEG_COMPRESSION == do_compression) {
+            config.config.jpeg.quality = quality;
+        }
+        config.device_index = device_index;
+    }
+
+    int res = poclProcessImage(config, frame_index, do_segment, is_eval_frame,
+                               rotation, detection_array, segmentation_array, &event_array,
+                               &eval_event_array, image_data, image_timestamp, &LAST_IOU,
+                               &size_bytes, &host_ts_ns);
 
 
-    if (auto_select_compression) {
-        is_eval_frame = evaluate_parameters(frame_index, energy, LAST_IOU, size_bytes, &event_array,
-                                            &eval_event_array, &host_ts_ns,
-                                            (compression_t *) &do_compression);
+    if (do_algorithm) {
+        is_eval_frame = evaluate_parameters(frame_index, energy, LAST_IOU, size_bytes,
+                                            FILE_DESCRIPTOR, CONFIG_FLAGS, &event_array,
+                                            &eval_event_array, &host_ts_ns, &config);
     }
 
     // commit the results back
@@ -261,17 +289,16 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessJPEGImage(JNIE
     static host_ts_ns_t host_ts_ns;
     static int frame_index = 0;
     static uint64_t size_bytes = 0;
+    static codec_config_t config;
+    config.compression_type = (compression_t) (do_compression); //allways the case for jpegimages
+    config.config.jpeg.quality = quality; // not actually used in jpeg images
+    config.device_index = device_index;
 
-    int res = poclProcessImage(device_index, frame_index, do_segment,
-                               (compression_t) do_compression, is_eval_frame, quality, rotation,
-                               detection_array, segmentation_array, &event_array, &eval_event_array,
-                               image_data, image_timestamp, &LAST_IOU, &size_bytes, &host_ts_ns);
 
-    if (auto_select_compression) {
-        is_eval_frame = evaluate_parameters(frame_index, energy, LAST_IOU, size_bytes, &event_array,
-                                            &eval_event_array,
-                                            &host_ts_ns, (compression_t *) &do_compression);
-    }
+    int res = poclProcessImage(config, frame_index, do_segment, is_eval_frame,
+                               rotation, detection_array, segmentation_array, &event_array,
+                               &eval_event_array, image_data, image_timestamp, &LAST_IOU,
+                               &size_bytes, &host_ts_ns);
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
@@ -338,6 +365,27 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getRemoteTrafficStats(JNI
 
     return env->NewObject(c, datapoint_constructor, (jlong) buf[0], (jlong) buf[1], (jlong) buf[2],
                           (jlong) buf[3], (jlong) buf[4], (jlong) buf[5]);
+}
+
+/**
+ * Function to return what the quality algorithm decided on.
+ * @param env
+ * @param clazz
+ * @return ButtonConfig that returns relevant config values
+ */
+JNIEXPORT jobject JNICALL
+Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getButtonConfig(JNIEnv *env, jclass clazz) {
+
+    jclass button_config_class = env->FindClass(
+            "org/portablecl/poclaisademo/MainActivity$ButtonConfig");
+    assert(nullptr != button_config_class);
+
+    jmethodID button_config_constructor = env->GetMethodID(button_config_class, "<init>", "(III)V");
+    assert(nullptr != button_config_constructor);
+
+    return env->NewObject(button_config_class, button_config_constructor,
+                          (jint) config.compression_type, (jint) config.device_index,
+                          (jint) CUR_CODEC_ID);
 }
 
 #ifdef __cplusplus

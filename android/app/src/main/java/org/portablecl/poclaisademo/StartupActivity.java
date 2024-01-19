@@ -253,8 +253,75 @@ public class StartupActivity extends AppCompatActivity {
         }
     };
 
+    /**
+     * setClickable on every compButton
+     *
+     * @param value set false to disable clicking
+     */
+    private void enableAllCompButtons(boolean value) {
+        jpegCompButton.setClickable(value);
+        jpegImageButton.setClickable(value);
+        hevcCompButton.setClickable(value);
+        yuvCompButton.setClickable(value);
+    }
+
+    /**
+     * a callback function that also configures the compression types
+     */
+    private final View.OnClickListener qualityAlgorithmSwitchListener = new View.OnClickListener() {
+
+        @Override
+        public void onClick(View v) {
+
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started qualityAlgorithmSwitchListener " +
+                        "callback");
+            }
+
+            // disable or enable all comp buttons
+            // if the quality algorithm button is turned on
+            enableAllCompButtons(!((Switch) v).isChecked());
+
+            if (!jpegCompButton.isChecked()) {
+                jpegCompButton.setChecked(true);
+            }
+
+            if (!hevcCompButton.isChecked()) {
+                hevcCompButton.setChecked(true);
+            }
+
+            if (yuvCompButton.isChecked()) {
+                yuvCompButton.setChecked(false);
+            }
+
+            if (jpegImageButton.isChecked()) {
+                jpegImageButton.setChecked(false);
+            }
+        }
+    };
+
     private Button startButton;
     private Button benchmarkButton;
+    private Switch qualityAlgorithmSwitch;
+
+    /**
+     * function to create a csv log file
+     *
+     * @param fileName name of the file
+     * @return an uri to the log file
+     */
+    private Uri createLogFile(String fileName) {
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName); // this is the name
+        // of the file
+        values.put(MediaStore.MediaColumns.MIME_TYPE, "text/comma-separated-values");
+        values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+        Uri uri = getContentResolver().insert(MediaStore.Files.getContentUri("external"),
+                values);
+
+        return uri;
+    }
+
     /**
      * A listener that on the press of a button; checks input variables
      * and starts the demo if they are valid.
@@ -320,6 +387,7 @@ public class StartupActivity extends AppCompatActivity {
             configStore.setConfigFlags(configFlag);
             configStore.setJpegQuality(jpegQuality);
             configStore.setIpAddressText(value);
+            configStore.setQualityAlgorithmOtion(qualityAlgorithmSwitch.isChecked());
             // settings are only saved when calling this function.
             configStore.flushSetting();
 
@@ -327,24 +395,6 @@ public class StartupActivity extends AppCompatActivity {
             startActivity(i);
         }
     };
-
-    /**
-     * function to create a csv log file
-     *
-     * @param fileName name of the file
-     * @return an uri to the log file
-     */
-    private Uri createLogFile(String fileName) {
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName); // this is the name
-        // of the file
-        values.put(MediaStore.MediaColumns.MIME_TYPE, "text/comma-separated-values");
-        values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
-        Uri uri = getContentResolver().insert(MediaStore.Files.getContentUri("external"),
-                values);
-
-        return uri;
-    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -405,6 +455,12 @@ public class StartupActivity extends AppCompatActivity {
 
         jpegQuality = configStore.getJpegQuality();
         qualityText.setText(Integer.toString(jpegQuality));
+
+        qualityAlgorithmSwitch = binding.qualityAlgorithmSwitch;
+        qualityAlgorithmSwitch.setOnClickListener(qualityAlgorithmSwitchListener);
+        if (configStore.getQualityAlgorithmOption()) {
+            qualityAlgorithmSwitch.performClick();
+        }
 
     }
 

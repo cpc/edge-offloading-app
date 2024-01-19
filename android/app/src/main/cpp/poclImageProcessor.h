@@ -9,6 +9,8 @@
 
 #include "stdint.h"
 #include "event_logger.h"
+#include "hevc_compression.h"
+#include "jpeg_compression.h"
 
 #define CSV_HEADER "frameindex,tag,parameter,value\n"
 #define MAX_NUM_CL_DEVICES 4
@@ -99,6 +101,18 @@ typedef struct {
     } data;
 } image_data_t;
 
+/**
+ * A struct that contains configuration parameters required to
+ * process an image with the pocl image processor
+ */
+typedef struct {
+    compression_t compression_type; // codec to be used
+    int device_index; // device on which the image is processed
+    union {
+        jpeg_config_t jpeg;
+        hevc_config_t hevc;
+    } config; // codec specific configuration parameters
+} codec_config_t;
 
 /**
  *
@@ -114,7 +128,7 @@ typedef struct {
  */
 int
 initPoclImageProcessor(const int width, const int height, const int config_flags,
-                       const char *codec_sources, const size_t src_size, const int fd,
+                       const char *codec_sources, const size_t src_size, int fd,
                        event_array_t *event_array, event_array_t *eval_event_array);
 
 int
@@ -123,8 +137,8 @@ destroy_pocl_image_processor();
 int64_t get_timestamp_ns();
 
 int
-poclProcessImage(int device_index, int frame_index, int do_segment, compression_t compressionType,
-                 int is_eval_frame, int quality, int rotation, int32_t *detection_array,
+poclProcessImage(codec_config_t condec_config, int frame_index, int do_segment,
+                 int is_eval_frame, int rotation, int32_t *detection_array,
                  uint8_t *segmentation_array, event_array_t *event_array,
                  event_array_t *eval_event_array, image_data_t image_data, long image_timestamp,
                  float *iou, uint64_t *size_bytes, host_ts_ns_t *host_ts_ns);

@@ -13,11 +13,22 @@ extern "C" {
 #include <CL/cl.h>
 #include "event_logger.h"
 
+/**
+ * A struct that contains all configuration info
+ * required for the pocl image processor to configure
+ * the hevc codec.
+ */
 typedef struct {
-    int32_t quality;
-    int32_t bitrate;
+    // todo: eventually use float for i frame interval
+    int32_t i_frame_interval; // seconds between i frames
+    int32_t framerate; // number of frames per second
+    int32_t bitrate; // number of bits sent per second
 } hevc_config_t;
 
+/**
+ * A struct that contains all objects required to use
+ * the hevc codec.
+ */
 typedef struct {
     cl_mem inp_buf;
     cl_mem comp_buf;

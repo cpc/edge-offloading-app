@@ -267,9 +267,8 @@ init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int qual
  */
 int
 initPoclImageProcessor(const int width, const int height, const int init_config_flags,
-                       const char *codec_sources, const size_t src_size,
-                       const int fd, event_array_t *event_array,
-                       event_array_t *eval_event_array) {
+                       const char *codec_sources, const size_t src_size, int fd,
+                       event_array_t *event_array, event_array_t *eval_event_array) {
     cl_platform_id platform;
     cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
     cl_uint devices_found;
@@ -279,12 +278,12 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
         return -1;
     }
 
+    config_flags = init_config_flags;
+    file_descriptor = fd;
+
     // This is kept as a regression test
     status = test_vec_add();
     CHECK_AND_RETURN(status, "TMP Failed running test vector addition.\n");
-
-
-    config_flags = init_config_flags;
 
     // initial quality
     int quality = 80;
@@ -441,7 +440,7 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     // only allocate these buffers if the remote is also available
     if (devices_found > 1) {
         // remote device buffers
-        if ((JPEG_COMPRESSION & config_flags) || (JPEG_IMAGE & config_flags)) {
+        if ((JPEG_COMPRESSION & init_config_flags) || (JPEG_IMAGE & init_config_flags)) {
             img_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE,
                                         tot_pixels * 3, NULL, &status);
         } else {
@@ -505,7 +504,7 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
 
     if (devices_found > 1) {
 
-        if (YUV_COMPRESSION & config_flags) {
+        if (YUV_COMPRESSION & init_config_flags) {
 
             // for some reason the basic device fails to build the program
             // when building from source, therefore use proxy device (which is the mobile gpu)
@@ -524,7 +523,7 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
         }
 
 #ifndef DISABLE_JPEG
-        if ((JPEG_COMPRESSION & config_flags)) {
+        if ((JPEG_COMPRESSION & init_config_flags)) {
 
             jpeg_context = create_jpeg_context();
             jpeg_context->height = inp_h;
@@ -539,12 +538,12 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
             CHECK_AND_RETURN(status, "init of codec kernels failed");
         }
 #endif // DISABLE_JPEG
-        if (JPEG_IMAGE & config_flags) {
+        if (JPEG_IMAGE & init_config_flags) {
             status = init_jpeg_codecs(&devices[0], &devices[3], quality, 0);
             CHECK_AND_RETURN(status, "init of codec kernels failed");
         }
 #ifndef DISABLE_HEVC
-        if (HEVC_COMPRESSION & config_flags) {
+        if (HEVC_COMPRESSION & init_config_flags) {
 
             hevc_context = create_hevc_context();
             hevc_context->height = inp_h;
@@ -569,8 +568,7 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     }
 
     // setup profiling
-    if (ENABLE_PROFILING & config_flags) {
-        file_descriptor = fd;
+    if (ENABLE_PROFILING & init_config_flags) {
         status = dprintf(file_descriptor, CSV_HEADER);
         CHECK_AND_RETURN((status < 0), "could not write csv header");
         std::time_t t = std::time(nullptr);
@@ -1087,8 +1085,8 @@ int64_t get_timestamp_ns() {
  * assumes that image format is YUV420_888
  */
 int
-poclProcessImage(int device_index, int frame_index, int do_segment, compression_t compressionType,
-                 int is_eval_frame, int quality, int rotation, int32_t *detection_array,
+poclProcessImage(codec_config_t config, int frame_index, int do_segment,
+                 int is_eval_frame, int rotation, int32_t *detection_array,
                  uint8_t *segmentation_array, event_array_t *event_array,
                  event_array_t *eval_event_array, image_data_t image_data, long image_timestamp,
                  float *iou, uint64_t *size_bytes, host_ts_ns_t *host_ts_ns) {
@@ -1100,7 +1098,7 @@ poclProcessImage(int device_index, int frame_index, int do_segment, compression_
         LOGE("poclProcessImage called but setup did not complete successfully\n");
         return 1;
     }
-    const compression_t compression_type = compressionType;
+    const compression_t compression_type = config.compression_type;
     // make sure that the input is actually a valid compression type
     assert(CHECK_COMPRESSION_T(compression_type));
 
@@ -1108,11 +1106,11 @@ poclProcessImage(int device_index, int frame_index, int do_segment, compression_
     assert(compression_type & config_flags);
 
     // check that no compression is passed to local device
-    assert((0 == device_index) ? (NO_COMPRESSION == compression_type) : 1);
+    assert((0 == config.device_index) ? (NO_COMPRESSION == compression_type) : 1);
 
     // make local copies so that they don't change during execution
     // when the user presses a button.
-    const int device_index_copy = device_index;
+    const int device_index_copy = config.device_index;
     const int do_segment_copy = do_segment;
 
     if (rotation != rotate_cw_degrees) {
@@ -1142,7 +1140,7 @@ poclProcessImage(int device_index, int frame_index, int do_segment, compression_
     // the local device does not support other compression types, but this this function with
     // local devices should only be called with no compression, so other paths will not be
     // reached. There is also an assert to make sure of this.
-    if (NO_COMPRESSION == compressionType) {
+    if (NO_COMPRESSION == compression_type) {
         *size_bytes = img_buf_size;
         // normal execution
         inp_format = YUV_SEMI_PLANAR;
@@ -1166,7 +1164,8 @@ poclProcessImage(int device_index, int frame_index, int do_segment, compression_
 #ifndef DISABLE_JPEG
     else if (JPEG_COMPRESSION == compression_type) {
         inp_format = jpeg_context->output_format;
-        jpeg_context->quality = quality;
+
+        jpeg_context->quality = config.config.jpeg.quality;
         copy_yuv_to_array(image_data, compression_type, jpeg_context->host_img_buf);
         status = enqueue_jpeg_compression(jpeg_context, event_array, &dnn_wait_event);
         inp_buf = jpeg_context->out_buf;
@@ -1179,14 +1178,17 @@ poclProcessImage(int device_index, int frame_index, int do_segment, compression_
         copy_yuv_to_array(image_data, compression_type, hevc_context->host_img_buf);
 
         cl_event configure_event = NULL;
-        // note: if you want to configure the codec,
-        // set the variables you want in the context and
-        // set isconfigured to 0
-        if (1 != hevc_context->codec_configured) {
-            // todo: remove these defaults once dynamic configuration is implemented
-            hevc_context->i_frame_interval = 2;
-            hevc_context->framerate = 5;
-            hevc_context->bitrate = 640 * 480;
+        // expensive to configure, only do it if it is actually different than
+        // what is currently configured.
+        if (hevc_context->i_frame_interval != config.config.hevc.i_frame_interval ||
+            hevc_context->framerate != config.config.hevc.framerate ||
+            hevc_context->bitrate != config.config.hevc.bitrate ||
+            1 != hevc_context->codec_configured) {
+
+            hevc_context->codec_configured = 0;
+            hevc_context->i_frame_interval = config.config.hevc.i_frame_interval;
+            hevc_context->framerate = config.config.hevc.framerate;
+            hevc_context->bitrate = config.config.hevc.bitrate;
             configure_hevc_codec(hevc_context, event_array, &configure_event);
         }
 
@@ -1211,7 +1213,7 @@ poclProcessImage(int device_index, int frame_index, int do_segment, compression_
 
     // Testing ping with CL calls to fill a buffer
     cl_event fill_event;
-    status = ping_fillbuffer_run(PING_CTX, commandQueue[device_index], event_array, &fill_event);
+    status = ping_fillbuffer_run(PING_CTX, commandQueue[device_index_copy], event_array, &fill_event);
     CHECK_AND_RETURN(status, "PING failed to run");
 
     int64_t before_dnn_ns = get_timestamp_ns();
@@ -1323,8 +1325,21 @@ poclProcessImage(int device_index, int frame_index, int do_segment, compression_
         dprintf(file_descriptor, "%d,config,segment,%d\n", frame_index, do_segment_copy);
         dprintf(file_descriptor, "%d,compression,name,%s\n", frame_index,
                 get_compression_name(compression_type));
-        dprintf(file_descriptor, "%d,compression,quality,%d\n", frame_index, quality);
-        dprintf(file_descriptor, "%d,compression,size_bytes,%lu\n", frame_index, size_bytes);
+
+        // depending on the codec config log different parameters
+        if (JPEG_COMPRESSION == compression_type) {
+            dprintf(file_descriptor, "%d,compression,quality,%d\n", frame_index,
+                    config.config.jpeg.quality);
+        } else if (HEVC_COMPRESSION == compression_type) {
+            dprintf(file_descriptor, "%d,compression,i_frame_interval,%d\n", frame_index,
+                    config.config.hevc.i_frame_interval);
+            dprintf(file_descriptor, "%d,compression,framerate,%d\n", frame_index,
+                    config.config.hevc.framerate);
+            dprintf(file_descriptor, "%d,compression,bitrate,%d\n", frame_index,
+                    config.config.hevc.bitrate);
+        }
+
+        dprintf(file_descriptor, "%d,compression,size_bytes,%lu\n", frame_index, *size_bytes);
         if (is_eval_ready) {
             dprintf(file_descriptor, "%d,dnn,iou,%f\n", frame_index, *iou);
         }

@@ -206,7 +206,8 @@ enqueue_hevc_compression(const hevc_codec_context_t *cxt, event_array_t *event_a
     return 0;
 }
 /**
- * A function to call the configure builtin kernel
+ * A function to call the configure builtin kernel.
+ * @NOTE this function is expensive
  * @param codec_context the hevc codec context configured with the right parameters
  * @param event_array array to append events to
  * @param result_event an output event that can be waited on

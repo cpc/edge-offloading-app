@@ -13,10 +13,19 @@ extern "C" {
 #include <CL/cl.h>
 #include "event_logger.h"
 
+/**
+* A struct that contains all configuration info
+* required for the pocl image processor to configure
+* the jpeg codec.
+*/
 typedef struct {
     int32_t quality;
 } jpeg_config_t;
 
+/**
+ * A struct that contains all objects required to use
+ * the jpeg codec.
+ */
 typedef struct {
     cl_mem inp_buf;
     cl_mem comp_buf;

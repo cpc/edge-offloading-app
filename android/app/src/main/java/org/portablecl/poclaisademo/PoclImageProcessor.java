@@ -92,6 +92,8 @@ public class PoclImageProcessor {
 
     private float lastIou = -4.0f;
 
+    private final boolean enableQualityAlgorithm;
+
     /**
      * constructor for pocl image processor
      *
@@ -110,10 +112,11 @@ public class PoclImageProcessor {
                               int configFlags,
                               FPSCounter fpsCounter,
                               int inferencingDevice, boolean doSegment, boolean doCompression,
-                              Uri uri, StatLogger statLogger) {
+                              Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm) {
         this(null, context, captureSize, imageReader, imageFormat, imageAvailableLock,
                 configFlags,
-                fpsCounter, inferencingDevice, doSegment, doCompression, uri, statLogger);
+                fpsCounter, inferencingDevice, doSegment, doCompression, uri, statLogger,
+                enableQualityAlgorithm);
     }
 
     /**
@@ -134,10 +137,11 @@ public class PoclImageProcessor {
                               Semaphore imageAvailableLock, int configFlags,
                               FPSCounter fpsCounter,
                               int inferencingDevice, boolean doSegment, boolean doCompression,
-                              Uri uri, StatLogger statLogger) {
+                              Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm) {
         this(activity, activity, captureSize, imageReader, imageFormat, imageAvailableLock,
                 configFlags,
-                fpsCounter, inferencingDevice, doSegment, doCompression, uri, statLogger);
+                fpsCounter, inferencingDevice, doSegment, doCompression, uri, statLogger,
+                enableQualityAlgorithm);
     }
 
     /**
@@ -159,7 +163,7 @@ public class PoclImageProcessor {
                                Semaphore imageAvailableLock, int configFlags,
                                FPSCounter fpsCounter,
                                int inferencingDevice, boolean doSegment, boolean doCompression,
-                               Uri uri, StatLogger statLogger) {
+                               Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm) {
         this.activity = activity;
         this.context = context;
         this.captureSize = captureSize;
@@ -167,6 +171,7 @@ public class PoclImageProcessor {
         this.imageAvailableLock = imageAvailableLock;
 //        this.enableLogging = enableLogging;
         this.statLogger = statLogger;
+        this.enableQualityAlgorithm = enableQualityAlgorithm;
 
         counter = fpsCounter;
         this.inferencingDevice = inferencingDevice;
@@ -407,9 +412,11 @@ public class PoclImageProcessor {
                                 "V row stride: " + VRowStride);
                     }
 
+                    int doAlgorithm = enableQualityAlgorithm ? 1 : 0;
                     currentTime = System.currentTimeMillis();
                     poclProcessYUVImage(inferencingDevice, do_segment, compressionParam, quality,
-                            rotation, detection_results, segmentation_results, Y, YRowStride,
+                            rotation, doAlgorithm, detection_results, segmentation_results, Y,
+                            YRowStride,
                             YPixelStride, U, UVRowStride, UVPixelStride, V, VRowStride,
                             VPixelStride, imageTimestamp, energy);
 
@@ -447,6 +454,11 @@ public class PoclImageProcessor {
                 if (null != activity) {
                     activity.drawOverlay(do_segment, detection_results, segmentation_results,
                             captureSize, orientationsSwapped);
+
+                    // update the buttons
+                    if (enableQualityAlgorithm) {
+                        activity.setButtonsFromJNI();
+                    }
                 }
 
                 // used to calculate the (avg) FPS
