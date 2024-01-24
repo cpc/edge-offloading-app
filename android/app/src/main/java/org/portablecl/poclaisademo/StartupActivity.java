@@ -12,6 +12,7 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.HEVC_COMPRESSION
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SOFTWARE_HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
 import static java.lang.Character.isDigit;
 
@@ -177,6 +178,8 @@ public class StartupActivity extends AppCompatActivity {
 
     private ToggleButton hevcCompButton;
 
+    private ToggleButton softwareHevcCompButton;
+
     /**
      * callback function that disables compression options not compatible with the jpeg image
      */
@@ -198,6 +201,10 @@ public class StartupActivity extends AppCompatActivity {
 
             if (hevcCompButton.isChecked()) {
                 hevcCompButton.setChecked(false);
+            }
+
+            if (softwareHevcCompButton.isChecked()) {
+                softwareHevcCompButton.setChecked(false);
             }
         }
     };
@@ -233,6 +240,35 @@ public class StartupActivity extends AppCompatActivity {
                 jpegImageButton.setChecked(false);
             }
 
+            // disable for now since they share the same decoder
+            // and currently, it only supports one instance
+            if (softwareHevcCompButton.isChecked()) {
+                softwareHevcCompButton.setChecked(false);
+            }
+
+        }
+    };
+
+    /**
+     * a callback when the yuvCompButton is pressed. It disables buttons not compatible with it
+     */
+    private final View.OnClickListener softwareHevcCompButtonListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started yuvCompButtonListener callback");
+            }
+
+            if (jpegImageButton.isChecked()) {
+                jpegImageButton.setChecked(false);
+            }
+
+            // disable for now since they share the same decoder
+            // and currently, it only supports one instance
+            if (hevcCompButton.isChecked()) {
+                hevcCompButton.setChecked(false);
+            }
+
         }
     };
 
@@ -263,6 +299,7 @@ public class StartupActivity extends AppCompatActivity {
         jpegImageButton.setClickable(value);
         hevcCompButton.setClickable(value);
         yuvCompButton.setClickable(value);
+        softwareHevcCompButton.setClickable(value);
     }
 
     /**
@@ -296,6 +333,10 @@ public class StartupActivity extends AppCompatActivity {
 
             if (jpegImageButton.isChecked()) {
                 jpegImageButton.setChecked(false);
+            }
+
+            if (softwareHevcCompButton.isChecked()) {
+                softwareHevcCompButton.setChecked(false);
             }
         }
     };
@@ -447,6 +488,8 @@ public class StartupActivity extends AppCompatActivity {
         jpegImageButton.setOnClickListener(jpegImageButtonListener);
         hevcCompButton = binding.hevcCompButton;
         hevcCompButton.setOnClickListener(hevcCompButtonListener);
+        softwareHevcCompButton = binding.softwareHevcCompButton;
+        softwareHevcCompButton.setOnClickListener(softwareHevcCompButtonListener);
 
         // code to handle the camera JPEG quality input
         DropEditText qualityText = binding.jpegQualityEditText;
@@ -486,6 +529,10 @@ public class StartupActivity extends AppCompatActivity {
         if (hevcCompButton.isChecked()) {
             configFlag |= HEVC_COMPRESSION;
         }
+        if (softwareHevcCompButton.isChecked()) {
+            configFlag |= SOFTWARE_HEVC_COMPRESSION;
+        }
+
         return configFlag;
     }
 

@@ -77,6 +77,10 @@ typedef struct {
 hevc_codec_context_t *create_hevc_context();
 
 cl_int
+init_c2_android_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
+                             cl_device_id *enc_device, cl_device_id *dec_device, int enable_resize);
+
+cl_int
 init_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
                   cl_device_id *enc_device, cl_device_id *dec_device, int enable_resize);
 

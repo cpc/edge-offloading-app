@@ -14,6 +14,7 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_DEVICE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.REMOTE_DEVICE;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SOFTWARE_HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getButtonConfig;
 import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
@@ -281,6 +282,7 @@ public class MainActivity extends AppCompatActivity {
 
     private DropEditText qualityText;
 
+    private Switch softwareHEVCSwitch;
 
     private StatLogger statLogger;
 
@@ -388,14 +390,20 @@ public class MainActivity extends AppCompatActivity {
 
         HEVCSwitch = binding.HEVCSwitch;
         HEVCSwitch.setOnClickListener(SetCompressListener);
-        if(0==(HEVC_COMPRESSION & configFlags)) {
+        if (0 == (HEVC_COMPRESSION & configFlags)) {
             HEVCSwitch.setClickable(false);
         }
 
         CamSwitch = binding.CamSwitch;
         CamSwitch.setOnClickListener(SetCompressListener);
-        if(0==(JPEG_IMAGE & configFlags)) {
+        if (0 == (JPEG_IMAGE & configFlags)) {
             CamSwitch.setClickable(false);
+        }
+
+        softwareHEVCSwitch = binding.softHevcSwitch;
+        softwareHEVCSwitch.setOnClickListener(SetCompressListener);
+        if (0 == (SOFTWARE_HEVC_COMPRESSION & configFlags)) {
+            softwareHEVCSwitch.setClickable(false);
         }
 
         // setup overlay
@@ -475,6 +483,7 @@ public class MainActivity extends AppCompatActivity {
             YUVSwitch.setClickable(false);
             JPEGSwitch.setClickable(false);
             CamSwitch.setClickable(false);
+            softwareHEVCSwitch.setClickable(false);
             compressionSwitch.setClickable(false);
             modeSwitch.setClickable(false);
             qualityText.setClickable(false);
@@ -681,14 +690,20 @@ public class MainActivity extends AppCompatActivity {
 
             if( YUVSwitch == v) {
                 poclImageProcessor.setCompressionType(YUV_COMPRESSION);
-            }else {
+            } else {
                 YUVSwitch.setChecked(false);
             }
 
-            if( CamSwitch == v) {
+            if (CamSwitch == v) {
                 poclImageProcessor.setCompressionType(JPEG_IMAGE);
-            }else {
+            } else {
                 CamSwitch.setChecked(false);
+            }
+
+            if (softwareHEVCSwitch == v) {
+                poclImageProcessor.setCompressionType(SOFTWARE_HEVC_COMPRESSION);
+            } else {
+                softwareHEVCSwitch.setChecked(false);
             }
 
             if (compressionSwitch.isChecked()) {
@@ -915,6 +930,7 @@ public class MainActivity extends AppCompatActivity {
             JPEGSwitch.setChecked(JPEG_COMPRESSION == config.compressiontType);
             YUVSwitch.setChecked(YUV_COMPRESSION == config.compressiontType);
             CamSwitch.setChecked(JPEG_IMAGE == config.compressiontType);
+            softwareHEVCSwitch.setChecked(SOFTWARE_HEVC_COMPRESSION == config.compressiontType);
 
             // flip the compression switch
             if (NO_COMPRESSION == config.compressiontType) {
@@ -923,6 +939,7 @@ public class MainActivity extends AppCompatActivity {
                 YUVSwitch.setChecked(false);
                 JPEGSwitch.setChecked(false);
                 CamSwitch.setChecked(false);
+                softwareHEVCSwitch.setChecked(false);
             } else {
                 compressionSwitch.setChecked(true);
             }

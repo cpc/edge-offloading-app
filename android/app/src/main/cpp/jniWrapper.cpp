@@ -223,7 +223,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
     // also use the user provides values if there is no auto select option
     if (!do_algorithm || -1 == config.device_index) {
         config.compression_type = (compression_t) (do_compression);
-        if (HEVC_COMPRESSION == do_compression) {
+        if (HEVC_COMPRESSION == do_compression ||
+        SOFTWARE_HEVC_COMPRESSION == do_compression) {
             // TODO: tune framerate and frame interval
             const int framerate = 5;
             config.config.hevc.framerate = framerate;

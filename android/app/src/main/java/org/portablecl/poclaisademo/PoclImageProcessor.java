@@ -7,6 +7,7 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.HEVC_COMPRESSION
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SOFTWARE_HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
@@ -251,7 +252,8 @@ public class PoclImageProcessor {
         assert ImageFormat.YUV_420_888 != imageFormat || ((YUV_COMPRESSION & configFlags) > 0) ||
                 ((JPEG_COMPRESSION & configFlags) > 0) ||
                 ((NO_COMPRESSION & configFlags) > 0) ||
-                ((HEVC_COMPRESSION & configFlags) > 0);
+                ((HEVC_COMPRESSION & configFlags) > 0) ||
+                ((SOFTWARE_HEVC_COMPRESSION & configFlags) > 0);
         assert ImageFormat.JPEG != imageFormat || ((JPEG_IMAGE & configFlags) > 0);
 
         this.imageFormat = imageFormat;

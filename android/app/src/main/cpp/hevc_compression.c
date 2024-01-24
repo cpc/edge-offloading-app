@@ -7,6 +7,8 @@
 #include "sharedUtils.h"
 #include <CL/cl_ext_pocl.h>
 #include <assert.h>
+#include <string.h>
+#include <stdlib.h>
 
 /**
  * allocate memory for the codec context and set pointers to NULL;
@@ -27,38 +29,46 @@ hevc_codec_context_t *create_hevc_context() {
 }
 
 /**
- * setup the context so that it can be used.
- * @warning requires the following fields to be set beforehand <br>
- *  * height <br>
- *  * width <br>
- *  * img_buf_size <br>
- *  * enc_queue <br>
- *  * dec_queue <br>
- *  * host_imge_buf <br>
- *  * host_postprocess_buf <br>
- * @param codec_context context to init
- * @param ocl_context used to create all ocl objects
- * @param enc_device device to build encoder kernel for
- * @param dec_device device to build decoder kernel for
- * @param enable_resize parameter to enable resize extensions
- * @return cl status
+ * private function to configure the hevc pipeline
+ * @param codec_context
+ * @param ocl_context
+ * @param enc_device
+ * @param dec_device
+ * @param enable_resize
+ * @param configure_kernel_name string of the configure kernel
+ * @param encode_kernel_name string of the encode kernel
+ * @param decode_kernel_name string of the decode kernel
+ * @return
  */
 cl_int
-init_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
-                  cl_device_id *enc_device, cl_device_id *dec_device, int enable_resize) {
+init_hevc_context_with_kernel_names(hevc_codec_context_t *codec_context, cl_context ocl_context,
+                                    cl_device_id *enc_device, cl_device_id *dec_device,
+                                    int enable_resize,
+                                    const char *configure_kernel_name,
+                                    const char *encode_kernel_name,
+                                    const char *decode_kernel_name) {
     // todo: set a better value
     uint64_t out_buf_size = 2000000;
     int status;
+
+    // +2 for the null char and ';' char
+    int kernel_names_length = strlen(configure_kernel_name) + strlen(encode_kernel_name) + 2;
+    char *enc_program_kernel_names = malloc(kernel_names_length);
+    strcpy(enc_program_kernel_names, configure_kernel_name);
+    strcat(enc_program_kernel_names, ";");
+    strcat(enc_program_kernel_names, encode_kernel_name);
+
     cl_program enc_program = clCreateProgramWithBuiltInKernels(ocl_context, 1, enc_device,
-                                                               "pocl.configure.hevc.yuv420nv21;pocl.encode.hevc.yuv420nv21",
+                                                               enc_program_kernel_names,
                                                                &status);
+    free(enc_program_kernel_names);
     CHECK_AND_RETURN(status, "could not create enc program");
 
     status = clBuildProgram(enc_program, 1, enc_device, NULL, NULL, NULL);
     CHECK_AND_RETURN(status, "could not build enc program");
 
     cl_program dec_program = clCreateProgramWithBuiltInKernels(ocl_context, 1, dec_device,
-                                                               "pocl.decode.hevc.yuv420nv21",
+                                                               decode_kernel_name,
                                                                &status);
     CHECK_AND_RETURN(status, "could not create dec program");
 
@@ -92,13 +102,13 @@ init_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
         CHECK_AND_RETURN(status, "could not apply content size extension");
     }
 
-    codec_context->enc_kernel = clCreateKernel(enc_program, "pocl.encode.hevc.yuv420nv21", &status);
+    codec_context->enc_kernel = clCreateKernel(enc_program, encode_kernel_name, &status);
     CHECK_AND_RETURN(status, "failed to create enc kernel");
 
-    codec_context->config_kernel = clCreateKernel(enc_program, "pocl.configure.hevc.yuv420nv21", &status);
+    codec_context->config_kernel = clCreateKernel(enc_program, configure_kernel_name, &status);
     CHECK_AND_RETURN(status, "failed to create config kernel");
 
-    codec_context->dec_kernel = clCreateKernel(dec_program, "pocl.decode.hevc.yuv420nv21", &status);
+    codec_context->dec_kernel = clCreateKernel(dec_program, decode_kernel_name, &status);
     CHECK_AND_RETURN(status, "failed to create dec kernel");
 
     // the kernel uses uint64_t values for sizes, so put it in a bigger type
@@ -146,6 +156,64 @@ init_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
 }
 
 /**
+ * setup the context that uses the c2.android.hevc codec
+ * @warning requires the following fields to be set beforehand <br>
+ *  * height <br>
+ *  * width <br>
+ *  * img_buf_size <br>
+ *  * enc_queue <br>
+ *  * dec_queue <br>
+ *  * host_imge_buf <br>
+ *  * host_postprocess_buf <br>
+ * @param codec_context context to init
+ * @param ocl_context used to create all ocl objects
+ * @param enc_device device to build encoder kernel for
+ * @param dec_device device to build decoder kernel for
+ * @param enable_resize parameter to enable resize extensions
+ * @return cl status
+ */
+cl_int
+init_c2_android_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
+                             cl_device_id *enc_device, cl_device_id *dec_device,
+                             int enable_resize) {
+
+    return init_hevc_context_with_kernel_names(codec_context, ocl_context, enc_device, dec_device,
+                                               enable_resize,
+                                               "pocl.configure.c2.android.hevc.yuv420nv21",
+                                               "pocl.encode.c2.android.hevc.yuv420nv21",
+                                               "pocl.decode.hevc.yuv420nv21");
+
+}
+
+/**
+ * setup the context so that it can be used.
+ * @warning requires the following fields to be set beforehand <br>
+ *  * height <br>
+ *  * width <br>
+ *  * img_buf_size <br>
+ *  * enc_queue <br>
+ *  * dec_queue <br>
+ *  * host_imge_buf <br>
+ *  * host_postprocess_buf <br>
+ * @param codec_context context to init
+ * @param ocl_context used to create all ocl objects
+ * @param enc_device device to build encoder kernel for
+ * @param dec_device device to build decoder kernel for
+ * @param enable_resize parameter to enable resize extensions
+ * @return cl status
+ */
+cl_int
+init_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
+                  cl_device_id *enc_device, cl_device_id *dec_device, int enable_resize) {
+
+    return init_hevc_context_with_kernel_names(codec_context, ocl_context, enc_device, dec_device,
+                                               enable_resize,
+                                               "pocl.configure.hevc.yuv420nv21",
+                                               "pocl.encode.hevc.yuv420nv21",
+                                               "pocl.decode.hevc.yuv420nv21");
+}
+
+/**
  * compress the image with the given context
  * @param cxt the compression context
  * @param event_array
@@ -157,7 +225,8 @@ cl_int
 enqueue_hevc_compression(const hevc_codec_context_t *cxt, event_array_t *event_array,
                          cl_event *wait_event, cl_event *result_event) {
 
-    assert((1 == cxt->codec_configured) && "hevc codec was not configured before work was enqueued!\n");
+    assert((1 == cxt->codec_configured) &&
+           "hevc codec was not configured before work was enqueued!\n");
 
     cl_int status;
 
@@ -205,6 +274,7 @@ enqueue_hevc_compression(const hevc_codec_context_t *cxt, event_array_t *event_a
 
     return 0;
 }
+
 /**
  * A function to call the configure builtin kernel.
  * @NOTE this function is expensive

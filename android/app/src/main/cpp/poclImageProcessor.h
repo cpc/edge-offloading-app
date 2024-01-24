@@ -26,6 +26,10 @@ typedef enum {
     JPEG_COMPRESSION = 4,
     JPEG_IMAGE = (1 << 3), // if the input is already a compressed image
     HEVC_COMPRESSION = (1 << 4),
+    SOFTWARE_HEVC_COMPRESSION = (1 << 5),
+    // when adding new compression types
+    // make to stay below the ENABLE_PROFILING ENUM
+    // and also add similar entries on the java side
 } compression_t;
 
 enum {
@@ -53,7 +57,8 @@ int supports_config_flags(const int input);
     (YUV_COMPRESSION == inp) ||        \
     (JPEG_COMPRESSION == inp) ||       \
     (JPEG_IMAGE == inp)  ||                         \
-    (HEVC_COMPRESSION == inp)
+    (HEVC_COMPRESSION == inp) ||                      \
+    (SOFTWARE_HEVC_COMPRESSION == inp)
 
 // 0 - RGB
 // 1 - YUV420 NV21 Android (interleaved U/V)

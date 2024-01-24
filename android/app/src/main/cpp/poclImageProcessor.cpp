@@ -151,6 +151,7 @@ jpeg_codec_context_t *jpeg_context = NULL;
 #endif // DISABLE_JPEG
 #ifndef DISABLE_HEVC
 hevc_codec_context_t *hevc_context = NULL;
+hevc_codec_context_t *software_hevc_context = NULL;
 #endif // DISABLE_HEVC
 ping_fillbuffer_context_t *PING_CTX = NULL;
 
@@ -554,7 +555,20 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
             hevc_context->host_img_buf = host_img_buf;
             hevc_context->host_postprocess_buf = host_postprocess_buf;
             status = init_hevc_context(hevc_context, context, &devices[0], &devices[3], 1);
+            CHECK_AND_RETURN(status, "init of hevc codec kernels failed");
+        }
+        if (SOFTWARE_HEVC_COMPRESSION & config_flags) {
 
+            software_hevc_context = create_hevc_context();
+            software_hevc_context->height = inp_h;
+            software_hevc_context->width = inp_w;
+            software_hevc_context->img_buf_size = img_buf_size;
+            software_hevc_context->enc_queue = commandQueue[0];
+            software_hevc_context->dec_queue = commandQueue[3];
+            software_hevc_context->host_img_buf = host_img_buf;
+            software_hevc_context->host_postprocess_buf = host_postprocess_buf;
+            status = init_c2_android_hevc_context(software_hevc_context, context, &devices[0],
+                                                  &devices[3], 1);
             CHECK_AND_RETURN(status, "init of hevc codec kernels failed");
         }
 #endif // DISABLE_HEVC
@@ -744,6 +758,7 @@ destroy_pocl_image_processor() {
 #endif //  DISABLE_JPEG
 #ifndef DISABLE_HEVC
     destory_hevc_context(&hevc_context);
+    destory_hevc_context(&software_hevc_context);
 #endif // DISABLE_HEVC
     ping_fillbuffer_destroy(&PING_CTX);
 
@@ -1055,7 +1070,7 @@ enqueue_jpeg_image(const cl_uchar *input_img, const uint64_t *buf_size, const in
     cl_event image_write_event, image_size_write_event, dec_event;
 
     status = clEnqueueWriteBuffer(commandQueue[dec_index], out_enc_uv_buf, CL_FALSE, 0, sizeof
-            (uint64_t), buf_size, 0, NULL, &image_size_write_event);
+    (uint64_t), buf_size, 0, NULL, &image_size_write_event);
     CHECK_AND_RETURN(status, "failed to write image size");
     append_to_event_array(event_array, image_size_write_event, VAR_NAME(image_size_write_event));
 
@@ -1196,6 +1211,30 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
                                           &dnn_wait_event);
         inp_buf = hevc_context->out_buf;
         CHECK_AND_RETURN(status, "could not enqueue hevc compression");
+    } else if (SOFTWARE_HEVC_COMPRESSION == compression_type) {
+        inp_format = software_hevc_context->output_format;
+        copy_yuv_to_array(image_data, compression_type, software_hevc_context->host_img_buf);
+
+        cl_event configure_event = NULL;
+
+        // expensive to configure, only do it if it is actually different than
+        // what is currently configured.
+        if (software_hevc_context->i_frame_interval != config.config.hevc.i_frame_interval ||
+            software_hevc_context->framerate != config.config.hevc.framerate ||
+            software_hevc_context->bitrate != config.config.hevc.bitrate ||
+            1 != software_hevc_context->codec_configured) {
+
+            software_hevc_context->codec_configured = 0;
+            software_hevc_context->i_frame_interval = config.config.hevc.i_frame_interval;
+            software_hevc_context->framerate = config.config.hevc.framerate;
+            software_hevc_context->bitrate = config.config.hevc.bitrate;
+            configure_hevc_codec(software_hevc_context, event_array, &configure_event);
+        }
+
+        status = enqueue_hevc_compression(software_hevc_context, event_array, &configure_event,
+                                          &dnn_wait_event);
+        inp_buf = software_hevc_context->out_buf;
+        CHECK_AND_RETURN(status, "could not enqueue hevc compression");
     }
 #endif // DISABLE_HEVC
     else {
@@ -1299,6 +1338,10 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
     if (HEVC_COMPRESSION == compression_type) {
         sz_buf = hevc_context->size_buf;
         sz_queue = hevc_context->enc_queue;
+    }
+    if (SOFTWARE_HEVC_COMPRESSION == compression_type) {
+        sz_buf = software_hevc_context->size_buf;
+        sz_queue = software_hevc_context->enc_queue;
     }
 #endif // DISABLE_HEVC
 

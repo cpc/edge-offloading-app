@@ -18,6 +18,8 @@ public class JNIPoclImageProcessor {
 
     public final static int HEVC_COMPRESSION = (1 << 4);
 
+    public final static int SOFTWARE_HEVC_COMPRESSION = (1 << 5);
+
     public final static int ENABLE_PROFILING = (1 << 8);
 
     public final static int LOCAL_DEVICE = 0;
