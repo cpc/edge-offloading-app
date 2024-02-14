@@ -12,6 +12,9 @@
 #include "quality_algorithm.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <errno.h>
+#include <unistd.h>
 
 
 #ifdef __cplusplus
@@ -56,10 +59,31 @@ bool smuggleONNXAsset(JNIEnv *env, jobject jAssetManager, const char *filename) 
     }
 
     __android_log_print(ANDROID_LOG_DEBUG, "NDK_Asset_Manager", "ONNX blob read successfully");
-
     // Smuggling in progress
     pocl_onnx_blob = tmp;
     pocl_onnx_blob_size = num_bytes;
+
+    // TODO: make sure that there is enough local storage for the onnx file
+    // copy the asset to the local storage so that opencv can find the onnx file
+    char write_file[128];
+    sprintf(write_file, "/data/user/0/org.portablecl.poclaisademo/files/%s", filename);
+
+    if (access(write_file, F_OK) != 0) {
+
+        FILE *write_ptr = fopen(write_file, "w");
+        if (NULL == write_ptr) {
+            __android_log_print(ANDROID_LOG_ERROR, "NDK_Asset_Manager", "errno: %d %s \n", errno,
+                                strerror(errno));
+            return false;
+        }
+        fwrite(tmp, 1, num_bytes, write_ptr);
+        fclose(write_ptr);
+
+    } else {
+        __android_log_print(ANDROID_LOG_INFO, "NDK_Asset_Manager", "%s exists", filename);
+    }
+    __android_log_print(ANDROID_LOG_DEBUG, "NDK_Asset_Manager", "ONNX blob is in local storage");
+
     return true;
 }
 
