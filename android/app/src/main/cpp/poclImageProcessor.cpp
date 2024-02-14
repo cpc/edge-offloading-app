@@ -2,12 +2,6 @@
 #define CL_HPP_MINIMUM_OPENCL_VERSION 300
 #define CL_HPP_TARGET_OPENCL_VERSION 300
 
-// todo: remove this since the pcapp also doesn't build without rename_opencl.h
-//#if __ANDROID__
-//// required for proxy device http://portablecl.org/docs/html/proxy.html
-//#include <rename_opencl.h>
-//
-//#endif
 #include <rename_opencl.h>
 #include "config.h"
 
@@ -1109,6 +1103,11 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
     int64_t start_ns = get_timestamp_ns();
     cl_int status;
 
+#if defined(PRINT_PROFILE_TIME)
+    timespec timespec_a;
+    clock_gettime(CLOCK_MONOTONIC, &timespec_a);
+#endif
+
     if (!setup_success) {
         LOGE("poclProcessImage called but setup did not complete successfully\n");
         return 1;
@@ -1248,6 +1247,12 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
         inp_buf = img_buf[device_index_copy];
     }
 
+#if defined(PRINT_PROFILE_TIME)
+    timespec timespec_b;
+    clock_gettime(CLOCK_MONOTONIC, &timespec_b);
+    printTime(timespec_a, timespec_b, "enqueue compression stuff");
+#endif
+
     int64_t before_fill_ns = get_timestamp_ns();
 
     // Testing ping with CL calls to fill a buffer
@@ -1264,6 +1269,10 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
     CHECK_AND_RETURN(status, "could not enqueue dnn kernels");
 
     int64_t before_eval_ns = get_timestamp_ns();
+#if defined(PRINT_PROFILE_TIME)
+    clock_gettime(CLOCK_MONOTONIC, &timespec_a);
+    printTime(timespec_b, timespec_a, "enqueue dnn stuff");
+#endif
 
     int is_eval_ready = 0;
     if (is_eval_running) {
@@ -1319,9 +1328,8 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
     int64_t after_wait_ns = get_timestamp_ns();
 
 #if defined(PRINT_PROFILE_TIME)
-    timespec timespec_b;
     clock_gettime(CLOCK_MONOTONIC, &timespec_b);
-    printTime(timespec_start, timespec_b, "total cl stuff");
+    printTime(timespec_a, timespec_b, "wait for events stuff");
 #endif
 
 //    if (ENABLE_PROFILING & config_flags) {
@@ -1400,7 +1408,8 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
 
     int64_t stop_ns = get_timestamp_ns();
 #if defined(PRINT_PROFILE_TIME)
-    printTime(timespec_b, timespec_stop, "printing messages");
+    clock_gettime(CLOCK_MONOTONIC, &timespec_a);
+    printTime(timespec_b, timespec_a, "printing messages");
 #endif
 
     if (ENABLE_PROFILING & config_flags) {

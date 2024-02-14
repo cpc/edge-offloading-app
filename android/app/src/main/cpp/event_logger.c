@@ -2,7 +2,6 @@
 // Created by rabijl on 8/28/23.
 // implementations for event_logger.h
 //
-
 #include "event_logger.h"
 #include "sharedUtils.h"
 #include <assert.h>

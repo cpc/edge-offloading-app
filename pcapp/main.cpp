@@ -7,6 +7,8 @@
 #include "sys/stat.h"
 #include "unistd.h"
 
+#include "rename_opencl.h"
+
 #include <CL/cl.h>
 
 #include <opencv2/imgproc.hpp>
@@ -215,16 +217,17 @@ int main() {
     throw_if_cl_err(status, "Getting device info");
 
     /* Settings */
-    const compression_t compression_type = NO_COMPRESSION;
+    const compression_t compression_type = JPEG_COMPRESSION;
+//    const compression_t compression_type = NO_COMPRESSION;
     const int config_flags = ENABLE_PROFILING | compression_type;
 
-    const int device_index = 0;
+    const int device_index = 2;
     const int do_segment = 1;
     const int quality = 80;
     const int rotation = 0;
 
     /* Read input image, assumes app is in a build dir */
-    std::string inp_name = "../../android/app/src/main/assets/bus_640x480.jpg";
+    std::string inp_name = "../android/app/src/main/assets/bus_640x480.jpg";
 
     int inp_w, inp_h, nch;
     uint8_t *inp_pixels = stbi_load(inp_name.data(), &inp_w, &inp_h, &nch, 3);
@@ -282,19 +285,33 @@ int main() {
         "../android/app/src/assets/kernels/copy.cl"};
     auto codec_sources = read_files(source_files);
 
-    status = initPoclImageProcessor(inp_w, inp_h, config_flags,
-                                    codec_sources.at(0).c_str(),
-                                    codec_sources.at(0).size(), fd, NULL, NULL);
+    event_array_t event_array;
+    event_array_t eval_event_array;
+    status = initPoclImageProcessor(
+        inp_w, inp_h, config_flags, codec_sources.at(0).c_str(),
+        codec_sources.at(0).size(), fd, &event_array, &eval_event_array);
     throw_if_cl_err(status, "could not setup image processor");
 
     float iou;
     /* Process */
-    // set imagetimestamp to 0 since we don't have anything providing it
-    status = poclProcessImage(device_index, do_segment, compression_type,
-                              quality, rotation, detections.data(),
-                              segmentations.data(), image_data, 0, &iou);
-    throw_if_cl_err(status, "could not enqueue image");
-    printf("no. detections: %d", detections[0]);
+    
+    for (int i = 0; i < 3; i++) {
+        codec_config_t config;
+        config.compression_type = compression_type;
+        config.device_index = device_index;
+        config.config.jpeg.quality = quality;
+        static int is_eval_frame = 0;
+        static host_ts_ns_t host_ts_ns;
+        static int frame_index = 0;
+        static uint64_t size_bytes = 0;
+        status = poclProcessImage(
+            config, frame_index, do_segment, is_eval_frame, rotation,
+            detections.data(), segmentations.data(), &event_array,
+            &eval_event_array, image_data, 0, &iou, &size_bytes, &host_ts_ns);
+
+        throw_if_cl_err(status, "could not enqueue image");
+        printf("no. detections: %d \n", detections[0]);
+    }
 
     cv::Mat seg_out(MASK_H, MASK_W, CV_8UC4, segmentations.data());
     cv::cvtColor(seg_out, seg_out, cv::COLOR_RGBA2RGB);

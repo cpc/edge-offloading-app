@@ -1,9 +1,4 @@
-#if __ANDROID__
-// required for proxy device http://portablecl.org/docs/html/proxy.html
-#include <rename_opencl.h>
-
-#endif
-
+#include "rename_opencl.h"
 #include <CL/cl.h>
 #include <CL/cl_ext_pocl.h>
 
@@ -20,7 +15,7 @@ int test_vec_add() {
     cl_uint devices_found;
     cl_int status;
 
-    LOGI("<<< TMP Start <<<\n", devices_found);
+    LOGI("<<< TMP Start <<<\n");
 
     status = clGetPlatformIDs(1, &platform, NULL);
     CHECK_AND_RETURN(status, "TMP getting platform id failed");

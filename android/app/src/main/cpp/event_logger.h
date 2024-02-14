@@ -10,12 +10,7 @@
 extern "C" {
 #endif
 
-#if __ANDROID__
-// required for proxy device http://portablecl.org/docs/html/proxy.html
-#include <rename_opencl.h>
-
-#endif
-
+#include "rename_opencl.h"
 #include <CL/cl.h>
 #include <malloc.h>
 

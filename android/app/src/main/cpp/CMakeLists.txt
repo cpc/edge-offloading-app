@@ -174,13 +174,10 @@ set(POCL_CMAKE_ARGS
         -DONNXRUNTIME_LIBRARIES=${ONNXRUNTIME_LIBRARIES}
         -DONNXRUNTIME_SO_FILE=${ONNXRUNTIME_SO_FILE}
         -DENABLE_TURBO_JPEG_COMPRESSION=YES
-        -DTURBO_JPEG_LIBRARIES=libturbojpeg
-        -DTURBO_JPEG_INCLUDE_DIR=${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/include
-        -DTURBO_JPEG_LIB_FILE=${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/libturbojpeg.so
+		-Dlibjpeg-turbo_DIR=${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/armv8/lib/cmake/libjpeg-turbo
         -DENABLE_ANDROID_MEDIACODEC=YES
         -DENABLE_LATEST_CXX_STD=YES
         )
-#-DENABLE_ANDROID_COMPRESSION=YES
 
 ExternalProject_Add(pocl
         SOURCE_DIR ${EXTERNAL_PATH}/pocl
