@@ -2,6 +2,7 @@ package org.portablecl.poclaisademo;
 
 
 import static android.hardware.camera2.CameraMetadata.LENS_FACING_BACK;
+import static android.hardware.camera2.CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE;
 import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
 import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
@@ -46,6 +47,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
+import android.util.Range;
 import android.util.Size;
 import android.view.KeyEvent;
 import android.view.Surface;
@@ -1524,6 +1526,7 @@ public class MainActivity extends AppCompatActivity {
 
 
             requestBuilder = chosenCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+
             requestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
                     CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
             if (captureFormat == ImageFormat.JPEG) {
@@ -1533,9 +1536,10 @@ public class MainActivity extends AppCompatActivity {
                             "Setting camera JPEG quality to " + jpegQuality);
                 }
             }
-//            requestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<Integer>
-//            (60, 60)); // only usable in auto exposure mode, doesn't work
-//            // The following set the camera parameters manually:
+            // uncomment this to set the target fps (only usable in auto-exposure mode, not sure if
+            // it works at all)
+//            requestBuilder.set(CONTROL_AE_TARGET_FPS_RANGE, new Range<Integer>(15, 15));
+            // The following set the camera parameters manually:
 //            requestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest
 //            .CONTROL_AE_MODE_OFF);
 //            requestBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME,   1000000L); // 1 ms
