@@ -77,10 +77,9 @@ set(POCL_CMAKE_ARGS
         # STILL USED?
         -DOpenCV_DIR=${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/jni
 
-        -DENABLE_OPENCV_ONNX=YES
-        -DONNXRUNTIME_LIBRARIES=onnxruntime
-        -DONNXRUNTIME_INCLUDE_DIRS=${ONNXRUNTIME_INCLUDE_DIRS}
-        -DONNXRUNTIME_SO_FILE=${ONNXRUNTIME_SO_FILE}
+        -DENABLE_OPENCV_ONNX=ON
+        -DORT_INSTALL_DIR=${ORT_INSTALL_DIR}
+        -DCUDA_TOOLKIT_ROOT_DIR=${CUDA_TOOLKIT_ROOT_DIR}
 
         -DENABLE_TURBO_JPEG_COMPRESSION=YES
         -DENABLE_TURBO_JPEG_DECOMPRESSION=YES
@@ -151,7 +150,7 @@ target_link_libraries(
         opencv_dnn
         opencv_imgproc
         opencv_imgcodecs
-        ${ONNXRUNTIME_SO_FILE}
+        ${ORT_INSTALL_DIR}
         ${LTTNG_UST_LDFLAGS}
         Tracy::TracyClient
 )

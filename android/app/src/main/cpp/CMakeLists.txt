@@ -68,13 +68,11 @@ find_library(android-lib android)
 # add the libopencl-stub subdirectory with cmakelists.txt to link the opencl stubs to
 add_subdirectory(${EXTERNAL_PATH}/libopencl-stub libopencl-stub-dir)
 
+# while not directly used by the app, the app is linked
+# to it so that it gets packaged into the apk
 add_library(onnxruntime SHARED IMPORTED)
 set(ONNXRUNTIME_SO_FILE ${EXTERNAL_PATH}/onnxruntime-android/jni/${ANDROID_ABI}/libonnxruntime.so)
 set_target_properties(onnxruntime PROPERTIES IMPORTED_LOCATION ${ONNXRUNTIME_SO_FILE})
-#add_library(onnxruntime4j_jni SHARED IMPORTED)
-#set_target_properties(onnxruntime4j_jni PROPERTIES IMPORTED_LOCATION ${EXTERNAL_PATH}/onnxruntime-android/jni/${ANDROID_ABI}/libonnxruntime4j_jni.so)
-set(ONNXRUNTIME_LIBRARIES onnxruntime)
-set(ONNXRUNTIME_INCLUDE_DIRS "${EXTERNAL_PATH}/onnxruntime-android/headers")
 
 # build opencv.
 set(OPENCV_CMAKE_ARGS
@@ -125,8 +123,6 @@ set_target_properties(opencv_core PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_B
 
 set(TURBO_JPEG_ARGS
         -DANDROID_ABI=${ANDROID_ABI}
-#        -DANDROID_ARM_MODE=arm // set in the toolchain
-#        -DANDROID_TOOLCHAIN=clang // set in the toolchain
         -DCMAKE_ASM_FLAGS="--target=aarch64-linux-android${ANDROID_VERSION}"
         -DANDROID_NDK=${ANDROID_NDK}
         -DANDROID_PLATFORM=${ANDROID_PLATFORM_LEVEL}
@@ -141,12 +137,10 @@ ExternalProject_Add(build_turbojpeg
         CMAKE_FLAGS ${TURBO_JPEG_ARGS}
         BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
         BUILD_ALWAYS True
-        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/libturbojpeg.a
-        BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/libturbojpeg.so
         )
-
-add_library(libturbojpeg SHARED IMPORTED)
-set_target_properties(libturbojpeg PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/libturbojpeg.so)
+# find the jpeg lib that was just built
+set(libjpeg-turbo_DIR ${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/armv8/lib/cmake/libjpeg-turbo)
+find_package(libjpeg-turbo REQUIRED)
 
 # build pocl project
 set(POCL_CMAKE_ARGS
@@ -178,9 +172,7 @@ set(POCL_CMAKE_ARGS
         -DVISIBILITY_HIDDEN=0
         -DOpenCV_DIR=${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/jni
         -DENABLE_OPENCV_ONNX=YES
-        -DONNXRUNTIME_INCLUDE_DIRS=${ONNXRUNTIME_INCLUDE_DIRS}
-        -DONNXRUNTIME_LIBRARIES=${ONNXRUNTIME_LIBRARIES}
-        -DONNXRUNTIME_SO_FILE=${ONNXRUNTIME_SO_FILE}
+		-DORT_INSTALL_DIR=${EXTERNAL_PATH}/onnxruntime-android
         -DENABLE_TURBO_JPEG_COMPRESSION=YES
 		-Dlibjpeg-turbo_DIR=${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/armv8/lib/cmake/libjpeg-turbo
         -DENABLE_ANDROID_MEDIACODEC=YES
@@ -262,8 +254,8 @@ target_link_libraries(
         opencv_imgproc
         opencv_imgcodecs
         opencv_core
-        ${ONNXRUNTIME_LIBRARIES}
-        libturbojpeg
+		onnxruntime
+		libjpeg-turbo::turbojpeg
         jnigraphics
 		mediandk
         libpocl_pthread_add_i8
@@ -273,8 +265,6 @@ target_link_libraries(
 		Tracy::TracyClient
 )
 
-
-#add_dependencies(libpocl_pthread_opencv_onnx ${ONNXRUNTIME_LIBRARIES})
 add_dependencies(pocl build_opencv build_turbojpeg)
 add_dependencies(poclnative pocl)
 add_dependencies(poclaisademo poclnative)
