@@ -22,15 +22,21 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#include <Tracy.hpp>
+
 #define MAX_DETECTIONS 10
 #define MASK_W 160
 #define MASK_H 120
 
-static int DETECTION_COUNT = 1 + MAX_DETECTIONS * 6;
-static int SEGMENTATION_COUNT = MAX_DETECTIONS * MASK_W * MASK_H;
-static int SEG_POSTPROCESS_COUNT = 4 * MASK_W * MASK_H; // RGBA image
+constexpr int DETECTION_COUNT = 1 + MAX_DETECTIONS * 6;
+constexpr int SEGMENTATION_COUNT = MAX_DETECTIONS * MASK_W * MASK_H;
+constexpr int SEG_POSTPROCESS_COUNT = 4 * MASK_W * MASK_H; // RGBA image
+
+constexpr float FPS = 30.0f;
+constexpr int NFRAMES = 100;
 
 cl_int test_pthread_bik() {
+    ZoneScoped;
     const int platform_id = 0;
     const int device_id = 0;
 
@@ -92,8 +98,7 @@ cl_int test_pthread_bik() {
     CHECK_AND_RETURN(status, "TMP creating eval command queue failed");
     LOGI("Created CQ\n");
 
-    cl_kernel tmp_kernel = clCreateKernel(tmp_program, "pocl.add.i8",
-                                          &status);
+    cl_kernel tmp_kernel = clCreateKernel(tmp_program, "pocl.add.i8", &status);
     CHECK_AND_RETURN(status, "TMP creating eval kernel failed");
     LOGI("Created kernel\n");
 
@@ -217,14 +222,14 @@ int main() {
     throw_if_cl_err(status, "Getting device info");
 
     /* Settings */
-    const compression_t compression_type = JPEG_COMPRESSION;
-//    const compression_t compression_type = NO_COMPRESSION;
-    const int config_flags = ENABLE_PROFILING | compression_type;
+    constexpr compression_t compression_type = JPEG_COMPRESSION;
+    // constexpr compression_t compression_type = NO_COMPRESSION;
+    constexpr int config_flags = ENABLE_PROFILING | compression_type;
 
-    const int device_index = 2;
-    const int do_segment = 1;
-    const int quality = 80;
-    const int rotation = 0;
+    constexpr int device_index = 2;
+    constexpr int do_segment = 1;
+    constexpr int quality = 80;
+    constexpr int rotation = 0;
 
     /* Read input image, assumes app is in a build dir */
     std::string inp_name = "../android/app/src/main/assets/bus_640x480.jpg";
@@ -292,30 +297,49 @@ int main() {
         codec_sources.at(0).size(), fd, &event_array, &eval_event_array);
     throw_if_cl_err(status, "could not setup image processor");
 
+    int frame_index = 0;
+    int is_eval_frame = 0;
+    int64_t last_image_timestamp = get_timestamp_ns();
     float iou;
+    uint64_t size_bytes;
+    host_ts_ns_t host_ts_ns;
+    codec_config_t codec_config;
+    codec_config.compression_type = compression_type;
+    codec_config.device_index = device_index;
+    codec_config.config.jpeg.quality = quality;
+
     /* Process */
-    
-    for (int i = 0; i < 3; i++) {
-        codec_config_t config;
-        config.compression_type = compression_type;
-        config.device_index = device_index;
-        config.config.jpeg.quality = quality;
-        static int is_eval_frame = 0;
-        static host_ts_ns_t host_ts_ns;
-        static int frame_index = 0;
-        static uint64_t size_bytes = 0;
-        status = poclProcessImage(
-            config, frame_index, do_segment, is_eval_frame, rotation,
-            detections.data(), segmentations.data(), &event_array,
-            &eval_event_array, image_data, 0, &iou, &size_bytes, &host_ts_ns);
 
-        throw_if_cl_err(status, "could not enqueue image");
-        printf("no. detections: %d \n", detections[0]);
+    while (frame_index < NFRAMES) {
+        int64_t image_timestamp = get_timestamp_ns();
+        auto since_last_frame_sec =
+            (float)(image_timestamp - last_image_timestamp) / 1e9f;
+
+        if (since_last_frame_sec < (1.0f / FPS)) {
+            continue;
+        }
+
+        FrameMark;
+
+        {
+            ZoneScopedN("top");
+            last_image_timestamp = image_timestamp;
+
+            status = poclProcessImage(
+                codec_config, frame_index, do_segment, is_eval_frame, rotation,
+                detections.data(), segmentations.data(), &event_array,
+                &eval_event_array, image_data, image_timestamp, &iou,
+                &size_bytes, &host_ts_ns);
+
+            throw_if_cl_err(status, "could not enqueue image");
+            printf("==== Frame %d, no. detections: %d ====\n", frame_index, detections[0]);
+
+            cv::Mat seg_out(MASK_H, MASK_W, CV_8UC4, segmentations.data());
+            cv::cvtColor(seg_out, seg_out, cv::COLOR_RGBA2RGB);
+            cv::imwrite("seg_out.png", seg_out);
+            frame_index += 1;
+        }
     }
-
-    cv::Mat seg_out(MASK_H, MASK_W, CV_8UC4, segmentations.data());
-    cv::cvtColor(seg_out, seg_out, cv::COLOR_RGBA2RGB);
-    cv::imwrite("seg_out.png", seg_out);
 
     close(fd);
     free(inp_yuv420nv21);

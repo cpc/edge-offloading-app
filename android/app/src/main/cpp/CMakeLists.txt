@@ -20,6 +20,14 @@ set(EXTERNAL_PATH ${CMAKE_CURRENT_LIST_DIR}/../../../../../external/)
 
 project("poclaisademo")
 
+# Set up Tracy and its options
+# Note: For the options to take effect, delete cmake cache and reconfigure
+option(TRACY_ENABLE "Enable profiling" OFF)
+set(TRACY_STATIC OFF)
+option(TRACY_NO_SAMPLING "enable tracing with stack traces" ON)
+add_subdirectory(${EXTERNAL_PATH}/tracy/ tracy-build)
+message(STATUS "TRACY_ENABLE: ${TRACY_ENABLE}")
+
 # Creates and names a library, sets it as either STATIC
 # or SHARED, and provides the relative paths to its source code.
 # You can define multiple libraries, and CMake builds them for you.
@@ -38,7 +46,7 @@ add_library( # Sets the name of the library.
 
 target_include_directories(poclaisademo PRIVATE
         ${EXTERNAL_PATH}/libopencl-stub/include
-
+		${EXTERNAL_PATH}/tracy/public/tracy
         )
 
 
@@ -177,6 +185,7 @@ set(POCL_CMAKE_ARGS
 		-Dlibjpeg-turbo_DIR=${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/armv8/lib/cmake/libjpeg-turbo
         -DENABLE_ANDROID_MEDIACODEC=YES
         -DENABLE_LATEST_CXX_STD=YES
+		-DTRACY_ENABLE=${TRACY_ENABLE}
         )
 
 ExternalProject_Add(pocl
@@ -240,6 +249,7 @@ target_include_directories(poclnative
         PRIVATE
         ${EXTERNAL_PATH}/pocl/include
         ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/jni/include
+		${EXTERNAL_PATH}/tracy/public/tracy
         )
 
 target_link_libraries(
@@ -260,6 +270,7 @@ target_link_libraries(
         libpocl_pthread_opencv_onnx
         libpocl_pthread_turbojpeg
         libpocl_pthread_mediacodec_encoder
+		Tracy::TracyClient
 )
 
 
@@ -288,4 +299,5 @@ target_link_libraries( # Specifies the target library.
         opencv_core
         
         mediandk
+		Tracy::TracyClient
         )

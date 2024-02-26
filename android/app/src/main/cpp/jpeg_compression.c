@@ -8,6 +8,8 @@
 #include <CL/cl_ext_pocl.h>
 #include <assert.h>
 
+#include <TracyC.h>
+
 /**
  * allocate memory for the codec context and set pointers to NULL;
  * @return pointer to context
@@ -147,6 +149,7 @@ enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, event_array_t *event_a
                          cl_event *result_event) {
 
     assert (0 <= cxt->quality && cxt->quality <= 100);
+    TracyCZone(ctx, 1);
 
     cl_int status;
 
@@ -193,6 +196,7 @@ enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, event_array_t *event_a
 
     *result_event = dec_event;
 
+    TracyCZoneEnd(ctx);
     return 0;
 }
 

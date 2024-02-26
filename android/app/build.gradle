@@ -20,6 +20,7 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             cmake {
+                arguments "-DTRACY_ENABLE=OFF"
                 cppFlags '-std=c++17 -O3 -mfpu=neon -ftree-vectorize -mfloat-abi=softfp'
             }
         }

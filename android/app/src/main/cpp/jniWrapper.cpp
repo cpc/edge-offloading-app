@@ -268,7 +268,6 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
                                &eval_event_array, image_data, image_timestamp, &LAST_IOU,
                                &size_bytes, &host_ts_ns);
 
-
     if (do_algorithm) {
         is_eval_frame = evaluate_parameters(frame_index, energy, LAST_IOU, size_bytes,
                                             FILE_DESCRIPTOR, CONFIG_FLAGS, &event_array,

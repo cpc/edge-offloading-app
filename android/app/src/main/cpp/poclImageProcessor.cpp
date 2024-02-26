@@ -22,6 +22,9 @@
 #include "event_logger.h"
 #include "yuv_compression.h"
 
+#include <Tracy.hpp>
+#include <TracyOpenCL.hpp>
+
 #ifndef DISABLE_JPEG
 
 #include "jpeg_compression.h"
@@ -56,6 +59,9 @@ static int segmentation_count = MAX_DETECTIONS * MASK_W * MASK_H;
 static int seg_out_count = MASK_W * MASK_H * 4; // RGBA image
 static int total_out_count = detection_count + segmentation_count;
 static cl_context context = nullptr;
+
+static TracyCLCtx tracy_cl_ctx[4] = {NULL};
+static TracyCLCtx eval_tracy_cl_ctx[4] = {NULL};
 
 /**
  * all the devices, order:
@@ -591,6 +597,15 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     status = ping_fillbuffer_init(&PING_CTX, context);
     CHECK_AND_RETURN(status, "PING failed to init");
 
+    // initialize Tracy context for profiling OpenCL
+    for (int i = 0; i < devices_found; ++i) {
+        tracy_cl_ctx[i] = TracyCLContext(context, devices[i]);
+    }
+
+    for (int i = 0; i < devices_found; ++i) {
+        eval_tracy_cl_ctx[i] = TracyCLContext(context, devices[i]);
+    }
+
     setup_success = 1;
 
     return 0;
@@ -756,6 +771,18 @@ destroy_pocl_image_processor() {
 #endif // DISABLE_HEVC
     ping_fillbuffer_destroy(&PING_CTX);
 
+    for (int i = 0; i < MAX_NUM_CL_DEVICES; ++i) {
+        if (tracy_cl_ctx[i] != NULL) {
+            TracyCLDestroy(tracy_cl_ctx[i]);
+            tracy_cl_ctx[i] = NULL;
+        }
+
+        if (eval_tracy_cl_ctx[i] != NULL) {
+            TracyCLDestroy(eval_tracy_cl_ctx[i]);
+            eval_tracy_cl_ctx[i] = NULL;
+        }
+    }
+
     return 0;
 }
 
@@ -794,6 +821,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
             event_array_t *eval_event_array, cl_event *out_tmp_detect_copy_event,
             cl_event *out_tmp_postprocess_copy_event, cl_event *out_event, cl_mem inp_buf) {
 
+    ZoneScoped;
     cl_int status;
 
 #if defined(PRINT_PROFILE_TIME)
@@ -833,19 +861,26 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
 
     cl_event run_dnn_event, read_detect_event;
 
-    status = clEnqueueNDRangeKernel(commandQueue[dnn_device_idx], dnn_kernel, 1, NULL,
-                                    &global_size, &local_size, 1,
-                                    wait_event, &run_dnn_event);
-    CHECK_AND_RETURN(status, "failed to enqueue ND range DNN kernel");
-    append_to_event_array(event_array, run_dnn_event, VAR_NAME(dnn_event));
+    {
+        TracyCLZone(tracy_cl_ctx[dnn_device_idx], "DNN");
+        status = clEnqueueNDRangeKernel(commandQueue[dnn_device_idx], dnn_kernel, 1, NULL,
+                                        &global_size, &local_size, 1,
+                                        wait_event, &run_dnn_event);
+        CHECK_AND_RETURN(status, "failed to enqueue ND range DNN kernel");
+        append_to_event_array(event_array, run_dnn_event, VAR_NAME(dnn_event));
+        TracyCLZoneSetEvent(run_dnn_event);
+    }
 
-
-    status = clEnqueueReadBuffer(commandQueue[out_device_idx], _out_buf,
-                                 CL_FALSE, 0,
-                                 detection_count * sizeof(cl_int), detection_array, 1,
-                                 &run_dnn_event, &read_detect_event);
-    CHECK_AND_RETURN(status, "failed to read detection result buffer");
-    append_to_event_array(event_array, read_detect_event, VAR_NAME(read_detect_event));
+    {
+        TracyCLZone(tracy_cl_ctx[out_device_idx], "read detect");
+        status = clEnqueueReadBuffer(commandQueue[out_device_idx], _out_buf,
+                                     CL_FALSE, 0,
+                                     detection_count * sizeof(cl_int), detection_array, 1,
+                                     &run_dnn_event, &read_detect_event);
+        CHECK_AND_RETURN(status, "failed to read detection result buffer");
+        append_to_event_array(event_array, read_detect_event, VAR_NAME(read_detect_event));
+        TracyCLZoneSetEvent(read_detect_event);
+    }
 
     if (save_out_buf) {
         // Save detections to a temporary buffer for the quality evaluation pipeline
@@ -864,14 +899,17 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
     if (do_segment) {
         cl_event run_postprocess_event, mig_seg_event, run_reconstruct_event, read_segment_event;
 
-        // postprocess
-        status = clEnqueueNDRangeKernel(commandQueue[dnn_device_idx], postprocess_kernel, 1,
-                                        NULL,
-                                        &global_size, &local_size, 1,
-                                        &run_dnn_event, &run_postprocess_event);
-        CHECK_AND_RETURN(status, "failed to enqueue ND range postprocess kernel");
-        append_to_event_array(event_array, run_postprocess_event, VAR_NAME(postprocess_event));
-
+        {
+            // postprocess
+            TracyCLZone(tracy_cl_ctx[dnn_device_idx], "postprocess");
+            status = clEnqueueNDRangeKernel(commandQueue[dnn_device_idx], postprocess_kernel, 1,
+                                            NULL,
+                                            &global_size, &local_size, 1,
+                                            &run_dnn_event, &run_postprocess_event);
+            CHECK_AND_RETURN(status, "failed to enqueue ND range postprocess kernel");
+            append_to_event_array(event_array, run_postprocess_event, VAR_NAME(postprocess_event));
+            TracyCLZoneSetEvent(run_postprocess_event);
+        }
 
         if (save_out_buf) {
             // save postprocessed buffer for the quality eval pipeline
@@ -888,29 +926,41 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
             *out_tmp_postprocess_copy_event = tmp_copy_seg_event;
         }
 
-        // move postprocessed segmentation data to host device
-        status = clEnqueueMigrateMemObjects(commandQueue[out_device_idx], 1,
-                                            &_postprocess_buf, 0, 1,
-                                            &run_postprocess_event,
-                                            &mig_seg_event);
-        CHECK_AND_RETURN(status, "failed to enqueue migration of postprocess buffer");
-        append_to_event_array(event_array, mig_seg_event, VAR_NAME(mig_seg_event));
+        {
+            // move postprocessed segmentation data to host device
+            TracyCLZone(tracy_cl_ctx[out_device_idx], "migrate DNN");
+            status = clEnqueueMigrateMemObjects(commandQueue[out_device_idx], 1,
+                                                &_postprocess_buf, 0, 1,
+                                                &run_postprocess_event,
+                                                &mig_seg_event);
+            CHECK_AND_RETURN(status, "failed to enqueue migration of postprocess buffer");
+            append_to_event_array(event_array, mig_seg_event, VAR_NAME(mig_seg_event));
+            TracyCLZoneSetEvent(mig_seg_event);
+        }
 
-        // reconstruct postprocessed data to RGBA segmentation mask
-        status = clEnqueueNDRangeKernel(commandQueue[out_device_idx], reconstruct_kernel, 1,
-                                        NULL,
-                                        &global_size, &local_size, 1,
-                                        &mig_seg_event, &run_reconstruct_event);
-        CHECK_AND_RETURN(status, "failed to enqueue ND range reconstruct kernel");
-        append_to_event_array(event_array, run_reconstruct_event, VAR_NAME(reconstruct_event));
+        {
+            // reconstruct postprocessed data to RGBA segmentation mask
+            TracyCLZone(tracy_cl_ctx[out_device_idx], "reconstruct");
+            status = clEnqueueNDRangeKernel(commandQueue[out_device_idx], reconstruct_kernel, 1,
+                                            NULL,
+                                            &global_size, &local_size, 1,
+                                            &mig_seg_event, &run_reconstruct_event);
+            CHECK_AND_RETURN(status, "failed to enqueue ND range reconstruct kernel");
+            append_to_event_array(event_array, run_reconstruct_event, VAR_NAME(reconstruct_event));
+            TracyCLZoneSetEvent(run_reconstruct_event);
+        }
 
-        // write RGBA segmentation mask to the result array
-        status = clEnqueueReadBuffer(commandQueue[out_device_idx],
-                                     _reconstruct_buf, CL_FALSE, 0,
-                                     seg_out_count * sizeof(cl_uchar), segmentation_array, 1,
-                                     &run_reconstruct_event, &read_segment_event);
-        CHECK_AND_RETURN(status, "failed to read segmentation reconstruct result buffer");
-        append_to_event_array(event_array, read_segment_event, VAR_NAME(read_segment_event));
+        {
+            // write RGBA segmentation mask to the result array
+            TracyCLZone(tracy_cl_ctx[out_device_idx], "read segment");
+            status = clEnqueueReadBuffer(commandQueue[out_device_idx],
+                                         _reconstruct_buf, CL_FALSE, 0,
+                                         seg_out_count * sizeof(cl_uchar), segmentation_array, 1,
+                                         &run_reconstruct_event, &read_segment_event);
+            CHECK_AND_RETURN(status, "failed to read segmentation reconstruct result buffer");
+            append_to_event_array(event_array, read_segment_event, VAR_NAME(read_segment_event));
+            TracyCLZoneSetEvent(read_segment_event);
+        }
 
         *out_event = read_segment_event;
     } else {
@@ -925,6 +975,7 @@ enqueue_dnn_eval(const cl_event *wait_tmp_detect_copy_event,
                  const cl_event *wait_tmp_postprocess_copy_event, int dnn_device_idx,
                  int out_device_idx, int do_segment, cl_float *out_iou,
                  event_array_t *eval_event_array, cl_event *result_event) {
+    ZoneScoped;
     cl_int status;
 
     cl_int inp_format = YUV_SEMI_PLANAR;
@@ -955,11 +1006,15 @@ enqueue_dnn_eval(const cl_event *wait_tmp_detect_copy_event,
     CHECK_AND_RETURN(status, "failed to write eval img buffer");
     append_to_event_array(eval_event_array, eval_write_img_event, VAR_NAME(eval_write_img_event));
 
-    status = clEnqueueNDRangeKernel(eval_command_queues[dnn_device_idx], dnn_kernel, 1, NULL,
-                                    &global_size,
-                                    &local_size, 1, &eval_write_img_event, &eval_dnn_event);
-    CHECK_AND_RETURN(status, "failed to enqueue ND range eval DNN kernel");
-    append_to_event_array(eval_event_array, eval_dnn_event, VAR_NAME(eval_dnn_event));
+    {
+        TracyCLZoneC(eval_tracy_cl_ctx[dnn_device_idx], "eval DNN", tracy::Color::Yellow);
+        status = clEnqueueNDRangeKernel(eval_command_queues[dnn_device_idx], dnn_kernel, 1, NULL,
+                                        &global_size,
+                                        &local_size, 1, &eval_write_img_event, &eval_dnn_event);
+        CHECK_AND_RETURN(status, "failed to enqueue ND range eval DNN kernel");
+        append_to_event_array(eval_event_array, eval_dnn_event, VAR_NAME(eval_dnn_event));
+        TracyCLZoneSetEvent(eval_dnn_event);
+    }
 
     cl_event wait_event = eval_dnn_event;
     int num_wait_events = 2;
@@ -1060,6 +1115,7 @@ cl_int
 enqueue_jpeg_image(const cl_uchar *input_img, const uint64_t *buf_size, const int dec_index,
                    event_array_t *event_array, cl_event *result_event) {
 
+    ZoneScoped;
     cl_int status;
     cl_event image_write_event, image_size_write_event, dec_event;
 
@@ -1100,6 +1156,7 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
                  event_array_t *eval_event_array, image_data_t image_data, long image_timestamp,
                  float *iou, uint64_t *size_bytes, host_ts_ns_t *host_ts_ns) {
 
+    FrameMark;
     int64_t start_ns = get_timestamp_ns();
     cl_int status;
 
@@ -1287,6 +1344,9 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
             is_eval_running = 0;
             is_eval_ready = 1;
 
+            TracyCLCollect(eval_tracy_cl_ctx[0]);
+            TracyCLCollect(eval_tracy_cl_ctx[device_index_copy]);
+
             if (IMGPROC_VERBOSITY >= 1) {
                 LOGI("=== Frame %3d: EVAL IOU: finished\n", frame_index);
             }
@@ -1321,9 +1381,15 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
 
     int64_t before_wait_ns = get_timestamp_ns();
 
-    cl_event wait_events[] = {dnn_read_event, fill_event};
-    status = clWaitForEvents(2, wait_events);
-    CHECK_AND_RETURN(status, "could not wait for final events");
+    {
+        ZoneScopedN("wait");
+        cl_event wait_events[] = {dnn_read_event, fill_event};
+        status = clWaitForEvents(2, wait_events);
+        CHECK_AND_RETURN(status, "could not wait for final events");
+
+        TracyCLCollect(tracy_cl_ctx[0]);
+        TracyCLCollect(tracy_cl_ctx[device_index_copy]);
+    }
 
     int64_t after_wait_ns = get_timestamp_ns();
 

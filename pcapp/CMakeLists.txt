@@ -20,11 +20,11 @@ include(ProcessorCount)
 project(pcapp LANGUAGES C CXX)
 
 set(POCL_ASAN 0)
-if(ENABLE_ASAN)
-add_compile_options(-fsanitize=address)
-add_link_options(-fsanitize=address)
-set(POCL_ASAN 1)
-endif(ENABLE_ASAN)
+if (ENABLE_ASAN)
+    add_compile_options(-fsanitize=address)
+    add_link_options(-fsanitize=address)
+    set(POCL_ASAN 1)
+endif (ENABLE_ASAN)
 
 ProcessorCount(CORES)
 if (CORES EQUAL 0)
@@ -37,6 +37,12 @@ MESSAGE("EXTERNAL_PROJECT_CORES: ${EXTERNAL_PROJECT_CORES}")
 set(ROOT_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
 set(EXTERNAL_DIR ${ROOT_DIR}/external)
 set(APP_DIR ${ROOT_DIR}/android/app/src/main/cpp)
+
+# Set up Tracy and its options
+option(TRACY_ENABLE "Enable profiling" OFF)
+option(TRACY_STATIC "Build Tracy client as a static library" OFF)  # off required for profiling multiple dynamic libraries
+option(TRACY_NO_SAMPLING "Disable call stack sampling" ON)
+add_subdirectory(${EXTERNAL_DIR}/tracy tracy-build)
 
 option(DISABLE_HEVC "do not build hevc backend" ON)
 configure_file("${APP_DIR}/config.h.in.cmake" "config.h" ESCAPE_QUOTES)
@@ -81,13 +87,15 @@ set(POCL_CMAKE_ARGS
         -Dlibjpeg-turbo_DIR=${EXTERNAL_DIR}/libjpeg-turbo/libturbojpeg/x86-64/lib/cmake/libjpeg-turbo
         -DENABLE_FFMPEG_DECODE=NO
         -DENABLE_LATEST_CXX_STD=YES
+
+        -DTRACY_ENABLE=${TRACY_ENABLE}
         )
 
 ExternalProject_Add(pocl
         SOURCE_DIR ${EXTERNAL_DIR}/pocl
         CMAKE_GENERATOR "Unix Makefiles"
         CMAKE_ARGS ${POCL_CMAKE_ARGS}
-        BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
+        BUILD_COMMAND cmake --build . --target all --config ${CMAKE_BUILD_TYPE} -- -j ${EXTERNAL_PROJECT_CORES}
         BUILD_ALWAYS True
         BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libOpenCL.a
         BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libpocl.a
@@ -101,6 +109,9 @@ add_library(libpocl SHARED IMPORTED)
 set_target_properties(libpocl
         PROPERTIES IMPORTED_LOCATION
         ${CMAKE_CURRENT_BINARY_DIR}/pocl/lib/static/libpocl.a)
+target_link_libraries(libpocl INTERFACE Tracy::TracyClient)
+target_include_directories(libpocl INTERFACE ${EXTERNAL_DIR}/tracy/public/tracy)
+
 
 add_executable(
         ${PROJECT_NAME}
@@ -115,7 +126,9 @@ add_executable(
 target_include_directories(
         ${PROJECT_NAME} PUBLIC
         ${EXTERNAL_DIR}/pocl/include
-        ${APP_DIR})
+        ${APP_DIR}
+        ${EXTERNAL_DIR}/tracy/public/tracy
+)
 
 
 add_dependencies(${PROJECT_NAME}
@@ -140,6 +153,7 @@ target_link_libraries(
         opencv_imgcodecs
         ${ONNXRUNTIME_SO_FILE}
         ${LTTNG_UST_LDFLAGS}
+        Tracy::TracyClient
 )
 
 target_compile_definitions(

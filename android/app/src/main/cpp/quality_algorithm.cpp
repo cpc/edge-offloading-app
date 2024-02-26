@@ -7,6 +7,8 @@
 #include <string.h>
 #include <cmath>
 
+#include <Tracy.hpp>
+
 #include "platform.h"
 #include "quality_algorithm.h"
 
@@ -481,8 +483,8 @@ int evaluate_parameters(int frame_index, float power, float iou, uint64_t size_b
     // switch codec
 
     int old_codec_point = CUR_CODEC_ID;
-    CUR_CODEC_ID = min_i;
-//    CUR_CODEC_ID = (CUR_CODEC_ID + 1) % NUM_CODEC_POINTS; // DEBUG
+//    CUR_CODEC_ID = min_i;
+    CUR_CODEC_ID = (CUR_CODEC_ID + 1) % NUM_CODEC_POINTS; // DEBUG
     result_config->compression_type = CODEC_POINTS[CUR_CODEC_ID];
     result_config->device_index = CODEC_DEVICES[CUR_CODEC_ID];
     const int config_id = CODEC_CONFIGS[CUR_CODEC_ID];
@@ -524,6 +526,12 @@ int evaluate_parameters(int frame_index, float power, float iou, uint64_t size_b
     }
 
     DID_CODEC_CHANGE = old_codec_point != CUR_CODEC_ID;
+
+    if (DID_CODEC_CHANGE) {
+        char msg[32];
+        sprintf(msg, "codec change %d -> %d", old_codec_point, CUR_CODEC_ID);
+        TracyMessageC(msg, strlen(msg), tracy::Color::Red);
+    }
 
     return is_eval_frame;
 }
