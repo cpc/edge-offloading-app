@@ -157,7 +157,7 @@ int ping_fillbuffer_run(ping_fillbuffer_context_t *ctx, cl_command_queue queue,
     status = clEnqueueFillBuffer(queue, ctx->buf, &pattern, pattern_size, off, size, 0, NULL,
                                  &fill_event);
     CHECK_AND_RETURN(status, "PING could not fill buffer");
-    append_to_event_array(event_array, fill_event, VAR_NAME(fill_event));
+//    append_to_event_array(event_array, fill_event, VAR_NAME(fill_event));
 
 //    status = clWaitForEvents(1, &fill_event);
 //    CHECK_AND_RETURN(status, "PING failed to wait for fill event");
@@ -170,8 +170,10 @@ int ping_fillbuffer_run(ping_fillbuffer_context_t *ctx, cl_command_queue queue,
 int ping_fillbuffer_destroy(ping_fillbuffer_context_t **ctx) {
     cl_int status = CL_SUCCESS;
 
-    COND_REL_MEM((*ctx)->buf);
-    free((*ctx)->buf);
+    if (ctx != NULL && *ctx != NULL) {
+        COND_REL_MEM((*ctx)->buf);
+        free((*ctx)->buf);
+    }
 
     return status;
 }

@@ -9,7 +9,7 @@
 //#include <file_descriptor_jni.h>
 #include <jni.h>
 #include "poclImageProcessor.h"
-#include "quality_algorithm.h"
+#include "eval.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -153,6 +153,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessor(JN
     jint res = initPoclImageProcessor(width, height, CONFIG_FLAGS, codec_sources, src_size,
                                       FILE_DESCRIPTOR, &event_array, &eval_event_array);
 
+    init_eval();
+
     destroySmugglingEvidence();
 
     free(codec_sources);
@@ -172,6 +174,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
 
     free_event_array(&event_array);
     free_event_array(&eval_event_array);
+    destroy_eval();
     return destroy_pocl_image_processor();
 }
 

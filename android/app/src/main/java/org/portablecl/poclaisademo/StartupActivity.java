@@ -46,7 +46,8 @@ public class StartupActivity extends AppCompatActivity {
     /**
      * suggestion ip addresses
      */
-    private final static String[] IPAddresses = {"192.168.36.206", "192.168.50.112", "10.1.200.5", "192.168.88.232"};
+    private final static String[] IPAddresses = {"192.168.36.206", "192.168.50.112", "10.1.200.5",
+            "192.168.88.232", "192.168.88.217" };
 
     /**
      * A callback that loses focus when the done button is pressed on a TextView.
@@ -327,16 +328,16 @@ public class StartupActivity extends AppCompatActivity {
                 hevcCompButton.setChecked(true);
             }
 
+            if (softwareHevcCompButton.isChecked()) {
+                softwareHevcCompButton.setChecked(false);
+            }
+
             if (yuvCompButton.isChecked()) {
                 yuvCompButton.setChecked(false);
             }
 
             if (jpegImageButton.isChecked()) {
                 jpegImageButton.setChecked(false);
-            }
-
-            if (softwareHevcCompButton.isChecked()) {
-                softwareHevcCompButton.setChecked(false);
             }
         }
     };

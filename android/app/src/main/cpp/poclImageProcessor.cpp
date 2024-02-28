@@ -47,17 +47,8 @@
 extern "C" {
 #endif
 
-
-#define MAX_DETECTIONS 10
-#define MASK_W 160
-#define MASK_H 120
-
 #define IMGPROC_VERBOSITY 0
 
-static int detection_count = 1 + MAX_DETECTIONS * 6;
-static int segmentation_count = MAX_DETECTIONS * MASK_W * MASK_H;
-static int seg_out_count = MASK_W * MASK_H * 4; // RGBA image
-static int total_out_count = detection_count + segmentation_count;
 static cl_context context = nullptr;
 
 static TracyCLCtx tracy_cl_ctx[4] = {NULL};
@@ -102,6 +93,7 @@ static cl_int inp_h;
 static cl_int rotate_cw_degrees;
 
 static int config_flags;
+static int num_devices;
 
 /**
  * the contents of the image, non compressed
@@ -297,6 +289,7 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     CHECK_AND_RETURN(status, "getting device id failed");
     LOGI("Platform has %d devices\n", devices_found);
     assert(devices_found > 0);
+    num_devices = devices_found;
 
     // some info
     char result_array[256];
@@ -369,11 +362,11 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     eval_kernel = clCreateKernel(program, eval_kernel_name.c_str(), &status);
     CHECK_AND_RETURN(status, "creating eval kernel failed");
 
-    eval_img_buf = clCreateBuffer(context, CL_MEM_READ_ONLY, total_out_count * sizeof(cl_int),
+    eval_img_buf = clCreateBuffer(context, CL_MEM_READ_ONLY, TOTAL_OUT_SIZE * sizeof(cl_int),
                                   NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the eval image buffer");
 
-    eval_out_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, total_out_count * sizeof(cl_int),
+    eval_out_buf = clCreateBuffer(context, CL_MEM_WRITE_ONLY, TOTAL_OUT_SIZE * sizeof(cl_int),
                                   NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the eval output buffer");
 
@@ -410,11 +403,11 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
                                 img_buf_size, NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the image buffer");
 
-    out_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE, total_out_count * sizeof(cl_int),
+    out_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE, TOTAL_OUT_SIZE * sizeof(cl_int),
                                 NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the output buffer");
 
-    tmp_out_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE, total_out_count * sizeof(cl_int),
+    tmp_out_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE, TOTAL_OUT_SIZE * sizeof(cl_int),
                                     NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the reference output buffer");
 
@@ -434,7 +427,7 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     CHECK_AND_RETURN(status, "failed to create the segmentation postprocessing buffer");
 
     reconstruct_buf[0] = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                        seg_out_count * sizeof(cl_uchar),
+                                        RECONSTRUCTED_SIZE * sizeof(cl_uchar),
                                         NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation reconstructed buffer");
 
@@ -450,12 +443,12 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
         }
         CHECK_AND_RETURN(status, "failed to create the image buffer");
 
-        out_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE, total_out_count * sizeof(cl_int),
+        out_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE, TOTAL_OUT_SIZE * sizeof(cl_int),
                                     NULL, &status);
         CHECK_AND_RETURN(status, "failed to create the output buffer");
 
         tmp_out_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                        total_out_count * sizeof(cl_int),
+                                        TOTAL_OUT_SIZE * sizeof(cl_int),
                                         NULL, &status);
         CHECK_AND_RETURN(status, "failed to create the reference output buffer");
 
@@ -475,7 +468,7 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
         CHECK_AND_RETURN(status, "failed to create the tmp segmentation postprocessing buffer");
 
         reconstruct_buf[2] = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                            seg_out_count * sizeof(cl_uchar),
+                                            RECONSTRUCTED_SIZE * sizeof(cl_uchar),
                                             NULL, &status);
         CHECK_AND_RETURN(status, "failed to create the segmentation reconstructed buffer");
     }
@@ -596,15 +589,6 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
     // setup ping monitor
     status = ping_fillbuffer_init(&PING_CTX, context);
     CHECK_AND_RETURN(status, "PING failed to init");
-
-    // initialize Tracy context for profiling OpenCL
-    for (int i = 0; i < devices_found; ++i) {
-        tracy_cl_ctx[i] = TracyCLContext(context, devices[i]);
-    }
-
-    for (int i = 0; i < devices_found; ++i) {
-        eval_tracy_cl_ctx[i] = TracyCLContext(context, devices[i]);
-    }
 
     setup_success = 1;
 
@@ -875,7 +859,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
         TracyCLZone(tracy_cl_ctx[out_device_idx], "read detect");
         status = clEnqueueReadBuffer(commandQueue[out_device_idx], _out_buf,
                                      CL_FALSE, 0,
-                                     detection_count * sizeof(cl_int), detection_array, 1,
+                                     DETECTION_SIZE * sizeof(cl_int), detection_array, 1,
                                      &run_dnn_event, &read_detect_event);
         CHECK_AND_RETURN(status, "failed to read detection result buffer");
         append_to_event_array(event_array, read_detect_event, VAR_NAME(read_detect_event));
@@ -884,7 +868,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
 
     if (save_out_buf) {
         // Save detections to a temporary buffer for the quality evaluation pipeline
-        size_t sz = detection_count * sizeof(cl_int);
+        size_t sz = DETECTION_SIZE * sizeof(cl_int);
 
         cl_event tmp_copy_det_event;
         status = clEnqueueCopyBuffer(commandQueue[dnn_device_idx], _out_buf,
@@ -955,7 +939,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
             TracyCLZone(tracy_cl_ctx[out_device_idx], "read segment");
             status = clEnqueueReadBuffer(commandQueue[out_device_idx],
                                          _reconstruct_buf, CL_FALSE, 0,
-                                         seg_out_count * sizeof(cl_uchar), segmentation_array, 1,
+                                         RECONSTRUCTED_SIZE * sizeof(cl_uchar), segmentation_array, 1,
                                          &run_reconstruct_event, &read_segment_event);
             CHECK_AND_RETURN(status, "failed to read segmentation reconstruct result buffer");
             append_to_event_array(event_array, read_segment_event, VAR_NAME(read_segment_event));
@@ -1203,6 +1187,15 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
 
     reset_event_array(event_array);
 
+    int64_t before_fill_ns = get_timestamp_ns();
+
+    // Testing ping with CL calls to fill a buffer (always run on remote device: we need to keep pinging the server)
+    cl_event fill_event;
+    if (num_devices > 1) {
+        status = ping_fillbuffer_run(PING_CTX, commandQueue[2], event_array, &fill_event);
+        CHECK_AND_RETURN(status, "PING failed to run");
+    }
+
     // used to pass the buffer with the output contents to the dnn
     cl_mem inp_buf = NULL;
 
@@ -1310,13 +1303,6 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
     printTime(timespec_a, timespec_b, "enqueue compression stuff");
 #endif
 
-    int64_t before_fill_ns = get_timestamp_ns();
-
-    // Testing ping with CL calls to fill a buffer
-    cl_event fill_event;
-    status = ping_fillbuffer_run(PING_CTX, commandQueue[device_index_copy], event_array, &fill_event);
-    CHECK_AND_RETURN(status, "PING failed to run");
-
     int64_t before_dnn_ns = get_timestamp_ns();
 
     status = enqueue_dnn(&dnn_wait_event, device_index_copy, 0, do_segment_copy, detection_array,
@@ -1383,8 +1369,8 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
 
     {
         ZoneScopedN("wait");
-        cl_event wait_events[] = {dnn_read_event, fill_event};
-        status = clWaitForEvents(2, wait_events);
+        cl_event wait_events[] = {dnn_read_event};
+        status = clWaitForEvents(1, wait_events);
         CHECK_AND_RETURN(status, "could not wait for final events");
 
         TracyCLCollect(tracy_cl_ctx[0]);
@@ -1392,6 +1378,37 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
     }
 
     int64_t after_wait_ns = get_timestamp_ns();
+
+    if (num_devices <= 1) {
+        // When running only locally, there is no network latency
+        host_ts_ns->fill_ping_duration = 0;
+    } else {
+        cl_int fill_status;
+        status = clGetEventInfo(fill_event, CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int),
+                                &fill_status, NULL);
+        CHECK_AND_RETURN(status, "could not get fill event info");
+
+        if (fill_status == CL_COMPLETE) {
+            // Fill ping completed sooner than the rest of the loop
+            cl_ulong start_time_ns, end_time_ns;
+            status = clGetEventProfilingInfo(fill_event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start_time_ns, NULL);
+            if (status != CL_SUCCESS) {
+                LOGE("ERROR: Could not get fill event start\n");
+                return status;
+            }
+
+            status = clGetEventProfilingInfo(fill_event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end_time_ns, NULL);
+            if (status != CL_SUCCESS) {
+                LOGE("ERROR: Could not get fill event end\n");
+                return status;
+            }
+
+            host_ts_ns->fill_ping_duration = end_time_ns - start_time_ns;
+        } else {
+            // Fill ping still not complete, fill in large value and don't wait for it
+            host_ts_ns->fill_ping_duration = after_wait_ns - before_fill_ns;
+        }
+    }
 
 #if defined(PRINT_PROFILE_TIME)
     clock_gettime(CLOCK_MONOTONIC, &timespec_b);
@@ -1480,8 +1497,8 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
 
     if (ENABLE_PROFILING & config_flags) {
         dprintf(file_descriptor, "%d,frame_time,start_ns,%lu\n", frame_index, start_ns);
-        dprintf(file_descriptor, "%d,frame_time,before_enc_ns,%lu\n", frame_index, before_enc_ns);
         dprintf(file_descriptor, "%d,frame_time,before_fill_ns,%lu\n", frame_index, before_fill_ns);
+        dprintf(file_descriptor, "%d,frame_time,before_enc_ns,%lu\n", frame_index, before_enc_ns);
         dprintf(file_descriptor, "%d,frame_time,before_dnn_ns,%lu\n", frame_index, before_dnn_ns);
         dprintf(file_descriptor, "%d,frame_time,before_eval_ns,%lu\n", frame_index, before_eval_ns);
         dprintf(file_descriptor, "%d,frame_time,before_wait_ns,%lu\n", frame_index, before_wait_ns);
@@ -1490,8 +1507,8 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
     }
 
     host_ts_ns->start = start_ns;
-    host_ts_ns->before_enc = before_enc_ns;
     host_ts_ns->before_fill = before_fill_ns;
+    host_ts_ns->before_enc = before_enc_ns;
     host_ts_ns->before_dnn = before_dnn_ns;
     host_ts_ns->before_eval = before_eval_ns;
     host_ts_ns->before_wait = before_wait_ns;
@@ -1517,6 +1534,8 @@ get_compression_name(const compression_t compression_id) {
             return "jpeg";
         case HEVC_COMPRESSION:
             return "hevc";
+        case SOFTWARE_HEVC_COMPRESSION:
+            return "swhevc";
         case JPEG_IMAGE:
             return "jpeg_image";
         default:

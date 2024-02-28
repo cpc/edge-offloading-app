@@ -215,7 +215,8 @@ add_library(poclnative
         dnn_stage.c dnn_stage.h
         jpeg_compression.c jpeg_compression.h
         hevc_compression.c hevc_compression.h
-        quality_algorithm.cpp quality_algorithm.h
+		eval.cpp eval.h
+		eval_network_model.cpp eval_network_model.h
 		testapps.c testapps.h
         )
 

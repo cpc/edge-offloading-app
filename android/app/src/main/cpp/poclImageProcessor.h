@@ -15,6 +15,21 @@
 #define CSV_HEADER "frameindex,tag,parameter,value\n"
 #define MAX_NUM_CL_DEVICES 4
 
+#define MAX_DETECTIONS 10
+#define MASK_W 160
+#define MASK_H 120
+
+#define DETECTION_SIZE     (1 + MAX_DETECTIONS * 6)
+#define SEGMENTATION_SIZE  (MAX_DETECTIONS * MASK_W * MASK_H)
+#define RECONSTRUCTED_SIZE (MASK_W * MASK_H * 4) // RGBA image
+#define TOTAL_OUT_SIZE     (DETECTION_SIZE + SEGMENTATION_SIZE)
+#define TOTAL_RX_SIZE      (DETECTION_SIZE + MASK_W * MASK_H)
+#define ANDROID_MTU        1464  // found via ifconfig
+#define SERVER_MTU         1500  // found via ifconfig
+//#define FILL_PING_SIZE     (ANDROID_MTU + SERVER_MTU)
+#define FILL_PING_SIZE     (73 + 120) // write + read size read from POCL_DEBUG=remote
+//#define FILL_PING_SIZE     1  // buffer size used on the host side
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -41,13 +56,14 @@ enum {
  */
 typedef struct {
     int64_t start;
-    int64_t before_enc;
     int64_t before_fill;
+    int64_t before_enc;
     int64_t before_dnn;
     int64_t before_eval;
     int64_t before_wait;
     int64_t after_wait;
     int64_t stop;
+    int64_t fill_ping_duration;
 } host_ts_ns_t;
 
 int supports_config_flags(const int input);
