@@ -1,9 +1,12 @@
 package org.portablecl.poclaisademo;
 
+import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
+
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.BatteryManager;
+import android.util.Log;
 
 
 public class EnergyMonitor {
@@ -23,6 +26,12 @@ public class EnergyMonitor {
      * the time is measured in nanoseconds so 1/10**9
      */
     private static final float timescale = 0.000000001f;
+
+    /**
+     * convert the charge from microwatt-hours to watt-seconds
+     */
+    private final float energy_scale = 0.000001f * 60 * 60;
+
     /**
      * the battery manager used to query for values.
      */
@@ -223,5 +232,36 @@ public class EnergyMonitor {
 
     public float calculateEnergy(int volt, int amp) {
         return (amp * currentScale) * (volt * voltageScale);
+    }
+
+    /**
+     * Estimate how many seconds till the battery runs out with the
+     * current energy draw
+     * @return time in seconds
+     */
+    public float estimateSecondsRemaining() {
+
+        int avgCurrent = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE);
+        // we are gaining more than we are using
+        // so theoretically we can continue to do this forever
+        if (avgCurrent > 0) {
+            return Float.POSITIVE_INFINITY;
+        }
+
+        // in microampere-hours
+        long remaining_energy =
+                manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER);
+        int curVoltage = receiver.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 3700);
+
+        float powerDraw = (avgCurrent * currentScale * curVoltage * voltageScale);
+        float secondsRemaining = remaining_energy * energy_scale / -powerDraw;
+
+        if (VERBOSITY >= 2) {
+            Log.println(Log.ERROR, "energy monitor", "current voltage : " + curVoltage);
+            Log.println(Log.ERROR, "energy monitor", "avg current     : " + avgCurrent);
+            Log.println(Log.ERROR, "energy monitor", "power draw      : " + -powerDraw);
+        }
+
+        return secondsRemaining;
     }
 }

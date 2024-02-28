@@ -855,8 +855,8 @@ public class MainActivity extends AppCompatActivity {
                 energyMonitor.tick();
                 trafficMonitor.tick();
                 String formatString = "FPS: %3.1f (%4.0fms)  AVG: %3.1f (%4.0fms)\n" +
-                        "pow: %5.2f W  AVG: %5.2f W\n" +
-                        "EPF: %5.2f J  AVG: %5.2f J\n" +
+                        "pow: %02.2f (%02.2f) W | EPF: %02.2f (%02.2f) J\n" +
+                        new String(Character.toChars(0x1F50B)) + " remaining time: %4dm:%2ds\n" +
                         "bandwidth: ∇ %s | ∆ %s\n" +
                         "ping: %5.1fms AVG: %5.1fms | IoU: %6.4f\n";
 
@@ -864,6 +864,9 @@ public class MainActivity extends AppCompatActivity {
                 float avgfps = counter.getAverageFPS();
                 float eps = -energyMonitor.getEMAEPS();
                 float avgeps = -energyMonitor.getAverageEPS();
+                float remainingTime = energyMonitor.estimateSecondsRemaining();
+                int remainingMinutes = (int) (remainingTime / 60);
+                int remainingSeconds = (int) (remainingTime % 60);
                 float fpssecs = (0 != fps) ? 1000 / fps : 0;
                 float avgfpssecs = (0 != avgfps) ? 1000 / avgfps : 0;
                 float epf = (0 != fps) ? eps / fps : 0;
@@ -874,6 +877,7 @@ public class MainActivity extends AppCompatActivity {
                         avgfps, avgfpssecs,
                         eps, avgeps,
                         epf, avgepf,
+                        remainingMinutes, remainingSeconds,
                         trafficMonitor.getRXBandwidthString(),
                         trafficMonitor.getTXBandwidthString(),
                         (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) ?

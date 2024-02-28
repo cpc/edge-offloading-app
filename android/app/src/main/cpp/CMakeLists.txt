@@ -174,7 +174,7 @@ set(POCL_CMAKE_ARGS
         -DENABLE_OPENCV_ONNX=YES
 		-DORT_INSTALL_DIR=${EXTERNAL_PATH}/onnxruntime-android
         -DENABLE_TURBO_JPEG_COMPRESSION=YES
-		-Dlibjpeg-turbo_DIR=${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/armv8/lib/cmake/libjpeg-turbo
+		-Dlibjpeg-turbo_DIR=${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/cmake/libjpeg-turbo/
         -DENABLE_ANDROID_MEDIACODEC=YES
         -DENABLE_LATEST_CXX_STD=YES
 		-DTRACY_ENABLE=${TRACY_ENABLE}
