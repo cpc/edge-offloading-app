@@ -17,10 +17,10 @@
 jpeg_codec_context_t *
 create_jpeg_context() {
     jpeg_codec_context_t *context = (jpeg_codec_context_t *) malloc(sizeof(jpeg_codec_context_t));
-    context->inp_buf = NULL;
+//    context->inp_buf = NULL;
     context->comp_buf = NULL;
     context->size_buf = NULL;
-    context->out_buf = NULL;
+//    context->out_buf = NULL;
     context->enc_kernel = NULL;
     context->dec_kernel = NULL;
 
@@ -69,9 +69,9 @@ init_jpeg_context(jpeg_codec_context_t *codec_context, cl_context ocl_context,
     status = clBuildProgram(dec_program, 1, dec_device, NULL, NULL, NULL);
     CHECK_AND_RETURN(status, "could not build dec program");
 
-    codec_context->inp_buf = clCreateBuffer(ocl_context, CL_MEM_READ_ONLY, total_pixels * 3 / 2,
-                                            NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the input buffer");
+//    codec_context->inp_buf = clCreateBuffer(ocl_context, CL_MEM_READ_ONLY, total_pixels * 3 / 2,
+//                                            NULL, &status);
+//    CHECK_AND_RETURN(status, "failed to create the input buffer");
 
     // overprovision this buffer since the compressed output size can vary
     codec_context->comp_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE, total_pixels * 3 / 2,
@@ -83,9 +83,9 @@ init_jpeg_context(jpeg_codec_context_t *codec_context, cl_context ocl_context,
                                              &status);
     CHECK_AND_RETURN(status, "failed to create the output size buffer");
 
-    codec_context->out_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE, total_pixels * 3, NULL,
-                                            &status);
-    CHECK_AND_RETURN(status, "failed to create out_buf");
+//    codec_context->out_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE, total_pixels * 3, NULL,
+//                                            &status);
+//    CHECK_AND_RETURN(status, "failed to create out_buf");
 
     // pocl content extension, allows for only the used part of the buffer to be transferred
     // https://registry.khronos.org/OpenCL/extensions/pocl/cl_pocl_content_size.html
@@ -102,8 +102,8 @@ init_jpeg_context(jpeg_codec_context_t *codec_context, cl_context ocl_context,
                                                &status);
     CHECK_AND_RETURN(status, "failed to create dec kernel");
 
-    status = clSetKernelArg(codec_context->enc_kernel, 0, sizeof(cl_mem),
-                            &(codec_context->inp_buf));
+//    status = clSetKernelArg(codec_context->enc_kernel, 0, sizeof(cl_mem),
+//                            &(codec_context->inp_buf));
     status |= clSetKernelArg(codec_context->enc_kernel, 1, sizeof(cl_int), &(codec_context->width));
     status |= clSetKernelArg(codec_context->enc_kernel, 2, sizeof(cl_int),
                              &(codec_context->height));
@@ -122,8 +122,8 @@ init_jpeg_context(jpeg_codec_context_t *codec_context, cl_context ocl_context,
     status |= clSetKernelArg(codec_context->dec_kernel, 2, sizeof(cl_int), &(codec_context->width));
     status |= clSetKernelArg(codec_context->dec_kernel, 3, sizeof(cl_int),
                              &(codec_context->height));
-    status |= clSetKernelArg(codec_context->dec_kernel, 4, sizeof(cl_mem),
-                             &(codec_context->out_buf));
+//    status |= clSetKernelArg(codec_context->dec_kernel, 4, sizeof(cl_mem),
+//                             &(codec_context->out_buf));
     CHECK_AND_RETURN(status, "failed to assign kernel parameters to  dec kernel");
 
     // built-in kernels, so one dimensional
@@ -137,26 +137,61 @@ init_jpeg_context(jpeg_codec_context_t *codec_context, cl_context ocl_context,
     return 0;
 }
 
+cl_int
+write_buffer_jpeg(const jpeg_codec_context_t * ctx, uint8_t * inp_host_buf, size_t buf_size,
+                  cl_mem cl_buf, event_array_t *event_array, cl_event *result_event) {
+
+    cl_int status;
+    cl_event write_img_event;
+    status = clEnqueueWriteBuffer(ctx->enc_queue, cl_buf, CL_FALSE, 0,
+                                  buf_size, inp_host_buf, 0, NULL, &write_img_event);
+    CHECK_AND_RETURN(status, "failed to write image to enc buffers");
+    append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
+    *result_event = write_img_event;
+    return status;
+}
+
+///**
+// * compress the image with the given context
+// * @param cxt the compression context
+// * @param event_array
+// * @param result_event
+// * @return cl status value
+// * @param cxt
+// * @param wait_event
+// * @param inp_buf
+// * @param out_buf
+//
+// */
 /**
  * compress the image with the given context
- * @param cxt the compression context
+ * @param cxt compression context
+ * @param wait_event wait on this event before compressing
+ * @param inp_buf raw yuv image to read
+ * @param out_buf compressed jpeg image
  * @param event_array
- * @param result_event
- * @return cl status value
+ * @param result_event event that can be waited on
+ * @return
  */
 cl_int
-enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, event_array_t *event_array,
-                         cl_event *result_event) {
+enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, cl_event wait_event, cl_mem inp_buf,
+                         cl_mem out_buf, event_array_t *event_array, cl_event *result_event) {
 
     assert (0 <= cxt->quality && cxt->quality <= 100);
     TracyCZone(ctx, 1);
 
     cl_int status;
 
+    status = clSetKernelArg(cxt->enc_kernel, 0, sizeof(cl_mem),
+                            &inp_buf);
     status = clSetKernelArg(cxt->enc_kernel, 3, sizeof(cl_int), &(cxt->quality));
     CHECK_AND_RETURN(status, "could not set compression quality");
 
-    cl_event write_img_event, enc_event, dec_event, undef_mig_event, mig_event;
+    status |= clSetKernelArg(cxt->dec_kernel, 4, sizeof(cl_mem),
+                             &out_buf);
+
+//    cl_event write_img_event,
+    cl_event enc_event, dec_event, undef_mig_event, mig_event;
 
     // the compressed image and the size of the image are in these buffers respectively
     cl_mem migrate_bufs[] = {cxt->comp_buf, cxt->size_buf};
@@ -169,12 +204,15 @@ enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, event_array_t *event_a
     CHECK_AND_RETURN(status, "could not migrate buffers back");
     append_to_event_array(event_array, undef_mig_event, VAR_NAME(undef_mig_event));
 
-    status = clEnqueueWriteBuffer(cxt->enc_queue, cxt->inp_buf, CL_FALSE, 0,
-                                  cxt->img_buf_size, cxt->host_img_buf, 0, NULL, &write_img_event);
-    CHECK_AND_RETURN(status, "failed to write image to enc buffers");
-    append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
+//    status = clEnqueueWriteBuffer(cxt->enc_queue, cxt->inp_buf, CL_FALSE, 0,
+//                                  cxt->img_buf_size, cxt->host_img_buf, 0, NULL, &write_img_event);
+//    CHECK_AND_RETURN(status, "failed to write image to enc buffers");
 
-    cl_event wait_events[] = {write_img_event, undef_mig_event};
+//    append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
+//
+//    cl_event wait_events[] = {write_img_event, undef_mig_event};
+
+    cl_event wait_events[] = {wait_event, undef_mig_event};
     status = clEnqueueNDRangeKernel(cxt->enc_queue, cxt->enc_kernel, cxt->work_dim, NULL,
                                     cxt->enc_global_size,
                                     NULL, 2, wait_events, &enc_event);
@@ -215,13 +253,13 @@ destory_jpeg_context(jpeg_codec_context_t **context) {
         return 0;
     }
 
-    COND_REL_MEM(c->inp_buf)
+//    COND_REL_MEM(c->inp_buf)
 
     COND_REL_MEM(c->comp_buf)
 
     COND_REL_MEM(c->size_buf)
 
-    COND_REL_MEM(c->out_buf)
+//    COND_REL_MEM(c->out_buf)
 
     COND_REL_KERNEL(c->enc_kernel)
 

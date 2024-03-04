@@ -30,7 +30,7 @@ typedef struct {
     cl_mem inp_buf;
     cl_mem comp_buf;
     cl_mem size_buf;
-    cl_mem out_buf;
+//    cl_mem out_buf;
     cl_kernel enc_kernel;
     cl_kernel dec_kernel;
 
@@ -38,9 +38,9 @@ typedef struct {
     uint32_t width;
     cl_command_queue enc_queue; // needs to be freed manually
     cl_command_queue dec_queue; // needs to be freed manually
-    uint8_t *host_img_buf; // needs to be freed manually
-    size_t img_buf_size;
-    uint8_t *host_postprocess_buf; // needs to be freed manually
+//    uint8_t *host_img_buf; // needs to be freed manually
+//    size_t img_buf_size;
+//    uint8_t *host_postprocess_buf; // needs to be freed manually
     int32_t quality; // currently not used
     uint32_t work_dim;
     size_t enc_global_size[3];
@@ -55,9 +55,17 @@ cl_int
 init_jpeg_context(jpeg_codec_context_t *codec_context, cl_context ocl_context,
                   cl_device_id *enc_device, cl_device_id *dec_device, int enable_resize);
 
+//cl_int
+//enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, event_array_t *event_array,
+//                         cl_event *result_event);
+
 cl_int
-enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, event_array_t *event_array,
-                         cl_event *result_event);
+write_buffer_jpeg(const jpeg_codec_context_t * ctx, uint8_t * inp_host_buf, size_t buf_size,
+                  cl_mem cl_buf, event_array_t *event_array, cl_event *result_event);
+
+cl_int
+enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, cl_event wait_event, cl_mem inp_buf,
+                         cl_mem out_buf, event_array_t *event_array, cl_event *result_event);
 
 cl_int
 destory_jpeg_context(jpeg_codec_context_t **context);

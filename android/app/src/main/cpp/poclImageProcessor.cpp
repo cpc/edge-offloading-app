@@ -248,6 +248,9 @@ init_jpeg_codecs(cl_device_id *enc_device, cl_device_id *dec_device, cl_int qual
 
 }
 
+cl_mem new_jpeg_inp_buf;
+cl_mem new_jpeg_out_buf;
+
 /**
  * setup and create the objects needed for repeated PoCL calls.
  * PoCL can be configured by setting environment variables.
@@ -519,14 +522,22 @@ initPoclImageProcessor(const int width, const int height, const int init_config_
 #ifndef DISABLE_JPEG
         if ((JPEG_COMPRESSION & init_config_flags)) {
 
+            new_jpeg_inp_buf = clCreateBuffer(context, CL_MEM_READ_ONLY, tot_pixels * 3 / 2,
+                                            NULL, &status);
+            CHECK_AND_RETURN(status, "failed to create the input buffer");
+
+            new_jpeg_out_buf = clCreateBuffer(context, CL_MEM_READ_WRITE, tot_pixels * 3, NULL,
+                                            &status);
+            CHECK_AND_RETURN(status, "failed to create out_buf");
+
             jpeg_context = create_jpeg_context();
             jpeg_context->height = inp_h;
             jpeg_context->width = inp_w;
-            jpeg_context->img_buf_size = img_buf_size;
+//            jpeg_context->img_buf_size = img_buf_size;
             jpeg_context->enc_queue = commandQueue[0];
             jpeg_context->dec_queue = commandQueue[3];
-            jpeg_context->host_img_buf = host_img_buf;
-            jpeg_context->host_postprocess_buf = host_postprocess_buf;
+//            jpeg_context->host_img_buf = host_img_buf;
+//            jpeg_context->host_postprocess_buf = host_postprocess_buf;
             status = init_jpeg_context(jpeg_context, context, &devices[0], &devices[3], 1);
 
             CHECK_AND_RETURN(status, "init of codec kernels failed");
@@ -1230,9 +1241,18 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
         inp_format = jpeg_context->output_format;
 
         jpeg_context->quality = config.config.jpeg.quality;
-        copy_yuv_to_array(image_data, compression_type, jpeg_context->host_img_buf);
-        status = enqueue_jpeg_compression(jpeg_context, event_array, &dnn_wait_event);
-        inp_buf = jpeg_context->out_buf;
+
+        copy_yuv_to_array(image_data, compression_type, host_img_buf);
+        cl_event wait_on_write_event;
+        write_buffer_jpeg(jpeg_context, host_img_buf, img_buf_size,
+                          new_jpeg_inp_buf, event_array, &wait_on_write_event );
+        status = enqueue_jpeg_compression(jpeg_context, wait_on_write_event, new_jpeg_inp_buf,
+                                          new_jpeg_out_buf, event_array, &dnn_wait_event);
+        inp_buf = new_jpeg_out_buf;
+
+//        copy_yuv_to_array(image_data, compression_type, jpeg_context->host_img_buf);
+//        status = enqueue_jpeg_compression(jpeg_context, event_array, &dnn_wait_event);
+//        inp_buf = jpeg_context->out_buf;
         CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
     }
 #endif // DISABLE_JPEG
