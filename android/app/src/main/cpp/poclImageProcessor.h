@@ -47,6 +47,13 @@ typedef enum {
     // and also add similar entries on the java side
 } compression_t;
 
+typedef enum {
+    LOCAL_DEVICE = 0,
+    PASSTHRU_DEVICE = 1,
+    REMOTE_DEVICE = 2,
+    REMOTE_DEVICE_2 = 3,
+}devic_type_enum;
+
 enum {
     ENABLE_PROFILING = (1 << 8)
 };
@@ -120,6 +127,7 @@ typedef struct {
         struct yuv_image_data_t yuv;
         struct jpeg_image_data_t jpeg;
     } data;
+    long image_timestamp;
 } image_data_t;
 
 /**
@@ -129,6 +137,8 @@ typedef struct {
 typedef struct {
     compression_t compression_type; // codec to be used
     int device_index; // device on which the image is processed
+    int rotation;   // indicate if the image needs to be rotated
+    int do_segment; // indicate that the segmentation needs to also be run
     union {
         jpeg_config_t jpeg;
         hevc_config_t hevc;
