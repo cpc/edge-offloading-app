@@ -212,7 +212,7 @@ add_library(poclnative
         jniWrapper.cpp
         event_logger.c event_logger.h
         yuv_compression.c yuv_compression.h
-        dnn_stage.c dnn_stage.h
+		dnn_stage.cpp dnn_stage.h
         jpeg_compression.c jpeg_compression.h
         hevc_compression.c hevc_compression.h
 		eval.cpp eval.h
