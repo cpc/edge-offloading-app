@@ -28,7 +28,6 @@ dnn_context_t * create_dnn_context() {
     dnn_context_t *context = (dnn_context_t *) malloc( sizeof(dnn_context_t));
     context->out_mask_buf = NULL;
     context->postprocess_buf = NULL;
-    context->reconstruct_buf = NULL;
     context->dnn_kernel = NULL;
     context->postprocess_kernel = NULL;
     context->reconstruct_kernel = NULL;
@@ -37,17 +36,18 @@ dnn_context_t * create_dnn_context() {
 }
 
 #define dnn_kernel_name  "pocl.dnn.detection.u8"
-#define postprocess_kernel_name "pocl.dnn.segmentation_postprocess.u8"
-#define reconstruct_kernel_name "pocl.dnn.segmentation_reconstruct.u8"
-#define eval_kernel_name "pocl.dnn.eval_iou.f32"
+#define postprocess_kernel_name "pocl.dnn.segmentation.postprocess.u8"
+#define reconstruct_kernel_name "pocl.dnn.segmentation.reconstruct.u8"
+#define eval_kernel_name "pocl.dnn.eval.iou.f32"
 char *kernel_names = dnn_kernel_name ";"
                      postprocess_kernel_name ";"
                      reconstruct_kernel_name ";"
-                     eval_kernel_name
-                     ;
+                     eval_kernel_name;
 
 int
-init_eval_context(eval_context_t * eval_context, cl_context ocl_context, cl_program program) {
+init_eval_context(eval_context_t *eval_context, cl_context ocl_context, cl_program program) {
+
+    assert(0 && "function hasn't been tested");
 
     cl_int status;
 
@@ -81,18 +81,17 @@ init_dnn_context(dnn_context_t * dnn_context, eval_context_t *eval_context, cl_c
                  cl_device_id *reconstruct_device) {
 
     int status;
-
-    cl_program  program = clCreateProgramWithBuiltInKernels(ocl_context, 1, dnn_device,
-                                                            kernel_names, &status);
+    cl_device_id devices[] = {*dnn_device, *reconstruct_device};
+    cl_program program = clCreateProgramWithBuiltInKernels(ocl_context, 2, devices,
+                                                           kernel_names, &status);
     CHECK_AND_RETURN(status, "creation of program failed");
 
     assert(NULL == eval_context && "eval context is not supported yet");
-    if(NULL != eval_context) {
+    if (NULL != eval_context) {
 
         init_eval_context(eval_context, ocl_context, program);
     }
 
-    cl_device_id devices[] = {*dnn_device, *reconstruct_device};
     status = clBuildProgram(program, 2, devices, NULL, NULL, NULL);
     CHECK_AND_RETURN(status, "building of program failed");
 
@@ -105,12 +104,25 @@ init_dnn_context(dnn_context_t * dnn_context, eval_context_t *eval_context, cl_c
     dnn_context->reconstruct_kernel = clCreateKernel(program, reconstruct_kernel_name, &status);
     CHECK_AND_RETURN(status, "creating reconstruct kernel failed");
 
+    dnn_context->out_mask_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
+                                               640 * 480 * MAX_DETECTIONS *
+                                               sizeof(cl_char) / 4,
+                                               NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
+
+    dnn_context->postprocess_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
+                                                  MASK_W * MASK_H * sizeof(cl_uchar),
+                                                  NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the segmentation postprocessing buffer");
+
     // set the kernel parameters
     status = clSetKernelArg(dnn_context->dnn_kernel, 1, sizeof(cl_uint), &(dnn_context->width));
     status |= clSetKernelArg(dnn_context->dnn_kernel, 2, sizeof(cl_uint), &(dnn_context->height));
     status |=
-            clSetKernelArg(dnn_context->dnn_kernel, 3, sizeof(cl_int), &(dnn_context->rotate_cw_degrees));
-    status |= clSetKernelArg(dnn_context->dnn_kernel, 6, sizeof(cl_mem), &(dnn_context->out_mask_buf));
+            clSetKernelArg(dnn_context->dnn_kernel, 3, sizeof(cl_int),
+                           &(dnn_context->rotate_cw_degrees));
+    status |= clSetKernelArg(dnn_context->dnn_kernel, 6, sizeof(cl_mem),
+                             &(dnn_context->out_mask_buf));
     CHECK_AND_RETURN(status, "could not assign dnn kernel args");
 
     status = clSetKernelArg(dnn_context->postprocess_kernel, 1, sizeof(cl_mem),
@@ -124,25 +136,6 @@ init_dnn_context(dnn_context_t * dnn_context, eval_context_t *eval_context, cl_c
                             &(dnn_context->postprocess_buf));
     CHECK_AND_RETURN(status, "could not assign reconstruct_kernel args");
 
-//    dnn_context->out_buf = clCreateBuffer(ocl_context, CL_MEM_WRITE_ONLY, total_out_count * sizeof(cl_int),
-//                                NULL, &status);
-//    CHECK_AND_RETURN(status, "failed to create the output buffer");
-
-    dnn_context->out_mask_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
-                                     MASK_W * MASK_H * MAX_DETECTIONS * sizeof(cl_char),
-                                     NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
-
-    dnn_context->postprocess_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
-                                        MASK_W * MASK_H * sizeof(cl_uchar),
-                                        NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the segmentation postprocessing buffer");
-
-    dnn_context->reconstruct_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
-                                        seg_out_count * sizeof(cl_uchar),
-                                        NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the segmentation reconstructed buffer");
-
     dnn_context->work_dim = 1;
     dnn_context->global_size[0] = 1;
     dnn_context->local_size[0] = 1;
@@ -154,35 +147,81 @@ init_dnn_context(dnn_context_t * dnn_context, eval_context_t *eval_context, cl_c
     return 0;
 }
 
+/**
+ * function to write the raw image to the right image. Useful for when using
+ * no compression.
+ * @param ctx the dnn context
+ * @param device_type device to enqueue on, either LOCAL_ or REMOTE_DEVICE
+ * @param inp_host_buf buffer to read from
+ * @param buf_size size of the buffer
+ * @param cl_buf the buffer write to
+ * @param wait_event event to wait on before writing
+ * @param event_array array to append the read event to
+ * @param result_event event that can be waited on
+ * @return CL_SUCCESS or an error otherwise
+ */
+cl_int
+write_buffer_dnn(const dnn_context_t *ctx, devic_type_enum device_type, uint8_t *inp_host_buf, size_t buf_size,
+                 cl_mem cl_buf, const cl_event *wait_event, event_array_t *event_array,
+                 cl_event *result_event) {
+
+    cl_int status;
+    cl_event write_img_event;
+
+    // figure out on which queue to run
+    cl_command_queue write_queue;
+    if (LOCAL_DEVICE == device_type) {
+        write_queue = ctx->local_queue;
+    } else if (REMOTE_DEVICE == device_type) {
+        write_queue = ctx->remote_queue;
+    } else {
+        LOGE("unknown device type to enqueue to\n");
+        return CL_INVALID_VALUE;
+    }
+
+    int wait_size = 0;
+    if (NULL != wait_event) {
+        wait_size = 1;
+    }
+
+    status = clEnqueueWriteBuffer(write_queue, cl_buf, CL_FALSE, 0,
+                                  buf_size, inp_host_buf, wait_size, wait_event, &write_img_event);
+    CHECK_AND_RETURN(status, "failed to write image to enc buffers");
+    append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
+    *result_event = write_img_event;
+    return status;
+}
 
 /**
  * Function to enqueue the opencl commands related to object detection.
+ * @param ctx with relevant info
  * @param wait_event event to wait on before starting these commands
- * @param dnn_device_idx index of device doing object detection
- * @param do_segment bool to enable/disable segmentation
+ * @param config config with relevant info
+ * @param input_format the format that the inp_buf is in
+ * @param inp_buf  uncompressed image, either yuv or rgb
  * @param detection_array array of bounding boxes of detected objects
  * @param segmentation_array bitmap of segments of detected objects
- * @param events struct of events of these commands
- * @return 0 if everything went well, otherwise a cl error number
+ * @param event_array where to append the command events to
+ * @param out_event event that can be waited on
+ * @return CL_SUCCESS if everything went well, otherwise a cl error number
  */
 cl_int
-enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const int device_type, const uint32_t do_segment,
-            const uint32_t input_format, cl_mem input_image,
+enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_config_t config,
+            const pixel_format_enum input_format, const cl_mem inp_buf,
             cl_mem detection_array, cl_mem segmentation_array,
-            int save_out_buf, event_array_t *event_array,
-            event_array_t *eval_event_array, cl_event *out_tmp_detect_copy_event,
-            cl_event *out_tmp_postprocess_copy_event, cl_event *out_event, cl_mem inp_buf) {
+            event_array_t *event_array, cl_event *out_event) {
 
+    // TODO: either enable tracy again or remove it
     ZoneScoped;
     cl_int status;
 
-#if defined(PRINT_PROFILE_TIME)
-    struct timespec timespec_a, timespec_b;
-    clock_gettime(CLOCK_MONOTONIC, &timespec_a);
-#endif
+    // cast enum to int
+    cl_int inp_format = (cl_int) input_format;
 
     status = clSetKernelArg(ctx->dnn_kernel, 0, sizeof(cl_mem), &inp_buf);
-    status |= clSetKernelArg(ctx->dnn_kernel, 4, sizeof(cl_int), &input_format);
+    status |=
+            clSetKernelArg(ctx->dnn_kernel, 3, sizeof(cl_int), &(config.rotation));
+    status |= clSetKernelArg(ctx->dnn_kernel, 4, sizeof(cl_int), &inp_format);
     status |= clSetKernelArg(ctx->dnn_kernel, 5, sizeof(cl_mem), &detection_array);
     CHECK_AND_RETURN(status, "could not assign buffers to DNN kernel");
 
@@ -190,24 +229,19 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const int devi
     CHECK_AND_RETURN(status, "could not assign buffers to postprocess kernel");
 
     status = clSetKernelArg(ctx->reconstruct_kernel, 1, sizeof(cl_mem),
-                             &segmentation_array);
+                            &segmentation_array);
     CHECK_AND_RETURN(status, "could not assign buffers to reconstruct kernel");
 
     // figure out on which queue to run the dnn
     cl_command_queue dnn_queue;
-    if(LOCAL_DEVICE == device_type){
+    if (LOCAL_DEVICE == config.device_type) {
         dnn_queue = ctx->local_queue;
-    }else if(REMOTE_DEVICE == device_type) {
+    } else if (REMOTE_DEVICE == config.device_type) {
         dnn_queue = ctx->remote_queue;
-    }else {
+    } else {
         LOGE("unknown device type to enqueue dnn to\n");
         return -1;
     }
-
-#if defined(PRINT_PROFILE_TIME)
-    clock_gettime(CLOCK_MONOTONIC, &timespec_b);
-    printTime(timespec_a, timespec_b, "assigning kernel params");
-#endif
 
     cl_event run_dnn_event, read_detect_event;
 
@@ -221,7 +255,7 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const int devi
 //        TracyCLZoneSetEvent(run_dnn_event);
     }
 
-    if (do_segment) {
+    if (config.do_segment) {
         cl_event run_postprocess_event, mig_seg_event, run_reconstruct_event, read_segment_event;
 
         {
@@ -265,28 +299,28 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const int devi
         *out_event = read_detect_event;
     }
 
+    // TODO: migrate result buffers to local device
+
     return 0;
 }
 
-// TODO: update deallocation
+/**
+ * deallocate the dnn context and address to NULL
+ * @param context
+ * @return CL_SUCCESS or an error otherwise
+ */
 cl_int
 destroy_dnn_context(dnn_context_t **context) {
 
     dnn_context_t *c = *context;
 
     if(NULL == c) {
-        return 0;
+        return CL_SUCCESS;
     }
-
-//    COND_REL_MEM(c->out_detect_buf)
 
     COND_REL_MEM(c->out_mask_buf)
 
-//    COND_REL_MEM(c->out_buf)
-
     COND_REL_MEM(c->postprocess_buf)
-
-    COND_REL_MEM(c->reconstruct_buf)
 
     COND_REL_KERNEL(c->dnn_kernel)
 
@@ -296,13 +330,13 @@ destroy_dnn_context(dnn_context_t **context) {
 
     free(c);
     *context = NULL;
-    return 0;
+    return CL_SUCCESS;
 }
 
 // TODO: finish destory eval context
 cl_int
 destroy_eval_context(eval_context_t **context) {
-    
+    assert(0 && "function not implemented yet");
 }
 
 

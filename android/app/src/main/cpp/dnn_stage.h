@@ -8,6 +8,7 @@
 #include <rename_opencl.h>
 #include <CL/cl.h>
 #include "event_logger.h"
+#include "poclImageProcessor.h"
 
 #include <Tracy.hpp>
 
@@ -16,12 +17,8 @@ extern "C" {
 #endif
 
 typedef struct {
-//    cl_mem inp_buf; // todo: check that it is needed
-//    cl_mem out_detect_buf;
     cl_mem out_mask_buf;
-//    cl_mem out_buf;
     cl_mem postprocess_buf;
-    cl_mem reconstruct_buf;
     cl_kernel dnn_kernel;
     cl_kernel postprocess_kernel;
     cl_kernel reconstruct_kernel;
@@ -52,15 +49,23 @@ typedef struct {
     cl_mem eval_iou_buf;
 }eval_context_t;
 
-dnn_context_t * create_dnn_context();
+dnn_context_t *create_dnn_context();
 
 int
-init_dnn_context(dnn_context_t * dnn_context, eval_context_t *eval_context, cl_context ocl_context, cl_device_id *dnn_device,
+init_dnn_context(dnn_context_t *dnn_context, eval_context_t *eval_context, cl_context ocl_context,
+                 cl_device_id *dnn_device,
                  cl_device_id *reconstruct_device);
 
 cl_int
-enqueue_yuv_compression2(const dnn_context_t *cxt, cl_mem input_buf, event_array_t *event_array2, cl_event *result_event);
+write_buffer_dnn(const dnn_context_t *ctx, devic_type_enum device_type, uint8_t *inp_host_buf, size_t buf_size,
+                 cl_mem cl_buf, const cl_event *wait_event, event_array_t *event_array,
+                 cl_event *result_event);
 
+cl_int
+enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_config_t config,
+            const pixel_format_enum input_format, cl_mem inp_buf,
+            cl_mem detection_array, cl_mem segmentation_array,
+            event_array_t *event_array, cl_event *out_event);
 
 cl_int
 destroy_dnn_context(dnn_context_t **context);

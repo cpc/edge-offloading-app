@@ -90,7 +90,7 @@ typedef enum {
     RGB = 0,
     YUV_SEMI_PLANAR,
     YUV_PLANAR
-} image_format_t;
+} pixel_format_enum;
 
 /**
  * struct that hold relevant data of jpeg images
