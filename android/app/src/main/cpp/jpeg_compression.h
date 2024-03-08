@@ -68,7 +68,7 @@ enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, cl_event wait_event, c
                          cl_mem out_buf, event_array_t *event_array, cl_event *result_event);
 
 cl_int
-destory_jpeg_context(jpeg_codec_context_t **context);
+destroy_jpeg_context(jpeg_codec_context_t **context);
 
 
 #ifdef __cplusplus

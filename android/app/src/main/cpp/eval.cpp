@@ -351,7 +351,7 @@ int evaluate_parameters(int frame_index, float power, float iou, uint64_t size_b
     CUR_CODEC_ID = min_i;
 //    CUR_CODEC_ID = (CUR_CODEC_ID + 1) % NUM_CODEC_POINTS; // DEBUG
     result_config->compression_type = CODEC_POINTS[CUR_CODEC_ID];
-    result_config->device_index = CODEC_DEVICES[CUR_CODEC_ID];
+    result_config->device_type = CODEC_DEVICES[CUR_CODEC_ID];
     const int config_id = CODEC_CONFIGS[CUR_CODEC_ID];
 
     switch (result_config->compression_type) {

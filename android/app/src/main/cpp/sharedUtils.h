@@ -8,6 +8,11 @@
 // todo: provide macros for other platforms
 
 #include "platform.h"
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // enable this to print timing to logs
 //#define PRINT_PROFILE_TIME
@@ -39,5 +44,11 @@
     clReleaseKernel(kernel); \
     kernel = NULL; \
     } \
+
+int64_t get_timestamp_ns();
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif //POCL_AISA_DEMO_SHAREDUTILS_H

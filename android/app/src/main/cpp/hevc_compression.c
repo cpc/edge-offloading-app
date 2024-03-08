@@ -316,7 +316,7 @@ configure_hevc_codec(hevc_codec_context_t *const codec_context, event_array_t *e
  * @return CL_SUCCESS and otherwise an error
  */
 cl_int
-destory_hevc_context(hevc_codec_context_t **context) {
+destroy_hevc_context(hevc_codec_context_t **context) {
 
     hevc_codec_context_t *c = *context;
 

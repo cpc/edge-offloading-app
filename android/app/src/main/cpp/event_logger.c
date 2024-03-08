@@ -20,6 +20,9 @@ reset_event_array(event_array_t *array) {
 
 void
 free_event_array(event_array_t *array) {
+    if (NULL == array->array) {
+        return;
+    }
     free(array->array);
 }
 

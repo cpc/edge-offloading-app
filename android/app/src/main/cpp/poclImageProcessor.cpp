@@ -756,13 +756,13 @@ destroy_pocl_image_processor() {
         c_log_string = nullptr;
     }
 
-    destory_yuv_context(&yuv_context);
+    destroy_yuv_context(&yuv_context);
 #ifndef DISABLE_JPEG
-    destory_jpeg_context(&jpeg_context);
+    destroy_jpeg_context(&jpeg_context);
 #endif //  DISABLE_JPEG
 #ifndef DISABLE_HEVC
-    destory_hevc_context(&hevc_context);
-    destory_hevc_context(&software_hevc_context);
+    destroy_hevc_context(&hevc_context);
+    destroy_hevc_context(&software_hevc_context);
 #endif // DISABLE_HEVC
     ping_fillbuffer_destroy(&PING_CTX);
 

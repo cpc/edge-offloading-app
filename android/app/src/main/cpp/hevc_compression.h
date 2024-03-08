@@ -93,7 +93,7 @@ configure_hevc_codec(hevc_codec_context_t *const codec_context, event_array_t *e
                      cl_event *result_event);
 
 cl_int
-destory_hevc_context(hevc_codec_context_t **context);
+destroy_hevc_context(hevc_codec_context_t **context);
 
 #ifdef __cplusplus
 }

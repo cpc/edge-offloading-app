@@ -48,7 +48,7 @@ enqueue_yuv_compression(const yuv_codec_context_t *cxt, event_array_t *event_arr
                         cl_event *result_event);
 
 cl_int
-destory_yuv_context(yuv_codec_context_t **context);
+destroy_yuv_context(yuv_codec_context_t **context);
 
 #ifdef __cplusplus
 }

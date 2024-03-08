@@ -136,7 +136,7 @@ typedef struct {
  */
 typedef struct {
     compression_t compression_type; // codec to be used
-    int device_index; // device on which the image is processed
+    devic_type_enum device_type; // device on which the image is processed
     int rotation;   // indicate if the image needs to be rotated
     int do_segment; // indicate that the segmentation needs to also be run
     union {
@@ -165,7 +165,7 @@ initPoclImageProcessor(const int width, const int height, const int config_flags
 int
 destroy_pocl_image_processor();
 
-int64_t get_timestamp_ns();
+//int64_t get_timestamp_ns();
 
 int
 poclProcessImage(codec_config_t condec_config, int frame_index, int do_segment,

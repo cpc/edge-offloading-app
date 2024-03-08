@@ -31,7 +31,7 @@ static int FILE_DESCRIPTOR;
 static int CONFIG_FLAGS;
 
 // always configure the codec with the user set parameters the first time
-static codec_config_t config = {.device_index = -1};
+static codec_config_t config = {.device_type = -1};
 
 // Global variables for smuggling our blob into PoCL so we can pretend it is a builtin kernel.
 // Please don't ever actually do this in production code.
@@ -248,10 +248,10 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
 
     // map the quality parameter to the codec config when auto_select_compression is not on
     // also use the user provides values if there is no auto select option
-    if (!do_algorithm || -1 == config.device_index) {
+    if (!do_algorithm || -1 == config.device_type) {
         config.compression_type = (compression_t) (do_compression);
         if (HEVC_COMPRESSION == do_compression ||
-        SOFTWARE_HEVC_COMPRESSION == do_compression) {
+            SOFTWARE_HEVC_COMPRESSION == do_compression) {
             // TODO: tune framerate and frame interval
             const int framerate = 5;
             config.config.hevc.framerate = framerate;
@@ -263,7 +263,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessYUVImage(JNIEn
         } else if (JPEG_COMPRESSION == do_compression) {
             config.config.jpeg.quality = quality;
         }
-        config.device_index = device_index;
+        config.device_type = device_index;
     }
 
     int res = poclProcessImage(config, frame_index, do_segment, is_eval_frame,
@@ -319,7 +319,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclProcessJPEGImage(JNIE
     static codec_config_t config;
     config.compression_type = (compression_t) (do_compression); //allways the case for jpegimages
     config.config.jpeg.quality = quality; // not actually used in jpeg images
-    config.device_index = device_index;
+    config.device_type = device_index;
 
 
     int res = poclProcessImage(config, frame_index, do_segment, is_eval_frame,
@@ -411,7 +411,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getButtonConfig(JNIEnv *e
     assert(nullptr != button_config_constructor);
 
     return env->NewObject(button_config_class, button_config_constructor,
-                          (jint) config.compression_type, (jint) config.device_index,
+                          (jint) config.compression_type, (jint) config.device_type,
                           (jint) CUR_CODEC_ID);
 }
 

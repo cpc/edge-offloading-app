@@ -224,7 +224,7 @@ enqueue_yuv_compression(const yuv_codec_context_t *cxt, event_array_t *event_arr
  * @return CL_SUCCESS and otherwise an error
  */
 cl_int
-destory_yuv_context(yuv_codec_context_t **context) {
+destroy_yuv_context(yuv_codec_context_t **context) {
 
     yuv_codec_context_t *c = *context;
 

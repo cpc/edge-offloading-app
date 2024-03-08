@@ -206,10 +206,10 @@ add_library(poclnative
         SHARED
         poclRemoteExample.cpp
         poclRemoteExample.h
-        sharedUtils.h
+        sharedUtils.h sharedUtils.c
         poclImageProcessor.cpp
-        utils.cpp
         jniWrapper.cpp
+        jni_utils.cpp
         event_logger.c event_logger.h
         yuv_compression.c yuv_compression.h
 		dnn_stage.cpp dnn_stage.h

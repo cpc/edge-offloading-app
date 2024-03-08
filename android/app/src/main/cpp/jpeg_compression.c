@@ -245,7 +245,7 @@ enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, cl_event wait_event, c
  * @return CL_SUCCESS and otherwise an error
  */
 cl_int
-destory_jpeg_context(jpeg_codec_context_t **context) {
+destroy_jpeg_context(jpeg_codec_context_t **context) {
 
     jpeg_codec_context_t *c = *context;
 
