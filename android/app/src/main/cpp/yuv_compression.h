@@ -14,11 +14,8 @@ extern "C" {
 #include "event_logger.h"
 
 typedef struct {
-    cl_mem inp_buf;
-    size_t img_buf_size;
     cl_mem out_enc_y_buf;
     cl_mem out_enc_uv_buf;
-    cl_mem out_buf;
     cl_kernel enc_y_kernel;
     cl_kernel enc_uv_kernel;
     cl_kernel dec_y_kernel;
@@ -27,8 +24,6 @@ typedef struct {
     uint32_t width;
     cl_command_queue enc_queue; // needs to be freed manually
     cl_command_queue dec_queue; // needs to be freed manually
-    uint8_t *host_img_buf; // needs to be freed manually
-    uint8_t *host_postprocess_buf; // needs to be freed manually
     int32_t quality; // currently not used
     uint32_t work_dim;
     size_t y_global_size[3];
@@ -44,7 +39,13 @@ init_yuv_context(yuv_codec_context_t *codec_context, cl_context cl_context, cl_d
                  src_size);
 
 cl_int
-enqueue_yuv_compression(const yuv_codec_context_t *cxt, event_array_t *event_array,
+write_buffer_yuv(const yuv_codec_context_t *ctx, const uint8_t *inp_host_buf, size_t buf_size,
+                 cl_mem cl_buf, const cl_event *wait_event,
+                 event_array_t *event_array, cl_event *result_event);
+
+cl_int
+enqueue_yuv_compression(const yuv_codec_context_t *cxt, cl_event wait_event, cl_mem inp_buf,
+                        cl_mem out_buf, event_array_t *event_array,
                         cl_event *result_event);
 
 cl_int

@@ -18,10 +18,8 @@
 yuv_codec_context_t *
 create_yuv_context() {
     yuv_codec_context_t *context = (yuv_codec_context_t *) malloc(sizeof(yuv_codec_context_t));
-    context->inp_buf = NULL;
     context->out_enc_y_buf = NULL;
     context->out_enc_uv_buf = NULL;
-    context->out_buf = NULL;
     context->enc_y_kernel = NULL;
     context->enc_uv_kernel = NULL;
     context->dec_y_kernel = NULL;
@@ -34,11 +32,8 @@ create_yuv_context() {
  * @warning requires the following fields to be set beforehand <br>
  *  * height <br>
  *  * width <br>
- *  * img_buf_size <br>
  *  * enc_queue <br>
  *  * dec_queue <br>
- *  * host_imge_buf <br>
- *  * host_postprocess_buf <br>
  * @param codec_context context to init
  * @param ocl_context used to create all ocl objects
  * @param enc_device device to build encoder kernel for
@@ -63,14 +58,6 @@ init_yuv_context(yuv_codec_context_t *codec_context, cl_context cl_context, cl_d
     status = clBuildProgram(program, 2, codec_devices, NULL, NULL, NULL);
     CHECK_AND_RETURN(status, "building codec program failed");
 
-    // proxy device buffers
-    // input for compression
-    // important that it is read only since both enc kernels read from it.
-    codec_context->inp_buf = clCreateBuffer(cl_context, CL_MEM_READ_ONLY,
-                                            codec_context->img_buf_size,
-                                            NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the output buffer");
-
     int total_pixels = codec_context->width * codec_context->height;
     codec_context->out_enc_y_buf = clCreateBuffer(cl_context, CL_MEM_READ_WRITE, total_pixels, NULL,
                                                   &status);
@@ -79,62 +66,50 @@ init_yuv_context(yuv_codec_context_t *codec_context, cl_context cl_context, cl_d
                                                    NULL, &status);
     CHECK_AND_RETURN(status, "failed to create out_enc_uv_buf");
 
-    codec_context->out_buf = clCreateBuffer(cl_context, CL_MEM_READ_WRITE,
-                                            codec_context->img_buf_size, NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create out_buf");
-
     codec_context->enc_y_kernel = clCreateKernel(program, "encode_y", &status);
     CHECK_AND_RETURN(status, "creating encode_y kernel failed");
-    int narg = 0;
-    status = clSetKernelArg(codec_context->enc_y_kernel, narg++, sizeof(cl_mem),
-                            &(codec_context->inp_buf));
-    status |= clSetKernelArg(codec_context->enc_y_kernel, narg++, sizeof(cl_uint),
+
+    status |= clSetKernelArg(codec_context->enc_y_kernel, 1, sizeof(cl_uint),
                              &(codec_context->width));
-    status |= clSetKernelArg(codec_context->enc_y_kernel, narg++, sizeof(cl_uint),
+    status |= clSetKernelArg(codec_context->enc_y_kernel, 2, sizeof(cl_uint),
                              &(codec_context->height));
-    status |= clSetKernelArg(codec_context->enc_y_kernel, narg++, sizeof(cl_mem),
+    status |= clSetKernelArg(codec_context->enc_y_kernel, 3, sizeof(cl_mem),
                              &(codec_context->out_enc_y_buf));
     CHECK_AND_RETURN(status, "setting encode_y kernel args failed");
 
     codec_context->enc_uv_kernel = clCreateKernel(program, "encode_uv", &status);
     CHECK_AND_RETURN(status, "creating encode_uv kernel failed");
-    narg = 0;
-    status = clSetKernelArg(codec_context->enc_uv_kernel, narg++, sizeof(cl_mem),
-                            &(codec_context->inp_buf));
+
     // todo: look into why height and width are swapped compared to the enc_y_kernel function
-    status |= clSetKernelArg(codec_context->enc_uv_kernel, narg++, sizeof(cl_uint),
+    status |= clSetKernelArg(codec_context->enc_uv_kernel, 1, sizeof(cl_uint),
                              &(codec_context->height));
-    status |= clSetKernelArg(codec_context->enc_uv_kernel, narg++, sizeof(cl_uint),
+    status |= clSetKernelArg(codec_context->enc_uv_kernel, 2, sizeof(cl_uint),
                              &(codec_context->width));
-    status |= clSetKernelArg(codec_context->enc_uv_kernel, narg++, sizeof(cl_mem),
+    status |= clSetKernelArg(codec_context->enc_uv_kernel, 3, sizeof(cl_mem),
                              &(codec_context->out_enc_uv_buf));
     CHECK_AND_RETURN(status, "setting encode_uv kernel args failed");
 
     codec_context->dec_y_kernel = clCreateKernel(program, "decode_y", &status);
     CHECK_AND_RETURN(status, "creating decode_y kernel failed");
-    narg = 0;
-    status = clSetKernelArg(codec_context->dec_y_kernel, narg++, sizeof(cl_mem),
+
+    status = clSetKernelArg(codec_context->dec_y_kernel, 0, sizeof(cl_mem),
                             &(codec_context->out_enc_y_buf));
-    status |= clSetKernelArg(codec_context->dec_y_kernel, narg++, sizeof(cl_uint),
+    status |= clSetKernelArg(codec_context->dec_y_kernel, 1, sizeof(cl_uint),
                              &(codec_context->width));
-    status |= clSetKernelArg(codec_context->dec_y_kernel, narg++, sizeof(cl_uint),
+    status |= clSetKernelArg(codec_context->dec_y_kernel, 2, sizeof(cl_uint),
                              &(codec_context->height));
-    status |= clSetKernelArg(codec_context->dec_y_kernel, narg++, sizeof(cl_mem),
-                             &(codec_context->out_buf));
     CHECK_AND_RETURN(status, "setting decode_y kernel args failed");
 
     codec_context->dec_uv_kernel = clCreateKernel(program, "decode_uv", &status);
     CHECK_AND_RETURN(status, "creating decode_uv kernel failed");
-    narg = 0;
-    status = clSetKernelArg(codec_context->dec_uv_kernel, narg++, sizeof(cl_mem),
+
+    status = clSetKernelArg(codec_context->dec_uv_kernel, 0, sizeof(cl_mem),
                             &(codec_context->out_enc_uv_buf));
     // todo: same story as enc_uv_kernel
-    status |= clSetKernelArg(codec_context->dec_uv_kernel, narg++, sizeof(cl_uint),
+    status |= clSetKernelArg(codec_context->dec_uv_kernel, 1, sizeof(cl_uint),
                              &(codec_context->height));
-    status |= clSetKernelArg(codec_context->dec_uv_kernel, narg++, sizeof(cl_uint),
+    status |= clSetKernelArg(codec_context->dec_uv_kernel, 2, sizeof(cl_uint),
                              &(codec_context->width));
-    status |= clSetKernelArg(codec_context->dec_uv_kernel, narg++, sizeof(cl_mem),
-                             &(codec_context->out_buf));
     CHECK_AND_RETURN(status, "setting decode_uv kernel args failed");
 
     codec_context->work_dim = 2;
@@ -154,33 +129,74 @@ init_yuv_context(yuv_codec_context_t *codec_context, cl_context cl_context, cl_d
 }
 
 /**
- * compress the image with the given context
- * @param cxt the compression context
- * @param event_array
- * @param result_event
- * @return cl status value
+ * function to write the host data to the specified buffer
+ * @param ctx yuv context
+ * @param inp_host_buf array of image data
+ * @param buf_size size of inp_host_buf
+ * @param cl_buf buf to write to
+ * @param wait_event optional event to wait on before writing
+ * @param event_array save created event to this
+ * @param result_event event that can be waited on
+ * @return
  */
 cl_int
-enqueue_yuv_compression(const yuv_codec_context_t *cxt, event_array_t *event_array,
+write_buffer_yuv(const yuv_codec_context_t *ctx, const uint8_t *inp_host_buf, size_t buf_size,
+                 cl_mem cl_buf, const cl_event *wait_event,
+                 event_array_t *event_array, cl_event *result_event) {
+    cl_int status;
+    cl_event write_img_event;
+
+    int wait_size = 0;
+    if (NULL != wait_event) {
+        wait_size = 1;
+    }
+
+    status = clEnqueueWriteBuffer(ctx->enc_queue, cl_buf, CL_FALSE, 0, buf_size,
+                                  inp_host_buf, wait_size, wait_event, &write_img_event);
+    CHECK_AND_RETURN(status, "failed to write input image with yuv ctx");
+    append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
+    *result_event = write_img_event;
+    return CL_SUCCESS;
+
+}
+
+/**
+ * compress the image with the given context
+ * @param cxt yuv context
+ * @param wait_event event to wait on before enqueing compression
+ * @param inp_buf yuv image to compress
+ * @param out_buf resulting compressed yuv image
+ * @param event_array used to append events to
+ * @param result_event event that can be waited on when compression is done
+ * @return CL_SUCCESS if everything goes well
+ */
+cl_int
+enqueue_yuv_compression(const yuv_codec_context_t *cxt, cl_event wait_event, cl_mem inp_buf,
+                        cl_mem out_buf, event_array_t *event_array,
                         cl_event *result_event) {
     cl_int status;
-    cl_event write_img_event, enc_y_event, enc_uv_event,
+    cl_event enc_y_event, enc_uv_event,
             dec_y_event, dec_uv_event, migrate_event;
 
-    status = clEnqueueWriteBuffer(cxt->enc_queue, cxt->inp_buf, CL_FALSE, 0,
-                                  cxt->img_buf_size, cxt->host_img_buf, 0, NULL, &write_img_event);
-    CHECK_AND_RETURN(status, "failed to write image to enc buffers");
-    append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
+    status = clSetKernelArg(cxt->enc_y_kernel, 0, sizeof(cl_mem),
+                            &inp_buf);
+    status |= clSetKernelArg(cxt->enc_uv_kernel, 0, sizeof(cl_mem),
+                             &inp_buf);
+    status |= clSetKernelArg(cxt->dec_y_kernel, 3, sizeof(cl_mem),
+                             &out_buf);
+    status |= clSetKernelArg(cxt->dec_uv_kernel, 3, sizeof(cl_mem),
+                             &out_buf);
+    CHECK_AND_RETURN(status, "failed to set kernel args");
 
     status = clEnqueueNDRangeKernel(cxt->enc_queue, cxt->enc_y_kernel, cxt->work_dim, NULL,
                                     cxt->y_global_size,
-                                    NULL, 1, &write_img_event, &enc_y_event);
+                                    NULL, 1, &wait_event, &enc_y_event);
     CHECK_AND_RETURN(status, "failed to enqueue enc_y_kernel");
     append_to_event_array(event_array, enc_y_event, VAR_NAME(enc_y_event));
 
     status = clEnqueueNDRangeKernel(cxt->enc_queue, cxt->enc_uv_kernel, cxt->work_dim, NULL,
                                     cxt->uv_global_size,
-                                    NULL, 1, &write_img_event, &enc_uv_event);
+                                    NULL, 1, &wait_event, &enc_uv_event);
     CHECK_AND_RETURN(status, "failed to enqueue enc_uv_kernel");
     append_to_event_array(event_array, enc_uv_event, VAR_NAME(enc_uv_event));
 
@@ -210,8 +226,6 @@ enqueue_yuv_compression(const yuv_codec_context_t *cxt, event_array_t *event_arr
     CHECK_AND_RETURN(status, "failed to migrate buffers back");
     append_to_event_array(event_array, migrate_event, VAR_NAME(migrate_event));
 
-    // set the event that other ocl commands can wait for
-//    *result_event = dec_uv_event;
     *result_event = migrate_event;
     return 0;
 
@@ -232,13 +246,9 @@ destroy_yuv_context(yuv_codec_context_t **context) {
         return 0;
     }
 
-    COND_REL_MEM(c->inp_buf)
-
     COND_REL_MEM(c->out_enc_y_buf)
 
     COND_REL_MEM(c->out_enc_uv_buf)
-
-    COND_REL_MEM(c->out_buf)
 
     COND_REL_KERNEL(c->enc_y_kernel)
 

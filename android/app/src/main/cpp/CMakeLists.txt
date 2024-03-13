@@ -207,9 +207,9 @@ add_library(poclnative
         poclRemoteExample.cpp
         poclRemoteExample.h
         sharedUtils.h sharedUtils.c
-        poclImageProcessor.cpp
-        jniWrapper.cpp
+#        poclImageProcessor.cpp
         jni_utils.cpp
+#        jniWrapper.cpp
         event_logger.c event_logger.h
         yuv_compression.c yuv_compression.h
 		dnn_stage.cpp dnn_stage.h
@@ -218,6 +218,8 @@ add_library(poclnative
 		eval.cpp eval.h
 		eval_network_model.cpp eval_network_model.h
 		testapps.c testapps.h
+		poclImageProcessorV2.cpp poclImageProcessorV2.h
+		jniWrapperV2.cpp
         )
 
 
