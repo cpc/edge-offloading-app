@@ -45,6 +45,12 @@ extern "C" {
     kernel = NULL; \
     } \
 
+#define COND_REL_QUEUE(queue) \
+    if(NULL != queue) { \
+    clReleaseCommandQueue(queue); \
+    queue = NULL; \
+    }                         \
+
 int64_t get_timestamp_ns();
 
 #ifdef __cplusplus

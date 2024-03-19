@@ -810,11 +810,11 @@ void printTime(timespec start, timespec stop, const char message[256]) {
  * @return 0 if everything went well, otherwise a cl error number
  */
 cl_int
-enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
-            const int do_segment, cl_int *detection_array, cl_uchar *segmentation_array,
-            cl_int inp_format, int save_out_buf, event_array_t *event_array,
-            event_array_t *eval_event_array, cl_event *out_tmp_detect_copy_event,
-            cl_event *out_tmp_postprocess_copy_event, cl_event *out_event, cl_mem inp_buf) {
+enqueue_dnn_processor(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
+                      const int do_segment, cl_int *detection_array, cl_uchar *segmentation_array,
+                      cl_int inp_format, int save_out_buf, event_array_t *event_array,
+                      event_array_t *eval_event_array, cl_event *out_tmp_detect_copy_event,
+                      cl_event *out_tmp_postprocess_copy_event, cl_event *out_event, cl_mem inp_buf) {
 
     ZoneScoped;
     cl_int status;
@@ -826,6 +826,7 @@ enqueue_dnn(const cl_event *wait_event, int dnn_device_idx, int out_device_idx,
 
     // This is to prevent having two buffers accidentally due to index errors.
     cl_mem _out_buf = out_buf[dnn_device_idx];
+    // tot_pixels * MAX_DETECTIONS * sizeof(cl_char) / 4
     cl_mem _out_mask_buf = out_mask_buf[dnn_device_idx];
     cl_mem _postprocess_buf = postprocess_buf[dnn_device_idx];
     cl_mem _reconstruct_buf = reconstruct_buf[dnn_device_idx];
@@ -1134,12 +1135,6 @@ enqueue_jpeg_image(const cl_uchar *input_img, const uint64_t *buf_size, const in
     return 0;
 }
 
-int64_t get_timestamp_ns() {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1000000000 + ts.tv_nsec;
-}
-
 /**
  * process the image with PoCL.
  * assumes that image format is YUV420_888
@@ -1172,11 +1167,11 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
     assert(compression_type & config_flags);
 
     // check that no compression is passed to local device
-    assert((0 == config.device_index) ? (NO_COMPRESSION == compression_type) : 1);
+    assert((0 == config.device_type) ? (NO_COMPRESSION == compression_type) : 1);
 
     // make local copies so that they don't change during execution
     // when the user presses a button.
-    const int device_index_copy = config.device_index;
+    const int device_index_copy = config.device_type;
     const int do_segment_copy = do_segment;
 
     if (rotation != rotate_cw_degrees) {
@@ -1190,7 +1185,7 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
     // had the option to use the events
     release_events(event_array);
 
-    // even though inp_format is assigned image_format_t,
+    // even though inp_format is assigned pixel_format_enum,
     // the type is set to cl_int since underlying enum types
     // can vary and we want a known size_bytes on both the client and server.
     cl_int inp_format;
@@ -1325,10 +1320,12 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
 
     int64_t before_dnn_ns = get_timestamp_ns();
 
-    status = enqueue_dnn(&dnn_wait_event, device_index_copy, 0, do_segment_copy, detection_array,
-                         segmentation_array, inp_format, is_eval_frame, event_array,
-                         eval_event_array, &tmp_detect_copy_event, &tmp_postprocess_copy_event,
-                         &dnn_read_event, inp_buf);
+    status = enqueue_dnn_processor(&dnn_wait_event, device_index_copy, 0, do_segment_copy,
+                                   detection_array,
+                                   segmentation_array, inp_format, is_eval_frame, event_array,
+                                   eval_event_array, &tmp_detect_copy_event,
+                                   &tmp_postprocess_copy_event,
+                                   &dnn_read_event, inp_buf);
     CHECK_AND_RETURN(status, "could not enqueue dnn kernels");
 
     int64_t before_eval_ns = get_timestamp_ns();

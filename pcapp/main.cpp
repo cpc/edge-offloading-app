@@ -23,6 +23,8 @@
 #include "stb_image.h"
 
 #include <Tracy.hpp>
+#include <poclImageProcessorV2.h>
+#include <thread>
 
 #define MAX_DETECTIONS 10
 #define MASK_W 160
@@ -33,7 +35,8 @@ constexpr int SEGMENTATION_COUNT = MAX_DETECTIONS * MASK_W * MASK_H;
 constexpr int SEG_POSTPROCESS_COUNT = 4 * MASK_W * MASK_H; // RGBA image
 
 constexpr float FPS = 30.0f;
-constexpr int NFRAMES = 100;
+//constexpr int NFRAMES = 100;
+constexpr int NFRAMES = 10;
 
 cl_int test_pthread_bik() {
     ZoneScoped;
@@ -174,6 +177,40 @@ cl_int test_pthread_bik() {
     return CL_SUCCESS;
 }
 
+/**
+ * The function that receives images continuously
+ * @param ctx image processor context
+ */
+void read_function(pocl_image_processor_context *ctx) {
+
+
+    int frame_index = 0;
+    int segmentation = 0;
+    eval_metadata_t eval_metadata;
+    int status;
+    std::vector<int32_t> detections(DETECTION_COUNT);
+    std::vector<uint8_t> segmentations(SEG_POSTPROCESS_COUNT);
+
+    while(frame_index < NFRAMES) {
+
+        if(wait_image_available(ctx, 1000) != 0) {
+            continue;
+        }
+        status = receive_image(ctx, detections.data(), segmentations.data(),
+                      &eval_metadata, &segmentation);
+
+        throw_if_cl_err(status, "could not enqueue image");
+        printf("==== Frame %d, no. detections: %d ====\n", frame_index, detections[0]);
+
+        cv::Mat seg_out(MASK_H, MASK_W, CV_8UC4, segmentations.data());
+        cv::cvtColor(seg_out, seg_out, cv::COLOR_RGBA2RGB);
+        cv::imwrite("seg_out.png", seg_out);
+
+        frame_index +=1;
+    }
+
+}
+
 int main() {
     cl_int status;
 
@@ -222,17 +259,19 @@ int main() {
     throw_if_cl_err(status, "Getting device info");
 
     /* Settings */
+//    constexpr compression_t compression_type = YUV_COMPRESSION;
+//    constexpr compression_t compression_type = NO_COMPRESSION;
     constexpr compression_t compression_type = JPEG_COMPRESSION;
-    // constexpr compression_t compression_type = NO_COMPRESSION;
     constexpr int config_flags = ENABLE_PROFILING | compression_type;
 
-    constexpr int device_index = 2;
+    constexpr devic_type_enum device_index = REMOTE_DEVICE;
+//    constexpr devic_type_enum device_index = LOCAL_DEVICE;
     constexpr int do_segment = 1;
     constexpr int quality = 80;
     constexpr int rotation = 0;
 
     /* Read input image, assumes app is in a build dir */
-    std::string inp_name = "../android/app/src/main/assets/bus_640x480.jpg";
+    std::string inp_name = "../../android/app/src/main/assets/bus_640x480.jpg";
 
     int inp_w, inp_h, nch;
     uint8_t *inp_pixels = stbi_load(inp_name.data(), &inp_w, &inp_h, &nch, 3);
@@ -241,8 +280,8 @@ int main() {
 
     // Convert inp image to YUV420 (U/V planes separate)
     cv::Mat inp_img(inp_h, inp_w, CV_8UC3, (void *)(inp_pixels));
-    free(inp_pixels);
     cv::cvtColor(inp_img, inp_img, cv::COLOR_RGB2YUV_YV12);
+    free(inp_pixels);
 
     // Convert separate U/V planes into interleaved U/V planes
     uint8_t *inp_yuv420nv21 = (uint8_t *)(malloc(inp_w * inp_h * 3 / 2));
@@ -274,9 +313,6 @@ int main() {
     image_data.data.yuv.row_strides[1] = inp_w;
     image_data.data.yuv.row_strides[2] = inp_w;
 
-    std::vector<int32_t> detections(DETECTION_COUNT);
-    std::vector<uint8_t> segmentations(SEG_POSTPROCESS_COUNT);
-
     /* Init */
     int fd =
         open("profile.csv", O_WRONLY | O_CREAT | O_APPEND, S_IWRITE | S_IREAD);
@@ -287,15 +323,12 @@ int main() {
     }
 
     std::vector<std::string> source_files = {
-        "../android/app/src/assets/kernels/copy.cl"};
+        "../../android/app/src/main/assets/kernels/copy.cl"};
     auto codec_sources = read_files(source_files);
+    assert(codec_sources[0].length() > 0 && "could not open files");
 
     event_array_t event_array;
     event_array_t eval_event_array;
-    status = initPoclImageProcessor(
-        inp_w, inp_h, config_flags, codec_sources.at(0).c_str(),
-        codec_sources.at(0).size(), fd, &event_array, &eval_event_array);
-    throw_if_cl_err(status, "could not setup image processor");
 
     int frame_index = 0;
     int is_eval_frame = 0;
@@ -304,12 +337,23 @@ int main() {
     uint64_t size_bytes;
     host_ts_ns_t host_ts_ns;
     codec_config_t codec_config;
+    codec_config.rotation = rotation;
+    codec_config.do_segment = do_segment;
     codec_config.compression_type = compression_type;
-    codec_config.device_index = device_index;
+    codec_config.device_type = device_index;
     codec_config.config.jpeg.quality = quality;
 
-    /* Process */
+    pocl_image_processor_context * ctx;
 
+    status = create_pocl_image_processor_context(&ctx, 2, inp_w, inp_h, config_flags,
+                                        codec_sources.at(0).c_str(), codec_sources.at(0).size(),
+                                        fd);
+    assert(status == CL_SUCCESS);
+
+    // create read thread
+    std::thread thread(read_function, ctx);
+
+    /* Process */
     while (frame_index < NFRAMES) {
         int64_t image_timestamp = get_timestamp_ns();
         auto since_last_frame_sec =
@@ -319,32 +363,33 @@ int main() {
             continue;
         }
 
+        if(dequeue_spot(ctx, 33) != 0) {
+            continue ;
+        }
+
         FrameMark;
 
         {
             ZoneScopedN("top");
             last_image_timestamp = image_timestamp;
 
-            status = poclProcessImage(
-                codec_config, frame_index, do_segment, is_eval_frame, rotation,
-                detections.data(), segmentations.data(), &event_array,
-                &eval_event_array, image_data, image_timestamp, &iou,
-                &size_bytes, &host_ts_ns);
+            status = submit_image(ctx, codec_config, image_data, is_eval_frame);
+            assert(status == CL_SUCCESS);
 
-            throw_if_cl_err(status, "could not enqueue image");
-            printf("==== Frame %d, no. detections: %d ====\n", frame_index, detections[0]);
-
-            cv::Mat seg_out(MASK_H, MASK_W, CV_8UC4, segmentations.data());
-            cv::cvtColor(seg_out, seg_out, cv::COLOR_RGBA2RGB);
-            cv::imwrite("seg_out.png", seg_out);
             frame_index += 1;
+
         }
     }
+
+    // join the thread
+    thread.join();
+
+    status = destroy_pocl_image_processor_context(&ctx);
+    assert(status == CL_SUCCESS);
 
     close(fd);
     free(inp_yuv420nv21);
 
-    destroy_pocl_image_processor();
 
     return status;
 }

@@ -114,12 +114,15 @@ target_include_directories(libpocl INTERFACE ${EXTERNAL_DIR}/tracy/public/tracy)
 
 add_executable(
         ${PROJECT_NAME}
-        main.cpp ${APP_DIR}/poclImageProcessor.cpp ${APP_DIR}/poclImageProcessor.h
-        ${APP_DIR}/sharedUtils.h
+        main.cpp
+        ${APP_DIR}/poclImageProcessor.h
+        ${APP_DIR}/sharedUtils.h ${APP_DIR}/sharedUtils.c
         ${APP_DIR}/event_logger.c ${APP_DIR}/event_logger.h
         ${APP_DIR}/yuv_compression.c ${APP_DIR}/yuv_compression.h
         ${APP_DIR}/jpeg_compression.c ${APP_DIR}/jpeg_compression.h
         ${APP_DIR}/testapps.c ${APP_DIR}/testapps.h
+        ${APP_DIR}/poclImageProcessorV2.cpp ${APP_DIR}/poclImageProcessorV2.h
+        ${APP_DIR}/dnn_stage.cpp ${APP_DIR}/dnn_stage.h
 )
 
 target_include_directories(
