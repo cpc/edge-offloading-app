@@ -6,6 +6,7 @@
 #include "sharedUtils.h"
 #include <assert.h>
 
+__attribute__ ((deprecated))
 event_array_t
 create_event_array(const int size) {
     event_pair_t *array = (event_pair_t *) malloc(size * sizeof(event_pair_t));
@@ -13,11 +14,33 @@ create_event_array(const int size) {
     return res;
 }
 
+event_array_t *
+create_event_array_pointer(const int size) {
+    event_pair_t *array = (event_pair_t *) malloc(size * sizeof(event_pair_t));
+    event_array_t *res = malloc( sizeof(event_array_t));
+    res->array = array;
+    res->max_capacity = size;
+    res->current_capacity = 0;
+
+    return res;
+}
+
+void
+free_event_array_pointer(event_array_t **array) {
+    if(NULL == *array) {
+        return;
+    }
+    free((*array)->array);
+    free(*array);
+    *array = NULL;
+}
+
 void
 reset_event_array(event_array_t *array) {
     array->current_capacity = 0;
 }
 
+__attribute__ ((deprecated))
 void
 free_event_array(event_array_t *array) {
     if (NULL == array->array) {

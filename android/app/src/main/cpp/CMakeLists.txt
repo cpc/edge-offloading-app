@@ -218,8 +218,11 @@ add_library(poclnative
 		eval.cpp eval.h
 		eval_network_model.cpp eval_network_model.h
 		testapps.c testapps.h
+		poclImageProcessorTypes.h
+		poclImageProcessorUtils.cpp poclImageProcessorUtils.h
 		poclImageProcessorV2.cpp poclImageProcessorV2.h
 		jniWrapperV2.cpp
+
         )
 
 

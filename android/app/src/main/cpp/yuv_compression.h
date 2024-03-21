@@ -29,6 +29,11 @@ typedef struct {
     size_t y_global_size[3];
     size_t uv_global_size[3];
     int32_t output_format;
+
+    // todo: make more use of these values once compression is
+    // compressing
+    int profile_compressed_size;
+    size_t compressed_size;
 } yuv_codec_context_t;
 
 yuv_codec_context_t *create_yuv_context();
@@ -36,7 +41,7 @@ yuv_codec_context_t *create_yuv_context();
 int
 init_yuv_context(yuv_codec_context_t *codec_context, cl_context cl_context, cl_device_id enc_device,
                  cl_device_id dec_device, const char *source, const size_t
-                 src_size);
+                 src_size, const int profile_compression_size);
 
 cl_int
 write_buffer_yuv(const yuv_codec_context_t *ctx, const uint8_t *inp_host_buf, size_t buf_size,
@@ -50,6 +55,9 @@ enqueue_yuv_compression(const yuv_codec_context_t *cxt, cl_event wait_event, cl_
 
 cl_int
 destroy_yuv_context(yuv_codec_context_t **context);
+
+size_t
+get_compression_size_yuv(const yuv_codec_context_t *cxt);
 
 #ifdef __cplusplus
 }

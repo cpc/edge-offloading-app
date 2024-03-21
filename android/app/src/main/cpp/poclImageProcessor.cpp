@@ -1540,26 +1540,6 @@ get_c_log_string_pocl() {
     return c_log_string;
 }
 
-const char *
-get_compression_name(const compression_t compression_id) {
-    switch (compression_id) {
-        case NO_COMPRESSION:
-            return "none";
-        case YUV_COMPRESSION:
-            return "yuv";
-        case JPEG_COMPRESSION:
-            return "jpeg";
-        case HEVC_COMPRESSION:
-            return "hevc";
-        case SOFTWARE_HEVC_COMPRESSION:
-            return "swhevc";
-        case JPEG_IMAGE:
-            return "jpeg_image";
-        default:
-            return "unknown";
-    }
-}
-
 #ifdef __cplusplus
 }
 #endif

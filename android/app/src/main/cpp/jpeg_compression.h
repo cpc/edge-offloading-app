@@ -46,14 +46,17 @@ typedef struct {
     size_t enc_global_size[3];
     size_t dec_global_size[3];
     int32_t output_format;
+    int profile_compressed_size;
+    uint64_t compressed_size;
 
 } jpeg_codec_context_t;
 
 jpeg_codec_context_t *create_jpeg_context();
 
-cl_int
+int
 init_jpeg_context(jpeg_codec_context_t *codec_context, cl_context ocl_context,
-                  cl_device_id *enc_device, cl_device_id *dec_device, int enable_resize);
+                  cl_device_id *enc_device, cl_device_id *dec_device, int enable_resize,
+                  int profile_compressed_size);
 
 //cl_int
 //enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, event_array_t *event_array,
@@ -70,6 +73,8 @@ enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, cl_event wait_event, c
 cl_int
 destroy_jpeg_context(jpeg_codec_context_t **context);
 
+size_t
+get_compression_size_jpeg(jpeg_codec_context_t * ctx);
 
 #ifdef __cplusplus
 }

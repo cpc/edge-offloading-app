@@ -1,6 +1,7 @@
 #include <cmath>
 
 #include "eval_network_model.h"
+#include "sharedUtils.h"
 
 float ewma(float new_x, float old_x, float alpha) {
     return alpha * old_x + (1.0f - alpha) * new_x;

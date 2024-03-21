@@ -28,7 +28,7 @@ static const compression_t CODEC_POINTS[NUM_CODEC_POINTS] = {NO_COMPRESSION, NO_
                                                              JPEG_COMPRESSION, JPEG_COMPRESSION,
                                                              HEVC_COMPRESSION, HEVC_COMPRESSION};
 
-static const int CODEC_DEVICES[NUM_CODEC_POINTS] = {0, 2, 2, 2, 2, 2};
+static const device_type_enum CODEC_DEVICES[NUM_CODEC_POINTS] = {LOCAL_DEVICE, REMOTE_DEVICE, REMOTE_DEVICE, REMOTE_DEVICE, REMOTE_DEVICE, REMOTE_DEVICE};
 static const int CODEC_CONFIGS[NUM_CODEC_POINTS] = {0, 0, 0, 1, 0, 1};
 
 // indexed by CODEC_CONFIGS[CUR_CODEC_ID]:

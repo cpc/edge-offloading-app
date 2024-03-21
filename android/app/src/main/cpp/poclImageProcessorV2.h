@@ -5,8 +5,12 @@
 #ifndef POCL_AISA_DEMO_POCLIMAGEPROCESSORV2_H
 #define POCL_AISA_DEMO_POCLIMAGEPROCESSORV2_H
 
-#include "poclImageProcessor.h"
+//#include "poclImageProcessor.h"
+#include "poclImageProcessorTypes.h"
 #include "yuv_compression.h"
+#include "jpeg_compression.h"
+#include "hevc_compression.h"
+
 #include "testapps.h"
 #include "dnn_stage.h"
 #include <stdint.h>
@@ -16,20 +20,8 @@
 extern "C" {
 #endif
 
-/**
- * a stuct that contains metadata needed
- * for evaluation on the reading side
- */
 typedef struct {
-    int frame_index;
-    long image_timestamp;
-    int is_eval_frame;
-    int segmentation;
-    host_ts_ns_t host_ts_ns;
-} image_metadata_t;
-
-typedef struct {
-    event_array_t event_array;
+    event_array_t *event_array;
     int config_flags; // used to configure codecs
     cl_command_queue *enq_queues; // collection of device queues
     int queue_count;
@@ -57,16 +49,11 @@ typedef struct {
 typedef struct {
     cl_mem detection_array;
     cl_mem segmentation_array;
-    cl_event result_event;
+//    cl_event result_event;
+    cl_event event_list[2];
+    int event_list_size;
 } dnn_results;
 
-typedef struct {
-    event_array_t *event_array;
-    event_array_t *eval_event_array;
-    float iou;
-    uint64_t size_bytes;
-    host_ts_ns_t host_ts_ns;
-} eval_metadata_t;
 
 //typedef struct {
 //    int config_flags;
@@ -79,7 +66,7 @@ typedef struct {
 
 typedef struct {
     // unless mentioned, these arrays act like loop buffers
-    image_metadata_t *metadata_array; // metadata on images used for
+    eval_metadata_t *metadata_array; // metadata on images used for
     pipeline_context *pipeline_array; // collection of pipelines that can run independently from each other
     dnn_results *collected_results; // buffer with processed image results returned with receive_image
     // TODO: add mutex to index head and tail
@@ -90,7 +77,8 @@ typedef struct {
     sem_t image_sem; // keep track of how many images are available
     int file_descriptor; // used to log info
 
-    ping_fillbuffer_context_t *PING_CTX; // used to measure pings
+    ping_fillbuffer_context_t *ping_context; // used to measure pings
+    cl_command_queue remote_queue; // used to run the ping
 
     cl_command_queue read_queue; // queue to read the collected results
 } pocl_image_processor_context;
@@ -120,6 +108,7 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx);
 
 float
 get_last_iou(pocl_image_processor_context *ctx);
+
 
 #ifdef __cplusplus
 }

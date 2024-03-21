@@ -8,8 +8,10 @@
 #include "poclImageProcessorV2.h"
 #include "platform.h"
 #include "sharedUtils.h"
+#include "poclImageProcessorUtils.h"
 #include <ctime>
 #include <stdlib.h>
+#include <cstring>
 #include "config.h"
 
 #define DEBUB_SEMAPHORES
@@ -50,6 +52,11 @@ supports_config_flags(const int config_flags) {
       return -1;
     }
 #endif
+
+    if (JPEG_IMAGE & config_flags) {
+        LOGE("poclImageProcessorV2 does not support jpeg_image compression type");
+        return -1;
+    }
 
     return 0;
 }
@@ -119,7 +126,7 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
         ctx->yuv_context->enc_queue = ctx->enq_queues[1];
         ctx->yuv_context->dec_queue = ctx->enq_queues[2];
         status = init_yuv_context(ctx->yuv_context, cl_ctx, devices[1], devices[2], codec_sources,
-                                  src_size);
+                                  src_size, 1);
 
         CHECK_AND_RETURN(status, "init of codec kernels failed");
     }
@@ -132,7 +139,7 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
         ctx->jpeg_context->width = width;
         ctx->jpeg_context->enc_queue = ctx->enq_queues[0];
         ctx->jpeg_context->dec_queue = ctx->enq_queues[2];
-        status = init_jpeg_context(ctx->jpeg_context, cl_ctx, &devices[0], &devices[2], 1);
+        status = init_jpeg_context(ctx->jpeg_context, cl_ctx, &devices[0], &devices[2], 1, 1);
 
         CHECK_AND_RETURN(status, "init of codec kernels failed");
     }
@@ -178,9 +185,8 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
     // TODO: setup eval context
     status = init_dnn_context(ctx->dnn_context, NULL, cl_ctx,
                               &devices[2], &devices[0]);
-
-
-    ctx->event_array = create_event_array(MAX_EVENTS);
+    
+    ctx->event_array = create_event_array_pointer(MAX_EVENTS);
 
     return CL_SUCCESS;
 }
@@ -199,10 +205,10 @@ destroy_pipeline_context(pipeline_context ctx) {
 #ifndef DISABLE_HEVC
     destroy_hevc_context(&ctx.hevc_context);
     destroy_hevc_context(&ctx.software_hevc_context);
-#endif DISABLE_HEVC
+#endif
 #ifndef DISABLE_JPEG
     destroy_jpeg_context(&ctx.jpeg_context);
-#endif DISABLE_JPEG
+#endif
     destroy_yuv_context(&ctx.yuv_context);
 
     COND_REL_MEM(ctx.inp_yuv_mem);
@@ -211,7 +217,7 @@ destroy_pipeline_context(pipeline_context ctx) {
     for (int i = 0; i < ctx.queue_count; i++) {
         COND_REL_QUEUE(ctx.enq_queues[i]);
     }
-    free_event_array(&ctx.event_array);
+    free_event_array_pointer(&ctx.event_array);
 
     return CL_SUCCESS;
 }
@@ -244,7 +250,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     ctx->frame_index_tail = 0;
     ctx->file_descriptor = fd;
     ctx->lane_count = max_lanes;
-    ctx->metadata_array = (image_metadata_t *) calloc(max_lanes, sizeof(image_metadata_t));
+    ctx->metadata_array = (eval_metadata_t *) calloc(max_lanes, sizeof(eval_metadata_t));
     if (sem_init(&ctx->pipe_sem, 0, max_lanes) == -1) {
         LOGE("could not init semaphore\n");
         return -1;
@@ -319,6 +325,12 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     ctx->read_queue = clCreateCommandQueue(context, devices[LOCAL_DEVICE], cq_properties, &status);
     CHECK_AND_RETURN(status, "creating read queue failed");
 
+
+    ping_fillbuffer_init(&(ctx->ping_context), context);
+    ctx->remote_queue = clCreateCommandQueue(context, devices[REMOTE_DEVICE], cq_properties,
+                                             &status);
+    CHECK_AND_RETURN(status, "creating remote queue failed");
+
     for (unsigned i = 0; i < MAX_NUM_CL_DEVICES; ++i) {
         if (nullptr != devices[i]) {
             clReleaseDevice(devices[i]);
@@ -336,9 +348,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         CHECK_AND_RETURN((status < 0), "could not write timestamp");
     }
 
-
 // TODO: create eval pipeline
-// TODO: create ping pipeline
 // TODO: create tracy cl context
 
 
@@ -389,6 +399,9 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr) {
         destroy_ddn_results(ctx->collected_results[i]);
         destroy_pipeline_context(ctx->pipeline_array[i]);
     }
+
+    ping_fillbuffer_destroy(&(ctx->ping_context));
+
     free(ctx->collected_results);
     free(ctx->pipeline_array);
 
@@ -396,25 +409,11 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr) {
     sem_destroy(&(ctx->pipe_sem));
     sem_destroy(&(ctx->image_sem));
     clReleaseCommandQueue(ctx->read_queue);
+    clReleaseCommandQueue(ctx->remote_queue);
 
     free(ctx);
     *ctx_ptr = NULL;
     return CL_SUCCESS;
-}
-
-/**
- * helper function to add nanoseconds to a timespec
- * @param ts pointer to timespec to increment
- * @param increment in nanoseconds
- */
-void
-add_ns_to_time(struct timespec * const ts, const int increment) {
-    ts->tv_nsec += increment;
-    // nsec can not be larger than a second
-    if (ts->tv_nsec >= 1000000000) {
-        ts->tv_sec += 1;
-        ts->tv_nsec -= 1000000000;
-    }
 }
 
 /**
@@ -425,7 +424,7 @@ add_ns_to_time(struct timespec * const ts, const int increment) {
  * @return 0 if successful otherwise -1
  */
 int
-dequeue_spot(pocl_image_processor_context * const ctx, const int timeout) {
+dequeue_spot(pocl_image_processor_context *const ctx, const int timeout) {
     struct timespec ts;
     if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {
         return -1;
@@ -450,54 +449,6 @@ dequeue_spot(pocl_image_processor_context * const ctx, const int timeout) {
     return ret;
 }
 
- /**
-  * function to copy raw buffers from the image to a local array and make sure the result is in
-  * nv21 format.
-  * @param width
-  * @param height
-  * @param image needs to be a yuv image
-  * @param compression_type
-  * @param dest_buf
-  */
-void
-copy_yuv_to_arrayV2(const int width, const int height, const image_data_t image,
-                    const compression_t compression_type,
-                    cl_uchar * const dest_buf) {
-
-    assert(image.type == YUV_DATA_T && "image is not a yuv image");
-
-    // this will be optimized out by the compiler
-    const int yrow_stride = image.data.yuv.row_strides[0];
-    const uint8_t *y_ptr = image.data.yuv.planes[0];
-    const uint8_t *u_ptr = image.data.yuv.planes[1];
-    const uint8_t *v_ptr = image.data.yuv.planes[2];
-    const int ypixel_stride = image.data.yuv.pixel_strides[0];
-    const int upixel_stride = image.data.yuv.pixel_strides[1];
-    const int vpixel_stride = image.data.yuv.pixel_strides[2];
-
-    // copy y plane into buffer
-    for (int i = 0; i < height; i++) {
-        // row_stride is in bytes
-        for (int j = 0; j < yrow_stride; j++) {
-            dest_buf[i * yrow_stride + j] = y_ptr[(i * yrow_stride + j) * ypixel_stride];
-        }
-    }
-
-    int uv_start_index = height * yrow_stride;
-    // interleave u and v regardless of if planar or semiplanar
-    // divided by 4 since u and v are subsampled by 2
-    for (int i = 0; i < (height * width) / 4; i++) {
-        if (HEVC_COMPRESSION == compression_type) {
-            dest_buf[uv_start_index + 1 + 2 * i] = v_ptr[i * vpixel_stride];
-            dest_buf[uv_start_index + 2 * i] = u_ptr[i * upixel_stride];
-        } else {
-            dest_buf[uv_start_index + 2 * i] = v_ptr[i * vpixel_stride];
-            dest_buf[uv_start_index + 1 + 2 * i] = u_ptr[i * upixel_stride];
-        }
-    }
-
-}
-
 /**
  * submit an image to the respective pipeline
  * @param ctx pipeline config to run on
@@ -508,11 +459,11 @@ copy_yuv_to_arrayV2(const int width, const int height, const image_data_t image,
  */
 cl_int
 submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
-                         const image_data_t image_data, dnn_results *output) {
+                         const image_data_t image_data, eval_metadata_t *metadata,
+                         const int file_descriptor, dnn_results *output) {
 
     FrameMark;
-    // TODO: look into if host_ts_ns is still a thing
-//    int64_t start_ns = get_timestamp_ns();
+    metadata->host_ts_ns.start = get_timestamp_ns();
     cl_int status;
 
     compression_t compression_type = config.compression_type;
@@ -528,8 +479,8 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
 
     // this is done at the beginning so that the quality algorithm has
     // had the option to use the events
-    release_events(&ctx.event_array);
-    reset_event_array(&ctx.event_array);
+    release_events(ctx.event_array);
+    reset_event_array(ctx.event_array);
 
     // even though inp_format is assigned pixel_format_enum,
     // the type is set to cl_int since underlying enum types
@@ -541,6 +492,8 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
 
     // the default dnn input buffer
     cl_mem dnn_input_buf = NULL;
+
+    metadata->host_ts_ns.before_enc = get_timestamp_ns();
 
     // copy the yuv image data over to the host_img_buf and make sure it's semiplanar.
     copy_yuv_to_arrayV2(ctx.width, ctx.height, image_data, compression_type, ctx.host_inp_buf);
@@ -554,7 +507,7 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
 
         write_buffer_dnn(ctx.dnn_context, config.device_type, ctx.host_inp_buf,
                          ctx.host_inp_buf_size,
-                         ctx.inp_yuv_mem, NULL, &(ctx.event_array), &dnn_wait_event);
+                         ctx.inp_yuv_mem, NULL, ctx.event_array, &dnn_wait_event);
         // no compression is an edge case since it uses the uncompressed
         // yuv buffer as input for the dnn stage
         dnn_input_buf = ctx.inp_yuv_mem;
@@ -564,11 +517,11 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
 
         cl_event wait_on_yuv_event;
         write_buffer_yuv(ctx.yuv_context, ctx.host_inp_buf, ctx.host_inp_buf_size,
-                         ctx.inp_yuv_mem, NULL, &(ctx.event_array), &wait_on_yuv_event);
+                         ctx.inp_yuv_mem, NULL, ctx.event_array, &wait_on_yuv_event);
 
         status = enqueue_yuv_compression(ctx.yuv_context, wait_on_yuv_event,
                                          ctx.inp_yuv_mem, ctx.comp_to_dnn_buf,
-                                         &(ctx.event_array), &dnn_wait_event);
+                                         ctx.event_array, &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue yuv compression work");
         dnn_input_buf = ctx.comp_to_dnn_buf;
     }
@@ -580,15 +533,15 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
 
         cl_event wait_on_write_event;
         write_buffer_jpeg(ctx.jpeg_context, ctx.host_inp_buf, ctx.host_inp_buf_size,
-                          ctx.inp_yuv_mem, &(ctx.event_array), &wait_on_write_event);
+                          ctx.inp_yuv_mem, ctx.event_array, &wait_on_write_event);
         status = enqueue_jpeg_compression(ctx.jpeg_context, wait_on_write_event, ctx.inp_yuv_mem,
-                                          ctx.comp_to_dnn_buf, &(ctx.event_array), &dnn_wait_event);
+                                          ctx.comp_to_dnn_buf, ctx.event_array, &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
         dnn_input_buf = ctx.comp_to_dnn_buf;
     }
 #endif // DISABLE_JPEG
 #ifndef DISABLE_HEVC
-    // TODO: test hecv compression
+        // TODO: test hecv compression
     else if (HEVC_COMPRESSION == compression_type) {
 
         // TODO: refactor hevc to first read image
@@ -608,10 +561,10 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
             ctx.hevc_context->i_frame_interval = config.config.hevc.i_frame_interval;
             ctx.hevc_context->framerate = config.config.hevc.framerate;
             ctx.hevc_context->bitrate = config.config.hevc.bitrate;
-            configure_hevc_codec(ctx.hevc_context, &(ctx.event_array), &configure_event);
+            configure_hevc_codec(ctx.hevc_context, ctx.event_array, &configure_event);
         }
 
-        status = enqueue_hevc_compression(ctx.hevc_context, &(ctx.event_array), &configure_event,
+        status = enqueue_hevc_compression(ctx.hevc_context, ctx.event_array, &configure_event,
                                           &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue hevc compression");
         dnn_input_buf = ctx.comp_to_dnn_buf;
@@ -635,10 +588,10 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
             ctx.software_hevc_context->i_frame_interval = config.config.hevc.i_frame_interval;
             ctx.software_hevc_context->framerate = config.config.hevc.framerate;
             ctx.software_hevc_context->bitrate = config.config.hevc.bitrate;
-            configure_hevc_codec(ctx.software_hevc_context, &(ctx.event_array), &configure_event);
+            configure_hevc_codec(ctx.software_hevc_context, ctx.event_array, &configure_event);
         }
 
-        status = enqueue_hevc_compression(ctx.software_hevc_context, &(ctx.event_array),
+        status = enqueue_hevc_compression(ctx.software_hevc_context, ctx.event_array,
                                           &configure_event,
                                           &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue hevc compression");
@@ -649,9 +602,11 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
         CHECK_AND_RETURN(-1, "jpeg image is not supported with pipelining");
     }
 
+    metadata->host_ts_ns.before_dnn = get_timestamp_ns();
+
     status = enqueue_dnn(ctx.dnn_context, &dnn_wait_event, config, (pixel_format_enum) inp_format,
                          dnn_input_buf, output->detection_array, output->segmentation_array,
-                         &(ctx.event_array), &(output->result_event));
+                         ctx.event_array, &(output->event_list[0]));
     CHECK_AND_RETURN(status, "could not enqueue dnn stage");
 
     // todo: preemptively transfer output buffers to the device that will be reading them
@@ -678,14 +633,50 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     LOGI("submit_image index: %d\n", index);
 
     // store metadata
-    image_metadata_t *image_metadata = &(ctx->metadata_array[index]);
-    image_metadata->frame_index = ctx->frame_index_head - 1;
-    image_metadata->image_timestamp = image_data.image_timestamp;
-    image_metadata->is_eval_frame = is_eval_frame;
+    eval_metadata_t *image_metadata = &(ctx->metadata_array[index]);
+    dnn_results *collected_result = &(ctx->collected_results[index]);
 
     int status;
     status = submit_image_to_pipeline(ctx->pipeline_array[index], codec_config, image_data,
-                                      &(ctx->collected_results[index]));
+                                      image_metadata, ctx->file_descriptor,
+                                      collected_result);
+
+
+    // run the ping buffer
+    if (REMOTE_DEVICE == codec_config.device_type) {
+        // todo: see if this should be run on every device
+        image_metadata->host_ts_ns.before_fill = get_timestamp_ns();
+        cl_event fill_event;
+        ping_fillbuffer_run(ctx->ping_context, ctx->remote_queue,
+                            ctx->pipeline_array[index].event_array, &fill_event);
+        collected_result->event_list[2] = fill_event;
+        collected_result->event_list_size = 2;
+    } else {
+        collected_result->event_list[2] = NULL;
+        collected_result->event_list_size = 1;
+    }
+
+    // populate the metadata
+    image_metadata->frame_index = ctx->frame_index_head - 1;
+    image_metadata->image_timestamp = image_data.image_timestamp;
+    image_metadata->is_eval_frame = is_eval_frame;
+    image_metadata->segmentation = codec_config.do_segment;
+    image_metadata->compression = codec_config.compression_type;
+    image_metadata->event_array = ctx->pipeline_array[index].event_array;
+
+    // do some logging
+    if (ENABLE_PROFILING & ctx->pipeline_array[index].config_flags) {
+
+        dprintf(ctx->file_descriptor, "%d,frame,timestamp,%ld\n", image_metadata->frame_index,
+                image_data.image_timestamp);  // this should match device timestamp in camera log
+        dprintf(ctx->file_descriptor, "%d,frame,is_eval,%d\n", image_metadata->frame_index,
+                is_eval_frame);
+        log_codec_config(ctx->file_descriptor, image_metadata->frame_index, codec_config);
+    }
+
+    // TODO: enqueue eval pipeline and time it
+
+    image_metadata->host_ts_ns.before_wait = get_timestamp_ns();
 
     // increment the semaphore so that image reading thread knows there is an image ready
     sem_post(&(ctx->image_sem));
@@ -695,7 +686,6 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     LOGW("submit_image incremented image sem to: %d \n", sem_value);
 #endif
 
-    // TODO: enqueue eval pipeline
     return status;
 }
 
@@ -732,48 +722,74 @@ wait_image_available(pocl_image_processor_context *ctx, int timeout) {
 
 }
 
+size_t
+get_compression_size(const pipeline_context ctx, const compression_t compression) {
+
+    switch (compression) {
+
+#ifndef  DISABLE_JPEG
+        case JPEG_COMPRESSION:
+            return get_compression_size_jpeg(ctx.jpeg_context);
+#endif
+#ifndef DISABLE_HEVC
+        case HEVC_COMPRESSION:
+            assert(0 && "not implemented yet");
+        case SOFTWARE_HEVC_COMPRESSION:
+            assert(0 && "not implemented yet");
+#endif
+        case YUV_COMPRESSION:
+            return get_compression_size_yuv(ctx.yuv_context);
+        case NO_COMPRESSION:
+            return sizeof(cl_uchar) * ctx.height * ctx.width * 3 / 2;
+        default:
+            LOGE("requested size of unknown compression type\n");
+            return 0;
+    }
+}
+
 /**
  * read done images from the pipeline
  * @param ctx to read from
  * @param detection_array output with detections
  * @param segmentation_array mask of detections
- * @param eval_metadata evaluation results
+ * @param return_metadata evaluation results
  * @param segmentation indicate that segmentation has been done
  * @return opencl status results
  */
 int
-receive_image(pocl_image_processor_context *ctx, int32_t *detection_array,
+receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
               uint8_t *segmentation_array,
-              eval_metadata_t *eval_metadata, int *segmentation) {
+              eval_metadata_t *return_metadata, int *const segmentation) {
 
     int index = ctx->frame_index_tail % ctx->lane_count;
     ctx->frame_index_tail += 1;
     LOGI("receive_image index: %d\n", index);
 
     dnn_results results = ctx->collected_results[index];
-    image_metadata_t image_metadata = ctx->metadata_array[index];
+    eval_metadata_t image_metadata = ctx->metadata_array[index];
 
-    eval_metadata->event_array = &ctx->pipeline_array[index].event_array;
+    int config_flags = ctx->pipeline_array[index].config_flags;
 
     int status;
     cl_event read_detect_event, read_segment_event = NULL;
     int wait_event_size = 1;
 
     status = clEnqueueReadBuffer(ctx->read_queue, results.detection_array, CL_FALSE, 0,
-                                 DET_COUNT * sizeof(cl_int), detection_array, 1,
-                                 &(results.result_event),
+                                 DET_COUNT * sizeof(cl_int), detection_array,
+                                 results.event_list_size,
+                                 results.event_list,
                                  &read_detect_event);
     CHECK_AND_RETURN(status, "could not read detection array");
-    append_to_event_array(eval_metadata->event_array, read_detect_event,
+    append_to_event_array(image_metadata.event_array, read_detect_event,
                           VAR_NAME(read_detect_event));
-
 
     if (image_metadata.segmentation) {
         status = clEnqueueReadBuffer(ctx->read_queue, results.segmentation_array, CL_FALSE, 0,
                                      SEG_OUT_COUNT * sizeof(cl_uchar), segmentation_array,
-                                     1, &(results.result_event), &read_segment_event);
+                                     results.event_list_size, results.event_list,
+                                     &read_segment_event);
         CHECK_AND_RETURN(status, "could not read segmentation array");
-        append_to_event_array(eval_metadata->event_array, read_segment_event,
+        append_to_event_array(image_metadata.event_array, read_segment_event,
                               VAR_NAME(read_segment_event));
         // increment the size of the wait event list
         wait_event_size = 2;
@@ -786,7 +802,38 @@ receive_image(pocl_image_processor_context *ctx, int32_t *detection_array,
     status = clWaitForEvents(wait_event_size, wait_events);
     CHECK_AND_RETURN(status, "could not wait on final event");
 
-    // TODO: populate metadata
+    image_metadata.host_ts_ns.after_wait = get_timestamp_ns();
+
+    image_metadata.host_ts_ns.stop = get_timestamp_ns();
+
+    if (ENABLE_PROFILING & config_flags) {
+        status = print_events(ctx->file_descriptor, image_metadata.frame_index,
+                              image_metadata.event_array);
+        CHECK_AND_RETURN(status, "failed to print events");
+
+        if (1 == image_metadata.is_eval_frame) {
+            status = print_events(ctx->file_descriptor, image_metadata.frame_index,
+                                  image_metadata.eval_event_array);
+            CHECK_AND_RETURN(status, "failed to print events");
+        }
+
+        uint64_t compressed_size = get_compression_size(ctx->pipeline_array[index],
+                                                        image_metadata.compression);
+        dprintf(ctx->file_descriptor, "%d,compression,size_bytes,%lu\n", image_metadata.frame_index,
+                compressed_size);
+
+
+        log_host_ts_ns(ctx->file_descriptor, image_metadata.frame_index,
+                       image_metadata.host_ts_ns);
+    }
+
+    // todo: currently pass the data back for the eventual quality algo,
+    // but the event array might get reset already on the next iteration
+    // before being able to be used. so we should probably do the quality
+    // algorithm before releasing the semaphore.
+    if (NULL != return_metadata) {
+        memcpy(return_metadata, &image_metadata, sizeof(return_metadata));
+    }
 
     // finally release the semaphore
     sem_post(&(ctx->pipe_sem));
@@ -799,7 +846,6 @@ receive_image(pocl_image_processor_context *ctx, int32_t *detection_array,
 
     return CL_SUCCESS;
 }
-
 
 #ifdef __cplusplus
 }

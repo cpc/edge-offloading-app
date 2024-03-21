@@ -6,7 +6,7 @@
 #include <jni.h>
 #include "poclImageProcessor.h"
 #include "poclImageProcessorV2.h"
-#include "quality_algorithm.h"
+#include "eval.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

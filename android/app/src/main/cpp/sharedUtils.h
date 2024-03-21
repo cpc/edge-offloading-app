@@ -9,6 +9,7 @@
 
 #include "platform.h"
 #include <stdint.h>
+#include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,6 +53,9 @@ extern "C" {
     }                         \
 
 int64_t get_timestamp_ns();
+
+void
+add_ns_to_time(struct timespec *const ts, const int increment);
 
 #ifdef __cplusplus
 }

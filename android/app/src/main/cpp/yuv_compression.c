@@ -17,13 +17,7 @@
  */
 yuv_codec_context_t *
 create_yuv_context() {
-    yuv_codec_context_t *context = (yuv_codec_context_t *) malloc(sizeof(yuv_codec_context_t));
-    context->out_enc_y_buf = NULL;
-    context->out_enc_uv_buf = NULL;
-    context->enc_y_kernel = NULL;
-    context->enc_uv_kernel = NULL;
-    context->dec_y_kernel = NULL;
-    context->dec_uv_kernel = NULL;
+    yuv_codec_context_t *context = (yuv_codec_context_t *) calloc(1,sizeof(yuv_codec_context_t));
     return context;
 }
 
@@ -44,7 +38,7 @@ create_yuv_context() {
 int
 init_yuv_context(yuv_codec_context_t *codec_context, cl_context cl_context, cl_device_id enc_device,
                  cl_device_id dec_device, const char *source, const size_t
-                 src_size) {
+                 src_size, const int profile_compression_size) {
 
     int status;
 
@@ -122,6 +116,9 @@ init_yuv_context(yuv_codec_context_t *codec_context, cl_context cl_context, cl_d
     codec_context->uv_global_size[1] = (size_t) (codec_context->width / BLK_W) / 2;
 
     codec_context->output_format = YUV_SEMI_PLANAR;
+
+    codec_context->profile_compressed_size = profile_compression_size;
+    codec_context->compressed_size = total_pixels * 3/2;
 
     clReleaseProgram(program);
 
@@ -229,6 +226,11 @@ enqueue_yuv_compression(const yuv_codec_context_t *cxt, cl_event wait_event, cl_
     *result_event = migrate_event;
     return 0;
 
+}
+
+size_t
+get_compression_size_yuv(const yuv_codec_context_t *cxt) {
+    return cxt->compressed_size;
 }
 
 /**

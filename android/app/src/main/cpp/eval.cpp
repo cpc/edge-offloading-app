@@ -10,6 +10,12 @@
 #include "eval.h"
 #include "eval_network_model.h"
 
+#include <Tracy.hpp>
+
+#include "platform.h"
+#include "sharedUtils.h"
+#include "poclImageProcessorTypes.h"
+
 #define EVAL_INTERVAL_MS 2000 // How often to decide which codec to run
 #define QUALITY_VERBOSITY 2 // Verbosity of messages printed from this file (0 turns them off)
 
@@ -126,7 +132,7 @@ int evaluate_parameters(int frame_index, float power, float iou, uint64_t size_b
           "QUALITY | frame %d | pow %5.3f W, iou %5.4f, size %ld + %d B, compression %d (%s), cur_nsamples: %d, device: %d, codec changed: %d\n",
           frame_index, power, iou, size_bytes, TOTAL_RX_SIZE, CUR_CODEC_ID,
           get_compression_name(CODEC_POINTS[CUR_CODEC_ID]), CUR_NSAMPLES[CUR_CODEC_ID],
-          result_config->device_index, DID_CODEC_CHANGE);
+          result_config->device_type, DID_CODEC_CHANGE);
     QLOGI(2, "QUALITY | frame %d | start %7.2f ms\n", frame_index,
           (host_ts_ns->before_fill - host_ts_ns->start) / 1e6);
     QLOGI(2, "QUALITY | frame %d | fill  %7.2f ms\n", frame_index,

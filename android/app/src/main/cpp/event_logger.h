@@ -33,6 +33,12 @@ typedef struct {
 event_array_t
 create_event_array(const int size);
 
+event_array_t *
+create_event_array_pointer(const int size);
+
+void
+free_event_array_pointer(event_array_t **array);
+
 /**
  * reset the current index to 0. Doesn't clear data.
  * @param array

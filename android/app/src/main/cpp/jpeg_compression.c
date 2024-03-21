@@ -16,13 +16,7 @@
  */
 jpeg_codec_context_t *
 create_jpeg_context() {
-    jpeg_codec_context_t *context = (jpeg_codec_context_t *) malloc(sizeof(jpeg_codec_context_t));
-//    context->inp_buf = NULL;
-    context->comp_buf = NULL;
-    context->size_buf = NULL;
-//    context->out_buf = NULL;
-    context->enc_kernel = NULL;
-    context->dec_kernel = NULL;
+    jpeg_codec_context_t *context = (jpeg_codec_context_t *) calloc(1,sizeof(jpeg_codec_context_t));
 
     return context;
 }
@@ -46,7 +40,7 @@ create_jpeg_context() {
  */
 int
 init_jpeg_context(jpeg_codec_context_t *codec_context, cl_context ocl_context,
-                  cl_device_id *enc_device, cl_device_id *dec_device, int enable_resize) {
+                  cl_device_id *enc_device, cl_device_id *dec_device, int enable_resize, int profile_compressed_size) {
 
     cl_int status;
     int total_pixels = codec_context->width * codec_context->height;
@@ -130,6 +124,7 @@ init_jpeg_context(jpeg_codec_context_t *codec_context, cl_context ocl_context,
     codec_context->work_dim = 1;
     codec_context->enc_global_size[0] = 1;
     codec_context->dec_global_size[0] = 1;
+    codec_context->profile_compressed_size = profile_compressed_size;
 
     clReleaseProgram(enc_program);
     clReleaseProgram(dec_program);
@@ -219,9 +214,23 @@ enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, cl_event wait_event, c
     CHECK_AND_RETURN(status, "failed to enqueue compression kernel");
     append_to_event_array(event_array, enc_event, VAR_NAME(enc_event));
 
+    // if the comressed size is required,
+    // read the value before it gets sent off to the remote device
+    cl_event read_compress_size_event;
+    if(cxt->profile_compressed_size) {
+        status = clEnqueueReadBuffer(cxt->dec_queue, cxt->size_buf, CL_FALSE, 0,
+                                     sizeof(cl_ulong), &(cxt->compressed_size),
+                                     1, &enc_event, &read_compress_size_event);
+        CHECK_AND_RETURN(status, "failed to read the jpeg compressed size");
+        append_to_event_array(event_array, read_compress_size_event, VAR_NAME(read_compress_size_event));
+
+    } else {
+        read_compress_size_event = enc_event;
+    }
+
     // explicitly migrate the image instead of having enqueueNDrangekernel do it implicitly
     // so that we can profile the transfer times
-    status = clEnqueueMigrateMemObjects(cxt->dec_queue, 2, migrate_bufs, 0, 1, &enc_event,
+    status = clEnqueueMigrateMemObjects(cxt->dec_queue, 2, migrate_bufs, 0, 1, &read_compress_size_event,
                                         &mig_event);
     CHECK_AND_RETURN(status, "failed to enqueue migration to remote");
     append_to_event_array(event_array, mig_event, VAR_NAME(mig_event));
@@ -236,6 +245,11 @@ enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, cl_event wait_event, c
 
     TracyCZoneEnd(ctx);
     return 0;
+}
+
+size_t
+get_compression_size_jpeg(jpeg_codec_context_t * ctx) {
+    return ctx->compressed_size;
 }
 
 /**
