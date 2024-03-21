@@ -14,7 +14,11 @@
 #include <cstring>
 #include "config.h"
 
-#define DEBUB_SEMAPHORES
+#include "Tracy.hpp"
+#include "TracyC.h"
+#include "TracyOpenCL.hpp"
+
+#define DEBUG_SEMAPHORES
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,6 +34,13 @@ extern "C" {
 #define SEG_OUT_COUNT (MASK_W * MASK_H * 4)
 // TODO: check if this size actually needed, or one value can be dropped
 #define TOT_OUT_COUNT (DET_COUNT + SEG_COUNT)
+
+const char *pipe_name[] = {
+        "pipe: 0",
+        "pipe: 1",
+        "pipe: 2",
+        "pipe: 3"
+};
 
 /**
  * check that the code was built with the right features enables
@@ -185,7 +196,7 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
     // TODO: setup eval context
     status = init_dnn_context(ctx->dnn_context, NULL, cl_ctx,
                               &devices[2], &devices[0]);
-    
+
     ctx->event_array = create_event_array_pointer(MAX_EVENTS);
 
     return CL_SUCCESS;
@@ -302,6 +313,8 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
                                         codec_sources, src_size, context, devices,
                                         devices_found);
         CHECK_AND_RETURN(status, "could not create pipeline context ");
+
+        ctx->pipeline_array[i].lane_name = pipe_name[i];
     }
 
     // create a collection of cl buffers to store results in
@@ -425,6 +438,8 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr) {
  */
 int
 dequeue_spot(pocl_image_processor_context *const ctx, const int timeout) {
+    ZoneScoped;
+
     struct timespec ts;
     if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {
         return -1;
@@ -435,10 +450,9 @@ dequeue_spot(pocl_image_processor_context *const ctx, const int timeout) {
     int ret;
     while ((ret = sem_timedwait(&(ctx->pipe_sem), &ts)) == -1 && errno == EINTR) {
         // continue if interrupted for any reason
-        continue;
     }
 
-#ifdef DEBUB_SEMAPHORES
+#ifdef DEBUG_SEMAPHORES
     if (ret == 0) {
         int sem_value;
         sem_getvalue(&(ctx->pipe_sem), &sem_value);
@@ -461,8 +475,10 @@ cl_int
 submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
                          const image_data_t image_data, eval_metadata_t *metadata,
                          const int file_descriptor, dnn_results *output) {
+    ZoneScoped;
 
-    FrameMark;
+    TracyCFrameMarkStart(ctx.lane_name);
+
     metadata->host_ts_ns.start = get_timestamp_ns();
     cl_int status;
 
@@ -626,10 +642,15 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
 int
 submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
              image_data_t image_data, int is_eval_frame) {
+  // this function should be called when dequeue_spot acquired a semaphore,
+  ZoneScoped;
 
-    // this function should be called when dequeue_spot acquired a semaphore,
     int index = ctx->frame_index_head % ctx->lane_count;
     ctx->frame_index_head += 1;
+
+    char *markId = new char[16];
+    snprintf(markId, 16, "frame start: %i", ctx->frame_index_head - 1);
+    TracyMessage(markId, strlen(markId));
     LOGI("submit_image index: %d\n", index);
 
     // store metadata
@@ -649,10 +670,10 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
         cl_event fill_event;
         ping_fillbuffer_run(ctx->ping_context, ctx->remote_queue,
                             ctx->pipeline_array[index].event_array, &fill_event);
-        collected_result->event_list[2] = fill_event;
+        collected_result->event_list[1] = fill_event;
         collected_result->event_list_size = 2;
     } else {
-        collected_result->event_list[2] = NULL;
+        collected_result->event_list[1] = NULL;
         collected_result->event_list_size = 1;
     }
 
@@ -676,11 +697,9 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
 
     // TODO: enqueue eval pipeline and time it
 
-    image_metadata->host_ts_ns.before_wait = get_timestamp_ns();
-
     // increment the semaphore so that image reading thread knows there is an image ready
     sem_post(&(ctx->image_sem));
-#ifdef    DEBUB_SEMAPHORES
+#ifdef DEBUG_SEMAPHORES
     int sem_value;
     sem_getvalue(&(ctx->image_sem), &sem_value);
     LOGW("submit_image incremented image sem to: %d \n", sem_value);
@@ -697,6 +716,9 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
  */
 int
 wait_image_available(pocl_image_processor_context *ctx, int timeout) {
+
+    ZoneScoped;
+
     struct timespec ts;
     if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {
         return -1;
@@ -707,10 +729,9 @@ wait_image_available(pocl_image_processor_context *ctx, int timeout) {
     int ret;
     while ((ret = sem_timedwait(&(ctx->image_sem), &ts)) == -1 && errno == EINTR) {
         // continue if interrupted for any reason
-        continue;
     }
 
-#ifdef DEBUB_SEMAPHORES
+#ifdef DEBUG_SEMAPHORES
     if (0 == ret) {
         int sem_value;
         sem_getvalue(&(ctx->image_sem), &sem_value);
@@ -760,6 +781,7 @@ int
 receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
               uint8_t *segmentation_array,
               eval_metadata_t *return_metadata, int *const segmentation) {
+    ZoneScoped;
 
     int index = ctx->frame_index_tail % ctx->lane_count;
     ctx->frame_index_tail += 1;
@@ -797,10 +819,14 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
     // used to send segmentation back to java
     *segmentation = image_metadata.segmentation;
 
-    cl_event wait_events[] = {read_detect_event, read_segment_event};
-    // after this wait, the detection and segmentation arrays are valid
-    status = clWaitForEvents(wait_event_size, wait_events);
-    CHECK_AND_RETURN(status, "could not wait on final event");
+    image_metadata.host_ts_ns.before_wait = get_timestamp_ns();
+    {
+        ZoneScopedN("wait");
+        cl_event wait_events[] = {read_detect_event, read_segment_event};
+        // after this wait, the detection and segmentation arrays are valid
+        status = clWaitForEvents(wait_event_size, wait_events);
+        CHECK_AND_RETURN(status, "could not wait on final event");
+    }
 
     image_metadata.host_ts_ns.after_wait = get_timestamp_ns();
 
@@ -822,7 +848,6 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
         dprintf(ctx->file_descriptor, "%d,compression,size_bytes,%lu\n", image_metadata.frame_index,
                 compressed_size);
 
-
         log_host_ts_ns(ctx->file_descriptor, image_metadata.frame_index,
                        image_metadata.host_ts_ns);
     }
@@ -832,13 +857,17 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
     // before being able to be used. so we should probably do the quality
     // algorithm before releasing the semaphore.
     if (NULL != return_metadata) {
-        memcpy(return_metadata, &image_metadata, sizeof(return_metadata));
+        memcpy(return_metadata, &image_metadata, sizeof(eval_metadata_t));
     }
+
+    char *markId = new char[16];
+    snprintf(markId, 16, "frame end: %i", ctx->frame_index_tail - 1);
+    TracyMessage(markId, strlen(markId));
+    TracyCFrameMarkEnd(ctx->pipeline_array[index].lane_name);
 
     // finally release the semaphore
     sem_post(&(ctx->pipe_sem));
-
-#ifdef DEBUB_SEMAPHORES
+#ifdef DEBUG_SEMAPHORES
     int sem_value;
     sem_getvalue(&(ctx->pipe_sem), &sem_value);
     LOGW("receive_image incremented pipe sem to: %d \n", sem_value);

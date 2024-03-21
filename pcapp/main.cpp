@@ -35,8 +35,8 @@ constexpr int SEGMENTATION_COUNT = MAX_DETECTIONS * MASK_W * MASK_H;
 constexpr int SEG_POSTPROCESS_COUNT = 4 * MASK_W * MASK_H; // RGBA image
 
 constexpr float FPS = 30.0f;
-//constexpr int NFRAMES = 100;
-constexpr int NFRAMES = 10;
+constexpr int NFRAMES = 100;
+// constexpr int NFRAMES = 10;
 
 cl_int test_pthread_bik() {
     ZoneScoped;
@@ -183,7 +183,6 @@ cl_int test_pthread_bik() {
  */
 void read_function(pocl_image_processor_context *ctx) {
 
-
     int frame_index = 0;
     int segmentation = 0;
     eval_metadata_t eval_metadata;
@@ -191,24 +190,24 @@ void read_function(pocl_image_processor_context *ctx) {
     std::vector<int32_t> detections(DETECTION_COUNT);
     std::vector<uint8_t> segmentations(SEG_POSTPROCESS_COUNT);
 
-    while(frame_index < NFRAMES) {
+    while (frame_index < NFRAMES) {
 
-        if(wait_image_available(ctx, 1000) != 0) {
+        if (wait_image_available(ctx, 1000) != 0) {
             continue;
         }
         status = receive_image(ctx, detections.data(), segmentations.data(),
-                      &eval_metadata, &segmentation);
+                               &eval_metadata, &segmentation);
 
         throw_if_cl_err(status, "could not enqueue image");
-        printf("==== Frame %d, no. detections: %d ====\n", frame_index, detections[0]);
+        printf("==== Frame %d, no. detections: %d ====\n", frame_index,
+               detections[0]);
 
         cv::Mat seg_out(MASK_H, MASK_W, CV_8UC4, segmentations.data());
         cv::cvtColor(seg_out, seg_out, cv::COLOR_RGBA2RGB);
         cv::imwrite("seg_out.png", seg_out);
 
-        frame_index +=1;
+        frame_index += 1;
     }
-
 }
 
 int main() {
@@ -259,13 +258,13 @@ int main() {
     throw_if_cl_err(status, "Getting device info");
 
     /* Settings */
-//    constexpr compression_t compression_type = YUV_COMPRESSION;
-//    constexpr compression_t compression_type = NO_COMPRESSION;
-    constexpr compression_t compression_type = JPEG_COMPRESSION;
+    constexpr compression_t compression_type = YUV_COMPRESSION;
+    //    constexpr compression_t compression_type = NO_COMPRESSION;
+    //    constexpr compression_t compression_type = JPEG_COMPRESSION;
     constexpr int config_flags = ENABLE_PROFILING | compression_type;
 
     constexpr devic_type_enum device_index = REMOTE_DEVICE;
-//    constexpr devic_type_enum device_index = LOCAL_DEVICE;
+    //    constexpr devic_type_enum device_index = LOCAL_DEVICE;
     constexpr int do_segment = 1;
     constexpr int quality = 80;
     constexpr int rotation = 0;
@@ -343,11 +342,11 @@ int main() {
     codec_config.device_type = device_index;
     codec_config.config.jpeg.quality = quality;
 
-    pocl_image_processor_context * ctx;
+    pocl_image_processor_context *ctx;
 
-    status = create_pocl_image_processor_context(&ctx, 2, inp_w, inp_h, config_flags,
-                                        codec_sources.at(0).c_str(), codec_sources.at(0).size(),
-                                        fd);
+    status = create_pocl_image_processor_context(
+        &ctx, 2, inp_w, inp_h, config_flags, codec_sources.at(0).c_str(),
+        codec_sources.at(0).size(), fd);
     assert(status == CL_SUCCESS);
 
     // create read thread
@@ -363,22 +362,19 @@ int main() {
             continue;
         }
 
-        if(dequeue_spot(ctx, 33) != 0) {
-            continue ;
-        }
-
         FrameMark;
 
-        {
-            ZoneScopedN("top");
-            last_image_timestamp = image_timestamp;
-
-            status = submit_image(ctx, codec_config, image_data, is_eval_frame);
-            assert(status == CL_SUCCESS);
-
-            frame_index += 1;
-
+        if (dequeue_spot(ctx, 1000) != 0) {
+            continue;
         }
+
+        last_image_timestamp = image_timestamp;
+        image_data.image_timestamp = image_timestamp;
+
+        status = submit_image(ctx, codec_config, image_data, is_eval_frame);
+        assert(status == CL_SUCCESS);
+
+        frame_index += 1;
     }
 
     // join the thread
@@ -389,7 +385,6 @@ int main() {
 
     close(fd);
     free(inp_yuv420nv21);
-
 
     return status;
 }

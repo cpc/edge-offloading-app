@@ -259,7 +259,7 @@ destroy_yuv_context(yuv_codec_context_t **context) {
     COND_REL_KERNEL(c->dec_y_kernel)
 
     COND_REL_KERNEL(c->dec_uv_kernel)
-    
+
     free(c);
     *context = NULL;
     return 0;

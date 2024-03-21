@@ -4,6 +4,7 @@
 
 #include "poclImageProcessorUtils.h"
 #include <assert.h>
+#include <Tracy.hpp>
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,7 +43,7 @@ void
 copy_yuv_to_arrayV2(const int width, const int height, const image_data_t image,
                     const compression_t compression_type,
                     cl_uchar *const dest_buf) {
-
+  ZoneScoped;
     assert(image.type == YUV_DATA_T && "image is not a yuv image");
 
     // this will be optimized out by the compiler

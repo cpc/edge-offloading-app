@@ -123,6 +123,7 @@ add_executable(
         ${APP_DIR}/testapps.c ${APP_DIR}/testapps.h
         ${APP_DIR}/poclImageProcessorV2.cpp ${APP_DIR}/poclImageProcessorV2.h
         ${APP_DIR}/dnn_stage.cpp ${APP_DIR}/dnn_stage.h
+        ${APP_DIR}/poclImageProcessorUtils.cpp ${APP_DIR}/poclImageProcessorUtils.cpp
 )
 
 target_include_directories(

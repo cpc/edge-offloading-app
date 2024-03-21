@@ -11,6 +11,7 @@
 #include "poclImageProcessor.h"
 
 #include <Tracy.hpp>
+#include <TracyOpenCL.hpp>
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,8 +34,8 @@ typedef struct {
     uint32_t width;
 
 #ifdef TRACY_ENABLE
-    tracy_cl_ctx tracy_dnn_queue;
-    tracy_cl_ctx tracy_reconstruct_queue;
+    TracyCLCtx tracy_dnn_queue;
+    TracyCLCtx tracy_reconstruct_queue;
 #endif
 
 } dnn_context_t;

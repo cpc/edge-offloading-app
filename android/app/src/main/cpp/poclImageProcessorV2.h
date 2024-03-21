@@ -44,6 +44,8 @@ typedef struct {
     int width;
     int height;
 
+    const char * lane_name; // the name shown in tracy
+
 } pipeline_context;
 
 typedef struct {

@@ -164,6 +164,7 @@ cl_int
 write_buffer_dnn(const dnn_context_t *ctx, devic_type_enum device_type, uint8_t *inp_host_buf, size_t buf_size,
                  cl_mem cl_buf, const cl_event *wait_event, event_array_t *event_array,
                  cl_event *result_event) {
+    ZoneScoped;
 
     cl_int status;
     cl_event write_img_event;
