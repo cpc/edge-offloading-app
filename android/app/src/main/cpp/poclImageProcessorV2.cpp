@@ -438,7 +438,7 @@ dequeue_spot(pocl_image_processor_context *const ctx, const int timeout) {
         return -1;
     }
 
-    add_ns_to_time(&ts, timeout * 1000000);
+    add_ns_to_time(&ts, (long)timeout * 1000000);
 
     int ret;
     while ((ret = sem_timedwait(&(ctx->pipe_sem), &ts)) == -1 && errno == EINTR) {

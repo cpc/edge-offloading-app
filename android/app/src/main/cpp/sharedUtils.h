@@ -55,7 +55,7 @@ extern "C" {
 int64_t get_timestamp_ns();
 
 void
-add_ns_to_time(struct timespec *const ts, const int increment);
+add_ns_to_time(struct timespec *const ts, const long increment);
 
 #ifdef __cplusplus
 }

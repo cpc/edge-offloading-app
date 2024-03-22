@@ -6,6 +6,7 @@
 #include <time.h>
 #include <stdint.h>
 
+#define NS_PER_S 1000000000
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,13 +24,11 @@ int64_t get_timestamp_ns() {
  * @param increment in nanoseconds
  */
 void
-add_ns_to_time(struct timespec *const ts, const int increment) {
-    ts->tv_nsec += increment;
-    // nsec can not be larger than a second
-    if (ts->tv_nsec >= 1000000000) {
-        ts->tv_sec += 1;
-        ts->tv_nsec -= 1000000000;
-    }
+add_ns_to_time(struct timespec *const ts, const long increment) {
+
+  int64_t time = ts->tv_nsec + increment;
+  ts->tv_nsec = time % NS_PER_S;
+  ts->tv_sec += time / NS_PER_S;
 }
 
 #ifdef __cplusplus
