@@ -35,13 +35,6 @@ extern "C" {
 // TODO: check if this size actually needed, or one value can be dropped
 #define TOT_OUT_COUNT (DET_COUNT + SEG_COUNT)
 
-const char *pipe_name[] = {
-        "pipe: 0",
-        "pipe: 1",
-        "pipe: 2",
-        "pipe: 3"
-};
-
 /**
  * check that the code was built with the right features enables
  * @param config_flags
@@ -314,7 +307,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
                                         devices_found);
         CHECK_AND_RETURN(status, "could not create pipeline context ");
 
-        ctx->pipeline_array[i].lane_name = pipe_name[i];
+        snprintf(ctx->pipeline_array[i].lane_name, 16, "lane: %d", i);
     }
 
     // create a collection of cl buffers to store results in
@@ -472,12 +465,12 @@ dequeue_spot(pocl_image_processor_context *const ctx, const int timeout) {
  * @return opencl return status
  */
 cl_int
-submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
+submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
                          const image_data_t image_data, eval_metadata_t *metadata,
                          const int file_descriptor, dnn_results *output) {
     ZoneScoped;
 
-    TracyCFrameMarkStart(ctx.lane_name);
+    TracyCFrameMarkStart(ctx->lane_name);
 
     metadata->host_ts_ns.start = get_timestamp_ns();
     cl_int status;
@@ -488,15 +481,15 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
     assert(CHECK_COMPRESSION_T(compression_type));
 
     // check that this compression type is enabled
-    assert(compression_type & ctx.config_flags);
+    assert(compression_type & ctx->config_flags);
 
     // check that no compression is passed to local device
     assert((0 == config.device_type) ? (NO_COMPRESSION == compression_type) : 1);
 
     // this is done at the beginning so that the quality algorithm has
     // had the option to use the events
-    release_events(ctx.event_array);
-    reset_event_array(ctx.event_array);
+    release_events(ctx->event_array);
+    reset_event_array(ctx->event_array);
 
     // even though inp_format is assigned pixel_format_enum,
     // the type is set to cl_int since underlying enum types
@@ -512,7 +505,7 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
     metadata->host_ts_ns.before_enc = get_timestamp_ns();
 
     // copy the yuv image data over to the host_img_buf and make sure it's semiplanar.
-    copy_yuv_to_arrayV2(ctx.width, ctx.height, image_data, compression_type, ctx.host_inp_buf);
+    copy_yuv_to_arrayV2(ctx->width, ctx->height, image_data, compression_type, ctx->host_inp_buf);
 
     // the local device does not support other compression types, but this function with
     // local devices should only be called with no compression, so other paths will not be
@@ -521,39 +514,39 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
         // normal execution
         inp_format = YUV_SEMI_PLANAR;
 
-        write_buffer_dnn(ctx.dnn_context, config.device_type, ctx.host_inp_buf,
-                         ctx.host_inp_buf_size,
-                         ctx.inp_yuv_mem, NULL, ctx.event_array, &dnn_wait_event);
+        write_buffer_dnn(ctx->dnn_context, config.device_type, ctx->host_inp_buf,
+                         ctx->host_inp_buf_size,
+                         ctx->inp_yuv_mem, NULL, ctx->event_array, &dnn_wait_event);
         // no compression is an edge case since it uses the uncompressed
         // yuv buffer as input for the dnn stage
-        dnn_input_buf = ctx.inp_yuv_mem;
+        dnn_input_buf = ctx->inp_yuv_mem;
 
     } else if (YUV_COMPRESSION == compression_type) {
-        inp_format = ctx.yuv_context->output_format;
+        inp_format = ctx->yuv_context->output_format;
 
         cl_event wait_on_yuv_event;
-        write_buffer_yuv(ctx.yuv_context, ctx.host_inp_buf, ctx.host_inp_buf_size,
-                         ctx.inp_yuv_mem, NULL, ctx.event_array, &wait_on_yuv_event);
+        write_buffer_yuv(ctx->yuv_context, ctx->host_inp_buf, ctx->host_inp_buf_size,
+                         ctx->inp_yuv_mem, NULL, ctx->event_array, &wait_on_yuv_event);
 
-        status = enqueue_yuv_compression(ctx.yuv_context, wait_on_yuv_event,
-                                         ctx.inp_yuv_mem, ctx.comp_to_dnn_buf,
-                                         ctx.event_array, &dnn_wait_event);
+        status = enqueue_yuv_compression(ctx->yuv_context, wait_on_yuv_event,
+                                         ctx->inp_yuv_mem, ctx->comp_to_dnn_buf,
+                                         ctx->event_array, &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue yuv compression work");
-        dnn_input_buf = ctx.comp_to_dnn_buf;
+        dnn_input_buf = ctx->comp_to_dnn_buf;
     }
 #ifndef DISABLE_JPEG
     else if (JPEG_COMPRESSION == compression_type) {
-        inp_format = ctx.jpeg_context->output_format;
+        inp_format = ctx->jpeg_context->output_format;
 
-        ctx.jpeg_context->quality = config.config.jpeg.quality;
+        ctx->jpeg_context->quality = config.config.jpeg.quality;
 
         cl_event wait_on_write_event;
-        write_buffer_jpeg(ctx.jpeg_context, ctx.host_inp_buf, ctx.host_inp_buf_size,
-                          ctx.inp_yuv_mem, ctx.event_array, &wait_on_write_event);
-        status = enqueue_jpeg_compression(ctx.jpeg_context, wait_on_write_event, ctx.inp_yuv_mem,
-                                          ctx.comp_to_dnn_buf, ctx.event_array, &dnn_wait_event);
+        write_buffer_jpeg(ctx->jpeg_context, ctx->host_inp_buf, ctx->host_inp_buf_size,
+                          ctx->inp_yuv_mem, ctx->event_array, &wait_on_write_event);
+        status = enqueue_jpeg_compression(ctx->jpeg_context, wait_on_write_event, ctx->inp_yuv_mem,
+                                          ctx->comp_to_dnn_buf, ctx->event_array, &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
-        dnn_input_buf = ctx.comp_to_dnn_buf;
+        dnn_input_buf = ctx->comp_to_dnn_buf;
     }
 #endif // DISABLE_JPEG
 #ifndef DISABLE_HEVC
@@ -563,55 +556,55 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
         // TODO: refactor hevc to first read image
         assert(0 && "not refactored yet");
 
-        inp_format = ctx.hevc_context->output_format;
+        inp_format = ctx->hevc_context->output_format;
 
         cl_event configure_event = NULL;
         // expensive to configure, only do it if it is actually different than
         // what is currently configured.
-        if (ctx.hevc_context->i_frame_interval != config.config.hevc.i_frame_interval ||
-            ctx.hevc_context->framerate != config.config.hevc.framerate ||
-            ctx.hevc_context->bitrate != config.config.hevc.bitrate ||
-            1 != ctx.hevc_context->codec_configured) {
+        if (ctx->hevc_context->i_frame_interval != config.config.hevc.i_frame_interval ||
+            ctx->hevc_context->framerate != config.config.hevc.framerate ||
+            ctx->hevc_context->bitrate != config.config.hevc.bitrate ||
+            1 != ctx->hevc_context->codec_configured) {
 
-            ctx.hevc_context->codec_configured = 0;
-            ctx.hevc_context->i_frame_interval = config.config.hevc.i_frame_interval;
-            ctx.hevc_context->framerate = config.config.hevc.framerate;
-            ctx.hevc_context->bitrate = config.config.hevc.bitrate;
-            configure_hevc_codec(ctx.hevc_context, ctx.event_array, &configure_event);
+            ctx->hevc_context->codec_configured = 0;
+            ctx->hevc_context->i_frame_interval = config.config.hevc.i_frame_interval;
+            ctx->hevc_context->framerate = config.config.hevc.framerate;
+            ctx->hevc_context->bitrate = config.config.hevc.bitrate;
+            configure_hevc_codec(ctx->hevc_context, ctx->event_array, &configure_event);
         }
 
-        status = enqueue_hevc_compression(ctx.hevc_context, ctx.event_array, &configure_event,
+        status = enqueue_hevc_compression(ctx->hevc_context, ctx->event_array, &configure_event,
                                           &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue hevc compression");
-        dnn_input_buf = ctx.comp_to_dnn_buf;
+        dnn_input_buf = ctx->comp_to_dnn_buf;
     } else if (SOFTWARE_HEVC_COMPRESSION == compression_type) {
 
         // TODO: refactor hev to first read image
         assert(0 && "not refactored yet");
 
-        inp_format = ctx.software_hevc_context->output_format;
+        inp_format = ctx->software_hevc_context->output_format;
 
         cl_event configure_event = NULL;
 
         // expensive to configure, only do it if it is actually different than
         // what is currently configured.
-        if (ctx.software_hevc_context->i_frame_interval != config.config.hevc.i_frame_interval ||
-            ctx.software_hevc_context->framerate != config.config.hevc.framerate ||
-            ctx.software_hevc_context->bitrate != config.config.hevc.bitrate ||
-            1 != ctx.software_hevc_context->codec_configured) {
+        if (ctx->software_hevc_context->i_frame_interval != config.config.hevc.i_frame_interval ||
+            ctx->software_hevc_context->framerate != config.config.hevc.framerate ||
+            ctx->software_hevc_context->bitrate != config.config.hevc.bitrate ||
+            1 != ctx->software_hevc_context->codec_configured) {
 
-            ctx.software_hevc_context->codec_configured = 0;
-            ctx.software_hevc_context->i_frame_interval = config.config.hevc.i_frame_interval;
-            ctx.software_hevc_context->framerate = config.config.hevc.framerate;
-            ctx.software_hevc_context->bitrate = config.config.hevc.bitrate;
-            configure_hevc_codec(ctx.software_hevc_context, ctx.event_array, &configure_event);
+            ctx->software_hevc_context->codec_configured = 0;
+            ctx->software_hevc_context->i_frame_interval = config.config.hevc.i_frame_interval;
+            ctx->software_hevc_context->framerate = config.config.hevc.framerate;
+            ctx->software_hevc_context->bitrate = config.config.hevc.bitrate;
+            configure_hevc_codec(ctx->software_hevc_context, ctx->event_array, &configure_event);
         }
 
-        status = enqueue_hevc_compression(ctx.software_hevc_context, ctx.event_array,
+        status = enqueue_hevc_compression(ctx->software_hevc_context, ctx->event_array,
                                           &configure_event,
                                           &dnn_wait_event);
         CHECK_AND_RETURN(status, "could not enqueue hevc compression");
-        dnn_input_buf = ctx.comp_to_dnn_buf;
+        dnn_input_buf = ctx->comp_to_dnn_buf;
     }
 #endif // DISABLE_HEVC
     else {
@@ -620,9 +613,9 @@ submit_image_to_pipeline(pipeline_context ctx, const codec_config_t config,
 
     metadata->host_ts_ns.before_dnn = get_timestamp_ns();
 
-    status = enqueue_dnn(ctx.dnn_context, &dnn_wait_event, config, (pixel_format_enum) inp_format,
+    status = enqueue_dnn(ctx->dnn_context, &dnn_wait_event, config, (pixel_format_enum) inp_format,
                          dnn_input_buf, output->detection_array, output->segmentation_array,
-                         ctx.event_array, &(output->event_list[0]));
+                         ctx->event_array, &(output->event_list[0]));
     CHECK_AND_RETURN(status, "could not enqueue dnn stage");
 
     // todo: preemptively transfer output buffers to the device that will be reading them
@@ -658,7 +651,7 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     dnn_results *collected_result = &(ctx->collected_results[index]);
 
     int status;
-    status = submit_image_to_pipeline(ctx->pipeline_array[index], codec_config, image_data,
+    status = submit_image_to_pipeline(&(ctx->pipeline_array[index]), codec_config, image_data,
                                       image_metadata, ctx->file_descriptor,
                                       collected_result);
 
