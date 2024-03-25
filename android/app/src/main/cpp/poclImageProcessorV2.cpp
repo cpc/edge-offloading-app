@@ -82,8 +82,7 @@ int
 setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
                        const int config_flags,
                        const char *codec_sources, const size_t src_size, cl_context cl_ctx,
-                       cl_device_id *devices, cl_uint no_devs) {
-
+                       cl_device_id *devices, cl_uint no_devs, TracyCLCtx *tracy_ctxs) {
 
     if (supports_config_flags(config_flags) != 0) {
         return -1;
@@ -297,6 +296,15 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     context = clCreateContext(cps, devices_found, devices, NULL, NULL, &status);
     CHECK_AND_RETURN(status, "creating context failed");
 
+#ifdef TRACY_ENABLE
+    ctx->tracy_ctxs = (TracyCLCtx *) calloc(devices_found, sizeof(TracyCLCtx));
+    for (int i = 0; i< devices_found; i++) {
+        ctx->tracy_ctxs[i] = TracyCLContext(context, devices[i]);
+    }
+#else
+    ctx->tracy_ctxs= NULL;
+#endif
+
     // create the pipelines
     ctx->pipeline_array = (pipeline_context *) calloc(max_lanes, sizeof(pipeline_context));
     for (int i = 0; i < max_lanes; i++) {
@@ -304,7 +312,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         // device by making the second and third cl_device_id the same. Something to look at in the future.
         status = setup_pipeline_context(&(ctx->pipeline_array[i]), width, height, config_flags,
                                         codec_sources, src_size, context, devices,
-                                        devices_found);
+                                        devices_found, ctx->tracy_ctxs);
         CHECK_AND_RETURN(status, "could not create pipeline context ");
 
         snprintf(ctx->pipeline_array[i].lane_name, 16, "lane: %d", i);
@@ -416,6 +424,13 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr) {
     sem_destroy(&(ctx->image_sem));
     clReleaseCommandQueue(ctx->read_queue);
     clReleaseCommandQueue(ctx->remote_queue);
+
+    if(NULL != ctx->tracy_ctxs) {
+      for(int i=0; i < ctx->devices_found; i++){
+        TracyCLDestroy(ctx->tracy_ctxs[i]);
+      }
+      free(ctx->tracy_ctxs);
+    }
 
     free(ctx);
     *ctx_ptr = NULL;
@@ -822,6 +837,12 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
     }
 
     image_metadata.host_ts_ns.after_wait = get_timestamp_ns();
+
+    if(NULL != ctx->tracy_ctxs ) {
+      for(int i =0; i < ctx->devices_found; i++) {
+        TracyCLCollect(ctx->tracy_ctxs[i]);
+      }
+    }
 
     image_metadata.host_ts_ns.stop = get_timestamp_ns();
 

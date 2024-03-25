@@ -33,10 +33,8 @@ typedef struct {
     uint32_t height;
     uint32_t width;
 
-#ifdef TRACY_ENABLE
-    TracyCLCtx tracy_dnn_queue;
-    TracyCLCtx tracy_reconstruct_queue;
-#endif
+    TracyCLCtx remote_tracy_ctx;
+    TracyCLCtx local_tracy_ctx;
 
 } dnn_context_t;
 

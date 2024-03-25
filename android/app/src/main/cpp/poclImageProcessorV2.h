@@ -83,6 +83,9 @@ typedef struct {
     cl_command_queue remote_queue; // used to run the ping
 
     cl_command_queue read_queue; // queue to read the collected results
+
+    TracyCLCtx *tracy_ctxs; // used for opencl tracy profiling
+    int devices_found; // used to keep track of how many devices there are
 } pocl_image_processor_context;
 
 int
