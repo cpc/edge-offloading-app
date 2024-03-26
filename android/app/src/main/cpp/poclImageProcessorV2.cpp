@@ -82,11 +82,19 @@ int
 setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
                        const int config_flags,
                        const char *codec_sources, const size_t src_size, cl_context cl_ctx,
-                       cl_device_id *devices, cl_uint no_devs, TracyCLCtx *tracy_ctxs) {
+                       cl_device_id *devices, cl_uint no_devs, TracyCLCtx *tracy_ctxs,
+                       int is_eval) {
 
     if (supports_config_flags(config_flags) != 0) {
         return -1;
     }
+    assert(1 <= no_devs && "setup_pipeline_context requires atleast one device");
+    if ((config_flags &
+         (YUV_COMPRESSION | HEVC_COMPRESSION | SOFTWARE_HEVC_COMPRESSION | JPEG_COMPRESSION)) &&
+        1 == no_devs) {
+        CHECK_AND_RETURN(-1, "compression is not supported with one device");
+    }
+
     cl_int status;
 
     ctx->config_flags = config_flags;
@@ -98,14 +106,12 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
     // 1. a local compression device
     // 2. a remote decompression device
     // 3. a remote dnn device
-    assert(3 <= no_devs);
     ctx->queue_count = no_devs;
     ctx->enq_queues = (cl_command_queue *) calloc(no_devs, sizeof(cl_command_queue));
     for (unsigned i = 0; i < no_devs; ++i) {
         ctx->enq_queues[i] = clCreateCommandQueue(cl_ctx, devices[i], cq_properties, &status);
         CHECK_AND_RETURN(status, "creating command queue failed");
     }
-
 
     size_t img_buf_size = sizeof(cl_uchar) * width * height * 3 / 2;
     ctx->inp_yuv_mem = clCreateBuffer(cl_ctx, CL_MEM_READ_ONLY, img_buf_size,
@@ -182,12 +188,24 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
     ctx->dnn_context->height = height;
     ctx->dnn_context->width = width;
     ctx->dnn_context->rotate_cw_degrees = 90;
-    ctx->dnn_context->remote_queue = ctx->enq_queues[2];
-    ctx->dnn_context->local_queue = ctx->enq_queues[0];
-    // set the eval context to NULL for now
-    // TODO: setup eval context
-    status = init_dnn_context(ctx->dnn_context, NULL, cl_ctx,
-                              &devices[2], &devices[0]);
+
+    if (no_devs > 1) {
+        ctx->dnn_context->remote_queue = ctx->enq_queues[2];
+        ctx->dnn_context->local_queue = ctx->enq_queues[0];
+        ctx->dnn_context->remote_tracy_ctx = tracy_ctxs[2];
+        ctx->dnn_context->local_tracy_ctx = tracy_ctxs[0];
+        status = init_dnn_context(ctx->dnn_context, cl_ctx,
+                                  &devices[2], &devices[0], is_eval);
+    } else {
+        // setup local dnn
+        ctx->dnn_context->remote_queue = ctx->enq_queues[0];
+        ctx->dnn_context->local_queue = ctx->enq_queues[0];
+        ctx->dnn_context->remote_tracy_ctx = tracy_ctxs[0];
+        ctx->dnn_context->local_tracy_ctx = tracy_ctxs[0];
+        status = init_dnn_context(ctx->dnn_context, cl_ctx,
+                                  &devices[0], &devices[0], is_eval);
+    }
+    CHECK_AND_RETURN(status, "could not init dnn_context");
 
     ctx->event_array = create_event_array_pointer(MAX_EVENTS);
 
@@ -223,6 +241,57 @@ destroy_pipeline_context(pipeline_context ctx) {
     free_event_array_pointer(&ctx.event_array);
 
     return CL_SUCCESS;
+}
+
+/**
+ * initialize the dnn result structs
+ * @param results the dnn_result to be initialized
+ * @param context opencl context to create buffers in
+ * @param detect_size the size of the detection array buffer
+ * @param seg_size the size of the segmentation array buffer
+ * @return
+ */
+cl_int
+init_dnn_results(dnn_results *results, cl_context context, size_t detect_size, size_t seg_size) {
+    int status;
+    results->detection_array = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                              detect_size,
+                                              NULL, &status);
+    CHECK_AND_RETURN(status, "could not create detection array\n");
+    results->segmentation_array = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                                 seg_size,
+                                                 NULL,
+                                                 &status);
+    CHECK_AND_RETURN(status, "could not create segmentation array\n");
+    return CL_SUCCESS;
+}
+
+/**
+ * initialized the eval context
+ * @param ctx
+ * @param width
+ * @param height
+ * @param cl_context
+ * @param device
+ * @param tracy_ctx
+ * @return
+ */
+cl_int
+init_eval_ctx(eval_pipeline_context_t *const ctx, int width, int height, cl_context cl_context,
+              cl_device_id *device, TracyCLCtx *tracy_ctx) {
+
+    // create eval pipeline
+    ctx->eval_pipeline = (pipeline_context *) calloc(1, sizeof(pipeline_context));
+    setup_pipeline_context(ctx->eval_pipeline, width, height, ENABLE_PROFILING | NO_COMPRESSION,
+                           NULL, 0, cl_context, device, 1, tracy_ctx, 1);
+    ctx->eval_results = (dnn_results *) calloc(1, sizeof(dnn_results));
+    init_dnn_results(ctx->eval_results, cl_context, TOT_OUT_COUNT * sizeof(cl_int),
+                     SEG_OUT_COUNT * sizeof(cl_uchar));
+
+    clock_gettime(CLOCK_MONOTONIC, &(ctx->next_eval_ts));
+    // start eval 4 seconds after starting
+    ctx->next_eval_ts.tv_sec += 4;
+
 }
 
 /**
@@ -278,6 +347,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     CHECK_AND_RETURN(status, "getting device id failed");
     LOGI("Platform has %d devices\n", devices_found);
     assert(devices_found > 0);
+    ctx->devices_found = devices_found;
 
     // some info
     char result_array[256];
@@ -312,7 +382,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         // device by making the second and third cl_device_id the same. Something to look at in the future.
         status = setup_pipeline_context(&(ctx->pipeline_array[i]), width, height, config_flags,
                                         codec_sources, src_size, context, devices,
-                                        devices_found, ctx->tracy_ctxs);
+                                        devices_found, ctx->tracy_ctxs, 0);
         CHECK_AND_RETURN(status, "could not create pipeline context ");
 
         snprintf(ctx->pipeline_array[i].lane_name, 16, "lane: %d", i);
@@ -321,16 +391,9 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     // create a collection of cl buffers to store results in
     ctx->collected_results = (dnn_results *) calloc(max_lanes, sizeof(dnn_results));
     for (int i = 0; i < max_lanes; i++) {
-        ctx->collected_results[i].detection_array = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                                                   TOT_OUT_COUNT * sizeof(cl_int),
-                                                                   NULL, &status);
-        CHECK_AND_RETURN(status, "could not create detection array\n");
-        ctx->collected_results[i].segmentation_array = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                                                      SEG_OUT_COUNT *
-                                                                      sizeof(cl_uchar), NULL,
-                                                                      &status);
-        CHECK_AND_RETURN(status, "could not create segmentation array\n");
-
+        status = init_dnn_results(&(ctx->collected_results[i]), context,
+                                  TOT_OUT_COUNT * sizeof(cl_int), SEG_OUT_COUNT * sizeof(cl_uchar));
+        CHECK_AND_RETURN(status, "couldn't create collected results");
     }
 
     // create a queue used to receive images
@@ -339,11 +402,17 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     ctx->read_queue = clCreateCommandQueue(context, devices[LOCAL_DEVICE], cq_properties, &status);
     CHECK_AND_RETURN(status, "creating read queue failed");
 
+    if (devices_found > 1) {
+        ping_fillbuffer_init(&(ctx->ping_context), context);
+        ctx->remote_queue = clCreateCommandQueue(context, devices[REMOTE_DEVICE], cq_properties,
+                                                 &status);
+        CHECK_AND_RETURN(status, "creating remote queue failed");
 
-    ping_fillbuffer_init(&(ctx->ping_context), context);
-    ctx->remote_queue = clCreateCommandQueue(context, devices[REMOTE_DEVICE], cq_properties,
-                                             &status);
-    CHECK_AND_RETURN(status, "creating remote queue failed");
+        init_eval_ctx(&(ctx->eval_ctx), width, height, context, &(devices[REMOTE_DEVICE]),
+                      &(ctx->tracy_ctxs[REMOTE_DEVICE]));
+        // TODO: create a thread that waits on the eval queue
+        // for now read eval data when reading results
+    }
 
     for (unsigned i = 0; i < MAX_NUM_CL_DEVICES; ++i) {
         if (nullptr != devices[i]) {
@@ -362,10 +431,6 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         CHECK_AND_RETURN((status < 0), "could not write timestamp");
     }
 
-// TODO: create eval pipeline
-// TODO: create tracy cl context
-
-
     *ret_ctx = ctx;
     return CL_SUCCESS;
 }
@@ -377,8 +442,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
  */
 float
 get_last_iou(pocl_image_processor_context *ctx) {
-    // TODO: actually get the right iou
-    return -5.0f;
+    return ctx->eval_ctx.eval_pipeline->dnn_context->iou;
 }
 
 /**
@@ -388,10 +452,19 @@ get_last_iou(pocl_image_processor_context *ctx) {
  * @return opencl status
  */
 cl_int
-destroy_ddn_results(dnn_results results) {
+destroy_dnn_results(dnn_results results) {
     COND_REL_MEM(results.segmentation_array);
     COND_REL_MEM(results.detection_array);
     return CL_SUCCESS;
+}
+
+cl_int
+destroy_eval_context(eval_pipeline_context_t *ctx) {
+
+    destroy_pipeline_context(*(ctx->eval_pipeline));
+    free(ctx->eval_pipeline);
+    destroy_dnn_results(*(ctx->eval_results));
+    free(ctx->eval_results);
 }
 
 /**
@@ -410,7 +483,7 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr) {
     }
 
     for (int i = 0; i < ctx->lane_count; i++) {
-        destroy_ddn_results(ctx->collected_results[i]);
+        destroy_dnn_results(ctx->collected_results[i]);
         destroy_pipeline_context(ctx->pipeline_array[i]);
     }
 
@@ -425,12 +498,14 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr) {
     clReleaseCommandQueue(ctx->read_queue);
     clReleaseCommandQueue(ctx->remote_queue);
 
-    if(NULL != ctx->tracy_ctxs) {
-      for(int i=0; i < ctx->devices_found; i++){
-        TracyCLDestroy(ctx->tracy_ctxs[i]);
-      }
-      free(ctx->tracy_ctxs);
+    if (NULL != ctx->tracy_ctxs) {
+        for (int i = 0; i < ctx->devices_found; i++) {
+            TracyCLDestroy(ctx->tracy_ctxs[i]);
+        }
+        free(ctx->tracy_ctxs);
     }
+
+    destroy_eval_context(&(ctx->eval_ctx));
 
     free(ctx);
     *ctx_ptr = NULL;
@@ -487,7 +562,10 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
 
     TracyCFrameMarkStart(ctx->lane_name);
 
-    metadata->host_ts_ns.start = get_timestamp_ns();
+    if (NULL != metadata) {
+        metadata->host_ts_ns.start = get_timestamp_ns();
+    }
+
     cl_int status;
 
     compression_t compression_type = config.compression_type;
@@ -517,7 +595,9 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
     // the default dnn input buffer
     cl_mem dnn_input_buf = NULL;
 
-    metadata->host_ts_ns.before_enc = get_timestamp_ns();
+    if (NULL != metadata) {
+        metadata->host_ts_ns.before_enc = get_timestamp_ns();
+    }
 
     // copy the yuv image data over to the host_img_buf and make sure it's semiplanar.
     copy_yuv_to_arrayV2(ctx->width, ctx->height, image_data, compression_type, ctx->host_inp_buf);
@@ -626,7 +706,9 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
         CHECK_AND_RETURN(-1, "jpeg image is not supported with pipelining");
     }
 
-    metadata->host_ts_ns.before_dnn = get_timestamp_ns();
+    if (NULL != metadata) {
+        metadata->host_ts_ns.before_dnn = get_timestamp_ns();
+    }
 
     status = enqueue_dnn(ctx->dnn_context, &dnn_wait_event, config, (pixel_format_enum) inp_format,
                          dnn_input_buf, output->detection_array, output->segmentation_array,
@@ -634,6 +716,23 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
     CHECK_AND_RETURN(status, "could not enqueue dnn stage");
 
     // todo: preemptively transfer output buffers to the device that will be reading them
+
+    return CL_SUCCESS;
+}
+
+cl_int
+enqueue_eval_kernel(eval_pipeline_context_t *ctx, dnn_results *base_result,
+                    dnn_results *eval_result, codec_config_t *config) {
+    cl_int status;
+
+    cl_event wait_list[] = {base_result->event_list[0], base_result->event_list[0]};
+    status = enqueue_eval_dnn(ctx->eval_pipeline->dnn_context, base_result->detection_array,
+                              base_result->segmentation_array,
+                              eval_result->detection_array, eval_result->segmentation_array, config,
+                              wait_list, 2, ctx->eval_pipeline->event_array,
+                              &(eval_result->event_list[1]));
+    CHECK_AND_RETURN(status, "could not enqueue eval dnn");
+    eval_result->event_list_size = 2;
 
     return CL_SUCCESS;
 }
@@ -669,7 +768,29 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     status = submit_image_to_pipeline(&(ctx->pipeline_array[index]), codec_config, image_data,
                                       image_metadata, ctx->file_descriptor,
                                       collected_result);
+    CHECK_AND_RETURN(status, "could not submit image to pipeline");
 
+    // check if we need to run the eval kernels
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    if (compare_timespec(&ts, &(ctx->eval_ctx.next_eval_ts)) < 0 &&
+        REMOTE_DEVICE == codec_config.device_type) {
+        codec_config_t eval_config = {NO_COMPRESSION, codec_config.device_type,
+                                      codec_config.rotation, codec_config.do_segment, NULL};
+        status = submit_image_to_pipeline((ctx->eval_ctx.eval_pipeline), eval_config, image_data,
+                                          NULL, ctx->file_descriptor, ctx->eval_ctx.eval_results);
+        CHECK_AND_RETURN(status, "could not submit eval image");
+
+        status = enqueue_eval_kernel(&(ctx->eval_ctx), collected_result,
+                                     ctx->eval_ctx.eval_results, &codec_config);
+        CHECK_AND_RETURN(status, "could not enqueue eval kernel");
+
+        image_metadata->is_eval_frame = 1;
+
+        // increment the time for the next eval to be in 2 seconds
+        clock_gettime(CLOCK_MONOTONIC, &(ctx->eval_ctx.next_eval_ts));
+        ctx->eval_ctx.next_eval_ts.tv_sec += 2;
+    }
 
     // run the ping buffer
     if (REMOTE_DEVICE == codec_config.device_type) {
@@ -688,7 +809,6 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     // populate the metadata
     image_metadata->frame_index = ctx->frame_index_head - 1;
     image_metadata->image_timestamp = image_data.image_timestamp;
-    image_metadata->is_eval_frame = is_eval_frame;
     image_metadata->segmentation = codec_config.do_segment;
     image_metadata->compression = codec_config.compression_type;
     image_metadata->event_array = ctx->pipeline_array[index].event_array;
@@ -702,8 +822,6 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
                 is_eval_frame);
         log_codec_config(ctx->file_descriptor, image_metadata->frame_index, codec_config);
     }
-
-    // TODO: enqueue eval pipeline and time it
 
     // increment the semaphore so that image reading thread knows there is an image ready
     sem_post(&(ctx->image_sem));
@@ -824,6 +942,7 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
         // increment the size of the wait event list
         wait_event_size = 2;
     }
+
     // used to send segmentation back to java
     *segmentation = image_metadata.segmentation;
 
@@ -836,12 +955,20 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
         CHECK_AND_RETURN(status, "could not wait on final event");
     }
 
+    if (image_metadata.is_eval_frame) {
+        ZoneScopedN("wait_eval");
+        status = clWaitForEvents(ctx->eval_ctx.eval_results->event_list_size,
+                                 ctx->eval_ctx.eval_results->event_list);
+        CHECK_AND_RETURN(status, "could not wait on eval event");
+        printf("eval iou: %f\n", ctx->eval_ctx.eval_pipeline->dnn_context->iou);
+    }
+
     image_metadata.host_ts_ns.after_wait = get_timestamp_ns();
 
-    if(NULL != ctx->tracy_ctxs ) {
-      for(int i =0; i < ctx->devices_found; i++) {
-        TracyCLCollect(ctx->tracy_ctxs[i]);
-      }
+    if (NULL != ctx->tracy_ctxs) {
+        for (int i = 0; i < ctx->devices_found; i++) {
+            TracyCLCollect(ctx->tracy_ctxs[i]);
+        }
     }
 
     image_metadata.host_ts_ns.stop = get_timestamp_ns();
@@ -853,7 +980,7 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
 
         if (1 == image_metadata.is_eval_frame) {
             status = print_events(ctx->file_descriptor, image_metadata.frame_index,
-                                  image_metadata.eval_event_array);
+                                  ctx->eval_ctx.eval_pipeline->event_array);
             CHECK_AND_RETURN(status, "failed to print events");
         }
 

@@ -52,10 +52,14 @@ extern "C" {
     queue = NULL; \
     }                         \
 
+
 int64_t get_timestamp_ns();
 
 void
 add_ns_to_time(struct timespec *const ts, const long increment);
+
+long
+compare_timespec(struct timespec *const ts_a, struct timespec *const ts_b);
 
 #ifdef __cplusplus
 }

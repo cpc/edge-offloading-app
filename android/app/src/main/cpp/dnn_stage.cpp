@@ -25,12 +25,8 @@ static int total_out_count = detection_count + segmentation_count;
 
 dnn_context_t * create_dnn_context() {
 
-    dnn_context_t *context = (dnn_context_t *) malloc( sizeof(dnn_context_t));
-    context->out_mask_buf = NULL;
-    context->postprocess_buf = NULL;
-    context->dnn_kernel = NULL;
-    context->postprocess_kernel = NULL;
-    context->reconstruct_kernel = NULL;
+    dnn_context_t *context = (dnn_context_t *) calloc(1, sizeof(dnn_context_t));
+    context->iou = -5.0;
 
     return context;
 }
@@ -44,55 +40,35 @@ char *kernel_names = dnn_kernel_name ";"
                      reconstruct_kernel_name ";"
                      eval_kernel_name;
 
+/**
+ * init the dnn context
+ * @param dnn_context
+ * @param ocl_context
+ * @param dnn_device device to run the dnn on
+ * @param reconstruct_device device to do post processing on,
+ * can be the same as dnn_device
+ * @param enable_eval whether or not to init the eval kernels as well
+ * @return OpenCL status message
+ */
 int
-init_eval_context(eval_context_t *eval_context, cl_context ocl_context, cl_program program) {
-
-    assert(0 && "function hasn't been tested");
-
-    cl_int status;
-
-    eval_context->eval_kernel = clCreateKernel(program, eval_kernel_name, &status);
-    CHECK_AND_RETURN(status, "creating eval kernel failed");
-
-    eval_context->eval_img_buf = clCreateBuffer(ocl_context, CL_MEM_READ_ONLY, total_out_count * sizeof(cl_int),
-                                                NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the eval image buffer");
-
-    eval_context->eval_out_buf = clCreateBuffer(ocl_context, CL_MEM_WRITE_ONLY, total_out_count * sizeof(cl_int),
-                                                NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the eval output buffer");
-
-    eval_context->eval_out_mask_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
-                                                     MASK_W * MASK_H * MAX_DETECTIONS * sizeof(cl_char),
-                                                     NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the eval segmentation mask buffer");
-
-    eval_context->eval_postprocess_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
-                                                        MASK_W * MASK_H * sizeof(cl_uchar), NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create eval segmentation postprocessing buffer");
-
-    eval_context->eval_iou_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE, 1 * sizeof(cl_float), NULL, &status);
-    CHECK_AND_RETURN(status, "failed to create the eval iou buffer");
-
-}
-
-int
-init_dnn_context(dnn_context_t * dnn_context, eval_context_t *eval_context, cl_context ocl_context, cl_device_id *dnn_device,
-                 cl_device_id *reconstruct_device) {
+init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, cl_device_id *dnn_device,
+                 cl_device_id *reconstruct_device, int enable_eval) {
 
     int status;
+
+    // if both devices are the same, don't pass the same device twice to
+    // the program
+    int num_devs = 2;
+    if (*dnn_device == *reconstruct_device) {
+        num_devs = 1;
+    }
+
     cl_device_id devices[] = {*dnn_device, *reconstruct_device};
-    cl_program program = clCreateProgramWithBuiltInKernels(ocl_context, 2, devices,
+    cl_program program = clCreateProgramWithBuiltInKernels(ocl_context, num_devs, devices,
                                                            kernel_names, &status);
     CHECK_AND_RETURN(status, "creation of program failed");
 
-    assert(NULL == eval_context && "eval context is not supported yet");
-    if (NULL != eval_context) {
-
-        init_eval_context(eval_context, ocl_context, program);
-    }
-
-    status = clBuildProgram(program, 2, devices, NULL, NULL, NULL);
+    status = clBuildProgram(program, num_devs, devices, NULL, NULL, NULL);
     CHECK_AND_RETURN(status, "building of program failed");
 
     dnn_context->dnn_kernel = clCreateKernel(program, dnn_kernel_name, &status);
@@ -104,6 +80,7 @@ init_dnn_context(dnn_context_t * dnn_context, eval_context_t *eval_context, cl_c
     dnn_context->reconstruct_kernel = clCreateKernel(program, reconstruct_kernel_name, &status);
     CHECK_AND_RETURN(status, "creating reconstruct kernel failed");
 
+    // TODO: don't hardcode image dimensions
     dnn_context->out_mask_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
                                                640 * 480 * MAX_DETECTIONS *
                                                sizeof(cl_char) / 4,
@@ -126,7 +103,7 @@ init_dnn_context(dnn_context_t * dnn_context, eval_context_t *eval_context, cl_c
     CHECK_AND_RETURN(status, "could not assign dnn kernel args");
 
     status = clSetKernelArg(dnn_context->postprocess_kernel, 1, sizeof(cl_mem),
-                             &(dnn_context->out_mask_buf));
+                            &(dnn_context->out_mask_buf));
     status |= clSetKernelArg(dnn_context->postprocess_kernel, 2, sizeof(cl_mem),
                              &(dnn_context->postprocess_buf));
     CHECK_AND_RETURN(status, "could not assign postprocess kernel args");
@@ -136,6 +113,17 @@ init_dnn_context(dnn_context_t * dnn_context, eval_context_t *eval_context, cl_c
                             &(dnn_context->postprocess_buf));
     CHECK_AND_RETURN(status, "could not assign reconstruct_kernel args");
 
+    if (enable_eval) {
+        dnn_context->eval_kernel = clCreateKernel(program, eval_kernel_name, &status);
+        CHECK_AND_RETURN(status, "could not create eval kernel");
+        dnn_context->eval_buf = clCreateBuffer(ocl_context, CL_MEM_WRITE_ONLY, sizeof(cl_float),
+                                               NULL,
+                                               &status);
+        CHECK_AND_RETURN(status, "could create eval_buf");
+        status |= clSetKernelArg(dnn_context->eval_kernel, 5, sizeof(cl_mem),
+                                 &(dnn_context->eval_buf));
+    }
+
     dnn_context->work_dim = 1;
     dnn_context->global_size[0] = 1;
     dnn_context->local_size[0] = 1;
@@ -143,6 +131,8 @@ init_dnn_context(dnn_context_t * dnn_context, eval_context_t *eval_context, cl_c
 
 //    dnn_context->tracy_dnn_queue = TracyCLContext(ocl_context, &dnn_device);
 //    dnn_context->tracy_reconstruct_queue = TracyCLContext(ocl_context, &reconstruct_device);
+
+    clReleaseProgram(program);
 
     return 0;
 }
@@ -306,6 +296,64 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
 }
 
 /**
+ * enqueue the eval kernel which calculates the iou and stores it in the iou var of the ctx
+ * @param ctx
+ * @param base_detect_buf
+ * @param base_seg_buf
+ * @param eval_detect_buf
+ * @param eval_seg_buf
+ * @param config
+ * @param wait_list
+ * @param wait_list_size
+ * @param event_array used to keep track of the events
+ * @param result_event can be waited on
+ * @return a OpenCL status message
+ */
+cl_int
+enqueue_eval_dnn(dnn_context_t *ctx, cl_mem base_detect_buf, cl_mem base_seg_buf,
+                 cl_mem eval_detect_buf, cl_mem eval_seg_buf, codec_config_t *config,
+                 cl_event *wait_list, int wait_list_size,
+                 event_array_t *event_array, cl_event *result_event) {
+
+    cl_int status;
+    status = clSetKernelArg(ctx->eval_kernel, 0, sizeof(cl_mem), &(base_detect_buf));
+    status |= clSetKernelArg(ctx->eval_kernel, 1, sizeof(cl_mem), &(base_seg_buf));
+    status |= clSetKernelArg(ctx->eval_kernel, 2, sizeof(cl_mem), &(eval_detect_buf));
+    status |= clSetKernelArg(ctx->eval_kernel, 3, sizeof(cl_mem), &(eval_seg_buf));
+    status |= clSetKernelArg(ctx->eval_kernel, 4, sizeof(cl_int), &(config->do_segment));
+    CHECK_AND_RETURN(status, "could not assign eval kernel params");
+
+    // figure out on which queue to run the dnn
+    cl_command_queue queue;
+    if (LOCAL_DEVICE == config->device_type) {
+        queue = ctx->local_queue;
+    } else if (REMOTE_DEVICE == config->device_type) {
+        queue = ctx->remote_queue;
+    } else {
+        LOGE("unknown device type to enqueue dnn to\n");
+        return -1;
+    }
+
+    cl_event eval_iou_event, eval_read_iou_event;
+
+    status = clEnqueueNDRangeKernel(queue, ctx->eval_kernel, ctx->work_dim, NULL,
+                                    ctx->global_size, ctx->local_size,
+                                    wait_list_size, wait_list, &eval_iou_event);
+    CHECK_AND_RETURN(status, "failed to enqueue ND range eval kernel");
+    append_to_event_array(event_array, eval_iou_event, VAR_NAME(eval_iou_event));
+
+    status = clEnqueueReadBuffer(queue, ctx->eval_buf, CL_FALSE, 0,
+                                 1 * sizeof(cl_float), &(ctx->iou), 1, &eval_iou_event,
+                                 &eval_read_iou_event);
+    CHECK_AND_RETURN(status, "failed to read eval iou result buffer");
+    append_to_event_array(event_array, eval_read_iou_event, VAR_NAME(eval_read_iou_event));
+
+    *result_event = eval_read_iou_event;
+
+    return CL_SUCCESS;
+}
+
+/**
  * deallocate the dnn context and address to NULL
  * @param context
  * @return CL_SUCCESS or an error otherwise
@@ -329,18 +377,14 @@ destroy_dnn_context(dnn_context_t **context) {
 
     COND_REL_KERNEL(c->reconstruct_kernel)
 
+    COND_REL_KERNEL(c->eval_kernel)
+
+    COND_REL_MEM(c->eval_buf)
+
     free(c);
     *context = NULL;
     return CL_SUCCESS;
 }
-
-// TODO: finish destory eval context
-cl_int
-destroy_eval_context(eval_context_t **context) {
-    assert(0 && "function not implemented yet");
-}
-
-
 
 #ifdef __cplusplus
 }

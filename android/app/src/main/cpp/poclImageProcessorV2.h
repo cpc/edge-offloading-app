@@ -56,15 +56,11 @@ typedef struct {
     int event_list_size;
 } dnn_results;
 
-
-//typedef struct {
-//    int config_flags;
-//    cl_mem input_buf;
-//    event_array_t  event_array;
-//    cl_command_queue enq_queue;
-//    cl_uchar * host_inp_buf;
-//    dnn_context_t *dnn_context;
-//}local_pipeline_context_t;
+typedef struct {
+    pipeline_context *eval_pipeline;
+    dnn_results *eval_results;
+    struct timespec next_eval_ts;
+} eval_pipeline_context_t;
 
 typedef struct {
     // unless mentioned, these arrays act like loop buffers
@@ -86,6 +82,9 @@ typedef struct {
 
     TracyCLCtx *tracy_ctxs; // used for opencl tracy profiling
     int devices_found; // used to keep track of how many devices there are
+
+    eval_pipeline_context_t eval_ctx;
+
 } pocl_image_processor_context;
 
 int
