@@ -23,9 +23,10 @@ project("poclaisademo")
 # Set up Tracy and its options
 # Note: For the options to take effect, delete cmake cache and reconfigure
 option(TRACY_ENABLE "Enable profiling" OFF)
-set(TRACY_STATIC OFF)
+SET(TRACY_STATIC OFF CACHE BOOL "" FORCE)
+message(WARNING "tracy static: ${TRACY_STATIC}")
 option(TRACY_NO_SAMPLING "enable tracing with stack traces" ON)
-add_subdirectory(${EXTERNAL_PATH}/tracy/ tracy-build)
+add_subdirectory(${EXTERNAL_PATH}/tracy tracy-build)
 message(STATUS "TRACY_ENABLE: ${TRACY_ENABLE}")
 
 # Creates and names a library, sets it as either STATIC
@@ -208,7 +209,7 @@ add_library(poclnative
         poclRemoteExample.h
         sharedUtils.h sharedUtils.c
 #        poclImageProcessor.cpp
-        jni_utils.cpp
+        jni_utils.cpp jni_utils.h
 #        jniWrapper.cpp
         event_logger.c event_logger.h
         yuv_compression.c yuv_compression.h

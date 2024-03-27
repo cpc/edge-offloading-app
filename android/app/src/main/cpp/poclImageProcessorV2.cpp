@@ -292,6 +292,7 @@ init_eval_ctx(eval_pipeline_context_t *const ctx, int width, int height, cl_cont
     // start eval 4 seconds after starting
     ctx->next_eval_ts.tv_sec += 4;
 
+    return CL_SUCCESS;
 }
 
 /**
@@ -465,6 +466,7 @@ destroy_eval_context(eval_pipeline_context_t *ctx) {
     free(ctx->eval_pipeline);
     destroy_dnn_results(*(ctx->eval_results));
     free(ctx->eval_results);
+    return CL_SUCCESS;
 }
 
 /**
@@ -522,7 +524,7 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr) {
 int
 dequeue_spot(pocl_image_processor_context *const ctx, const int timeout) {
     ZoneScoped;
-
+    FrameMark;
     struct timespec ts;
     if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {
         return -1;
@@ -927,7 +929,13 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
                                  results.event_list_size,
                                  results.event_list,
                                  &read_detect_event);
-    CHECK_AND_RETURN(status, "could not read detection array");
+//    CHECK_AND_RETURN(status, "could not read detection array");
+    if (status != 0) {
+        ((void) __android_log_print(ANDROID_LOG_ERROR, "poclaisademo",
+                                    "ERROR: %s at %s:%d returned with %d\n",
+                                    "could not read detection array", "_file_name_", 932, status));
+        return status;
+    }
     append_to_event_array(image_metadata.event_array, read_detect_event,
                           VAR_NAME(read_detect_event));
 

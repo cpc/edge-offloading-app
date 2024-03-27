@@ -9,11 +9,13 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SOFTWARE_HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessor;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessor;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclGetLastIou;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessJPEGImage;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclProcessYUVImage;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.dequeue_spot;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessorV2;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessorV2;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclGetLastIouV2;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclSubmitYUVImage;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.receiveImage;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.waitImageAvailable;
 
 import android.content.Context;
 import android.content.res.AssetManager;
@@ -53,7 +55,9 @@ public class PoclImageProcessor {
     /**
      * a thread to run pocl on
      */
-    private Thread imageProcessThread;
+    private Thread imageSubmitThread;
+
+    private Thread receiverThread;
 
     /**
      * a counter to keep track of FPS metrics for our image processing.
@@ -89,7 +93,7 @@ public class PoclImageProcessor {
 
     private int imageFormat;
 
-    private StatLogger statLogger;
+    private final StatLogger statLogger;
 
     private float lastIou = -4.0f;
 
@@ -189,6 +193,9 @@ public class PoclImageProcessor {
 
         setImageFormat(imageFormat);
 
+        this.imageSubmitThread = null;
+        this.receiverThread = null;
+
     }
 
     /**
@@ -261,7 +268,8 @@ public class PoclImageProcessor {
 
     private boolean checkImageFormat(Image image) {
         int format = image.getFormat();
-        return (ImageFormat.YUV_420_888 == format) || (ImageFormat.JPEG == format);
+        // || (ImageFormat.JPEG == format);
+        return (ImageFormat.YUV_420_888 == format);
     }
 
     public float getLastIou() {
@@ -283,16 +291,6 @@ public class PoclImageProcessor {
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started image process loop");
         }
-
-        int MAX_DETECTIONS = 10;
-        int MASK_W = 160;
-        int MASK_H = 120;
-
-        int detection_count = 1 + MAX_DETECTIONS * 6;
-        int seg_postprocess_count = 4 * MASK_W * MASK_H;
-
-        int[] detection_results = new int[detection_count];
-        byte[] segmentation_results = new byte[seg_postprocess_count];
 
         int YPixelStride, YRowStride;
         int UVPixelStride, UVRowStride;
@@ -319,9 +317,9 @@ public class PoclImageProcessor {
         }
         try {
             AssetManager assetManager = context.getAssets();
-            int status = initPoclImageProcessor(configFlags, assetManager,
+            int status = initPoclImageProcessorV2(configFlags, assetManager,
                     captureSize.getWidth(),
-                    captureSize.getHeight(), nativeFd);
+                    captureSize.getHeight(), nativeFd, 2);
 
             if (-33 == status) {
                 if (null != activity) {
@@ -335,6 +333,9 @@ public class PoclImageProcessor {
 
                 return;
             }
+
+            // start the thread to read images
+            startReceiverThread();
 
             // the main loop, will continue until an interrupt is sent
             while (!Thread.interrupted()) {
@@ -368,6 +369,15 @@ public class PoclImageProcessor {
                     continue;
                 }
 
+                int sem_status = dequeue_spot(5000);
+                if (sem_status != 0) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "poclimageprocessor", "no spot in pocl queue");
+                    }
+                    image.close();
+                    continue;
+                }
+
                 Image.Plane[] planes = image.getPlanes();
                 rotation = orientationsSwapped ? 90 : 0;
                 do_segment = doSegment ? 1 : 0;
@@ -381,91 +391,52 @@ public class PoclImageProcessor {
                 assert checkImageFormat(image);
                 energy = statLogger.getCurrentEnergy();
 
-                if (ImageFormat.YUV_420_888 == imageFormat) {
+                ByteBuffer Y = planes[0].getBuffer();
+                YPixelStride = planes[0].getPixelStride();
+                YRowStride = planes[0].getRowStride();
 
-                    ByteBuffer Y = planes[0].getBuffer();
-                    YPixelStride = planes[0].getPixelStride();
-                    YRowStride = planes[0].getRowStride();
+                ByteBuffer U = planes[1].getBuffer();
+                ByteBuffer V = planes[2].getBuffer();
+                UVPixelStride = planes[1].getPixelStride();
+                UVRowStride = planes[1].getRowStride();
 
-                    ByteBuffer U = planes[1].getBuffer();
-                    ByteBuffer V = planes[2].getBuffer();
-                    UVPixelStride = planes[1].getPixelStride();
-                    UVRowStride = planes[1].getRowStride();
+                VPixelStride = planes[2].getPixelStride();
+                VRowStride = planes[2].getRowStride();
 
-                    VPixelStride = planes[2].getPixelStride();
-                    VRowStride = planes[2].getRowStride();
+                if (VERBOSITY >= 3) {
 
-                    if (VERBOSITY >= 3) {
+                    Log.println(Log.INFO, "imagereader", "image type: " + imageFormat);
+                    Log.println(Log.INFO, "imagereader", "plane count: " + planes.length);
+                    Log.println(Log.INFO, "imagereader",
+                            "Y pixel stride: " + YPixelStride);
+                    Log.println(Log.INFO, "imagereader",
+                            "Y row stride: " + YRowStride);
+                    Log.println(Log.INFO, "imagereader",
+                            "UV pixel stride: " + UVPixelStride);
+                    Log.println(Log.INFO, "imagereader",
+                            "UV row stride: " + UVRowStride);
 
-                        Log.println(Log.INFO, "imagereader", "image type: " + imageFormat);
-                        Log.println(Log.INFO, "imagereader", "plane count: " + planes.length);
-                        Log.println(Log.INFO, "imagereader",
-                                "Y pixel stride: " + YPixelStride);
-                        Log.println(Log.INFO, "imagereader",
-                                "Y row stride: " + YRowStride);
-                        Log.println(Log.INFO, "imagereader",
-                                "UV pixel stride: " + UVPixelStride);
-                        Log.println(Log.INFO, "imagereader",
-                                "UV row stride: " + UVRowStride);
-
-                        Log.println(Log.INFO, "imagereader",
-                                "V pixel stride: " + VPixelStride);
-                        Log.println(Log.INFO, "imagereader",
-                                "V row stride: " + VRowStride);
-                    }
-
-                    int doAlgorithm = enableQualityAlgorithm ? 1 : 0;
-                    currentTime = System.currentTimeMillis();
-                    poclProcessYUVImage(inferencingDevice, do_segment, compressionParam, quality,
-                            rotation, doAlgorithm, detection_results, segmentation_results, Y,
-                            YRowStride,
-                            YPixelStride, U, UVRowStride, UVPixelStride, V, VRowStride,
-                            VPixelStride, imageTimestamp, energy);
-
-                } else if (ImageFormat.JPEG == imageFormat) {
-                    // process jpeg images. jpeg images are just one plane with row and pixel
-                    // strides set to 0. see:
-                    // https://developer.android.com/reference/android/media/Image#getFormat()
-                    ByteBuffer data = planes[0].getBuffer();
-                    size = data.limit();
-
-                    if (VERBOSITY >= 3) {
-                        Log.println(Log.INFO, "imagereader", "image type: " + imageFormat);
-                        Log.println(Log.INFO, "imagereader", "image size: " + size);
-                    }
-
-                    currentTime = System.currentTimeMillis();
-                    poclProcessJPEGImage(inferencingDevice, do_segment, compressionParam, quality
-                            , rotation, detection_results, segmentation_results, data, size,
-                            imageTimestamp, energy);
-
-                } else {
-                    Log.println(Log.WARN, "imageprocessloop", "unknown image format");
-                    currentTime = 0;
+                    Log.println(Log.INFO, "imagereader",
+                            "V pixel stride: " + VPixelStride);
+                    Log.println(Log.INFO, "imagereader",
+                            "V row stride: " + VRowStride);
                 }
+
+                int doAlgorithm = enableQualityAlgorithm ? 1 : 0;
+                currentTime = System.currentTimeMillis();
+
+                poclSubmitYUVImage(inferencingDevice, do_segment, compressionParam, quality,
+                        rotation, doAlgorithm,
+                        Y, YRowStride, YPixelStride,
+                        U, UVRowStride, UVPixelStride,
+                        V, VRowStride, VPixelStride,
+                        imageTimestamp);
 
                 doneTime = System.currentTimeMillis();
                 poclTime = doneTime - currentTime;
-                if (VERBOSITY >= 1) {
+                if (VERBOSITY >= 2) {
                     Log.println(Log.INFO, "imageprocessloop",
                             "pocl compute time: " + poclTime + "ms");
-                }
-
-                this.lastIou = poclGetLastIou();
-
-                if (null != activity) {
-                    activity.drawOverlay(do_segment, detection_results, segmentation_results,
-                            captureSize, orientationsSwapped);
-
-                    // update the buttons
-                    if (enableQualityAlgorithm) {
-                        activity.setButtonsFromJNI();
-                    }
-                }
-
-                // used to calculate the (avg) FPS
-                if (null != counter) {
-                    counter.tickFrame();
                 }
 
                 // don't forget to close the image when done
@@ -491,8 +462,11 @@ public class PoclImageProcessor {
             e.printStackTrace();
 
         } finally {
+
+            stopReceiverThread();
+
             // always free pocl
-            destroyPoclImageProcessor();
+            destroyPoclImageProcessorV2();
 
             if (null != parcelFileDescriptor) {
                 try {
@@ -509,6 +483,58 @@ public class PoclImageProcessor {
 
     }
 
+    private void receiveResultLoop() {
+
+        int MAX_DETECTIONS = 10;
+        int MASK_W = 160;
+        int MASK_H = 120;
+
+        int detection_count = 1 + MAX_DETECTIONS * 6;
+        int seg_postprocess_count = 4 * MASK_W * MASK_H;
+
+        int[] detection_results = new int[detection_count];
+        byte[] segmentation_results = new byte[seg_postprocess_count];
+        int[] do_segment = {0};
+        float energy = 0;
+
+        while (!Thread.interrupted()) {
+
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started new image process" +
+                        " iteration");
+            }
+
+            int sem_status = waitImageAvailable(5000);
+            if (0 != sem_status) {
+                if (DEBUGEXECUTION) {
+                    Log.println(Log.INFO, "poclimageprocessor", "no image available pocl queue");
+                }
+                continue;
+            }
+
+            energy = statLogger.getCurrentEnergy();
+            receiveImage(detection_results, segmentation_results, do_segment, energy);
+
+            this.lastIou = poclGetLastIouV2();
+
+            if (null != activity) {
+                activity.drawOverlay(do_segment[0], detection_results, segmentation_results,
+                        captureSize, orientationsSwapped);
+
+                // update the buttons
+                if (enableQualityAlgorithm) {
+                    activity.setButtonsFromJNI();
+                }
+            }
+
+            // used to calculate the (avg) FPS
+            if (null != counter) {
+                counter.tickFrame();
+            }
+
+        }
+    }
+
     /**
      * function to start the image process thread, and thereby the
      * main image process loop
@@ -518,13 +544,13 @@ public class PoclImageProcessor {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started startImageProcessThread method");
         }
 
-        imageProcessThread = new Thread() {
+        imageSubmitThread = new Thread() {
             public void run() {
                 imageProcessLoop();
             }
         };
 
-        imageProcessThread.start();
+        imageSubmitThread.start();
 
     }
 
@@ -536,16 +562,50 @@ public class PoclImageProcessor {
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started stopImageProcessThread method");
         }
-        if (null == imageProcessThread) {
+        if (null == imageSubmitThread) {
             return;
         }
 
         // sending an interrupt will exit the while loop
-        imageProcessThread.interrupt();
+        imageSubmitThread.interrupt();
         try {
             // wait for the last iteration to be done
-            imageProcessThread.join();
-            imageProcessThread = null;
+            imageSubmitThread.join();
+            imageSubmitThread = null;
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void startReceiverThread() {
+        if (DEBUGEXECUTION) {
+            Log.println(Log.INFO, "EXECUTIONFLOW", "started startReceiverThread method");
+        }
+
+        receiverThread = new Thread() {
+            public void run() {
+                receiveResultLoop();
+            }
+        };
+        receiverThread.start();
+    }
+
+    public void stopReceiverThread() {
+
+        if (DEBUGEXECUTION) {
+            Log.println(Log.INFO, "EXECUTIONFLOW", "started stopReceiverThread method");
+        }
+
+        if (null == receiverThread) {
+            return;
+        }
+
+        // sending an interrupt will exit the while loop
+        receiverThread.interrupt();
+        try {
+            // wait for the last iteration to be done
+            receiverThread.join();
+            receiverThread = null;
         } catch (InterruptedException e) {
             e.printStackTrace();
         }

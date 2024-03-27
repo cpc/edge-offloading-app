@@ -9,6 +9,11 @@
 
 #include "eval.h"
 #include "eval_network_model.h"
+#include <Tracy.hpp>
+
+#include "platform.h"
+#include "sharedUtils.h"
+#include "poclImageProcessorTypes.h"
 
 #include <Tracy.hpp>
 

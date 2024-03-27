@@ -35,12 +35,6 @@ public class JNIPoclImageProcessor {
 
     public static native float poclGetLastIou();
 
-    //    public static native int poclProcessYUVImage(int deviceIndex, int do_segment,
-//                                                 int doCompression, int quality, int rotation,
-//                                                 ByteBuffer Y, int YRowStride, int YPixelStride,
-//                                                 ByteBuffer U, ByteBuffer V, int UVRowStride,
-//                                                 int UVPixelStride, int[] detection_result,
-//                                                 byte[] segmentation_result);
     public static native int poclProcessYUVImage(int deviceIndex, int doSegment, int doCompression,
                                                  int quality, int rotation, int doAlgorithm,
                                                  int[] detectionResult,
@@ -57,6 +51,32 @@ public class JNIPoclImageProcessor {
                                                   int quality, int rotation, int[] detectionResult,
                                                   byte[] segmentationResult, ByteBuffer data,
                                                   int size, long imageTimestamp, float energy);
+
+    public static native int initPoclImageProcessorV2(int configFlags,
+                                                      AssetManager jAssetManager,
+                                                      int width, int height, int fd, int max_lanes);
+
+    public static native int destroyPoclImageProcessorV2();
+
+    public static native float poclGetLastIouV2();
+
+    public static native int dequeue_spot(int timeout);
+
+    public static native int poclSubmitYUVImage(int deviceIndex, int doSegment, int doCompression,
+                                                int quality, int rotation, int doAlgorithm,
+                                                ByteBuffer plane0, int rowStride0,
+                                                int pixelStride0,
+                                                ByteBuffer plane1, int rowStride1,
+                                                int pixelStride1,
+                                                ByteBuffer plane2, int rowStride2,
+                                                int pixelStride2,
+                                                long imageTimestamp);
+
+    public static native int waitImageAvailable(int timeout);
+
+    public static native int receiveImage(int[] detectionResult, byte[] segmentationResult,
+                                          int[] do_segment_array,
+                                          float energy);
 
     public static native String getProfilingStats();
 

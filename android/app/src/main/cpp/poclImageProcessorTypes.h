@@ -30,7 +30,7 @@ typedef enum {
     PASSTHRU_DEVICE = 1,
     REMOTE_DEVICE = 2,
     REMOTE_DEVICE_2 = 3,
-}devic_type_enum;
+}device_type_enum;
 
 enum {
     ENABLE_PROFILING = (1 << 8)
@@ -114,7 +114,7 @@ typedef struct {
  */
 typedef struct {
     compression_t compression_type; // codec to be used
-    devic_type_enum device_type; // device on which the image is processed
+    device_type_enum device_type; // device on which the image is processed
     int rotation;   // indicate if the image needs to be rotated
     int do_segment; // indicate that the segmentation needs to also be run
     union {

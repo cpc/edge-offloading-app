@@ -34,7 +34,7 @@ add_ns_to_time(struct timespec *const ts, const long increment) {
 /**
  * compare two timespecs. If ts_a is larger, this returns a positive number.
  * else a negative number. If both are equal, zero is returned.
- * @param ts_a 
+ * @param ts_a
  * @param ts_b
  * @return
  */

@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <unistd.h>
-#include "jniWrapper.cpp"
+#include "jni_utils.h"
 
 //
 // Created by rabijl on 5.3.2024.
@@ -24,53 +24,6 @@ extern "C" {
 
 pocl_image_processor_context *ctx = NULL;
 
-bool
-put_asset_in_local_storage(JNIEnv *env, jobject jAssetManager, const char *file_name) {
-
-    // TODO: make sure that there is enough local storage for the onnx file
-    // copy the asset to the local storage so that opencv can find the onnx file
-    char write_file[128];
-    sprintf(write_file, "/data/user/0/org.portablecl.poclaisademo/files/%s", file_name);
-    if (access(write_file, F_OK) == 0) {
-        __android_log_print(ANDROID_LOG_INFO, "jniWrapperV2", "%s exists", file_name);
-        return true;
-    }
-
-    FILE *write_ptr = fopen(write_file, "w");
-    if (NULL == write_ptr) {
-        __android_log_print(ANDROID_LOG_ERROR, "jniWrapperV2",
-                            "fopen errno: %s", strerror(errno));
-        return false;
-    }
-
-    AAssetManager *assetManager = AAssetManager_fromJava(env, jAssetManager);
-    if (assetManager == nullptr) {
-        __android_log_print(ANDROID_LOG_ERROR, "jniWrapperV2", "Failed to get asset manager");
-        return false;
-    }
-
-    AAsset *a = AAssetManager_open(assetManager, file_name, AASSET_MODE_STREAMING);
-    auto num_bytes = AAsset_getLength(a);
-    char *asset_data = (char *) malloc((num_bytes + 1) * sizeof(char));
-    asset_data[num_bytes] = 0;
-    int read_bytes = AAsset_read(a, asset_data, num_bytes);
-    AAsset_close(a);
-
-    if (read_bytes != num_bytes) {
-        fclose(write_ptr);
-        free(asset_data);
-        __android_log_print(ANDROID_LOG_ERROR, "jniWrapperV2",
-                            "Failed to read asset contents");
-        return false;
-    }
-
-    fwrite(asset_data, 1, num_bytes, write_ptr);
-    fclose(write_ptr);
-    free(asset_data);
-    __android_log_print(ANDROID_LOG_DEBUG, "jniWrapperV2", "wrote %s to local storage", file_name);
-    return true;
-
-}
 
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(JNIEnv *env,
@@ -145,7 +98,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
     codec_config_t config;
     config.rotation = rotation;
     config.compression_type = (compression_t) do_compression;
-    config.device_type = (devic_type_enum) device_index;
+    config.device_type = (device_type_enum) device_index;
     config.do_segment = do_segment;
     if (HEVC_COMPRESSION == do_compression ||
         SOFTWARE_HEVC_COMPRESSION == do_compression) {
@@ -210,6 +163,28 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_receiveImage(JNIEnv *env,
     return status;
 
 }
+
+///**
+// * Function to return what the quality algorithm decided on.
+// * @param env
+// * @param clazz
+// * @return ButtonConfig that returns relevant config values
+// */
+//JNIEXPORT jobject JNICALL
+//Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getButtonConfig(JNIEnv *env, jclass clazz) {
+//
+//    jclass button_config_class = env->FindClass(
+//            "org/portablecl/poclaisademo/MainActivity$ButtonConfig");
+//    assert(nullptr != button_config_class);
+//
+//    jmethodID button_config_constructor = env->GetMethodID(button_config_class, "<init>", "(III)V");
+//    assert(nullptr != button_config_constructor);
+//
+//    return env->NewObject(button_config_class, button_config_constructor,
+//                          (jint) config.compression_type, (jint) config.device_type,
+//                          (jint) CUR_CODEC_ID);
+//}
+
 
 #ifdef __cplusplus
 }

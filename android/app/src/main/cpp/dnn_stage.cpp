@@ -151,7 +151,7 @@ init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, cl_device_i
  * @return CL_SUCCESS or an error otherwise
  */
 cl_int
-write_buffer_dnn(const dnn_context_t *ctx, devic_type_enum device_type, uint8_t *inp_host_buf, size_t buf_size,
+write_buffer_dnn(const dnn_context_t *ctx, device_type_enum device_type, uint8_t *inp_host_buf, size_t buf_size,
                  cl_mem cl_buf, const cl_event *wait_event, event_array_t *event_array,
                  cl_event *result_event) {
     ZoneScoped;
@@ -234,7 +234,7 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
         return -1;
     }
 
-    cl_event run_dnn_event, read_detect_event;
+    cl_event run_dnn_event;
 
     {
         TracyCLZone(ctx->remote_tracy_ctx, "DNN");
@@ -287,7 +287,7 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
 
         *out_event = run_reconstruct_event;
     } else {
-        *out_event = read_detect_event;
+        *out_event = run_dnn_event;
     }
 
     // TODO: migrate result buffers to local device
