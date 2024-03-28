@@ -328,6 +328,10 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         LOGE("could not init semaphore\n");
         return -1;
     }
+    if (sem_init(&ctx->local_sem, 0, 1) == -1) {
+        LOGE("could not init semaphore\n");
+        return -1;
+    }
     if (sem_init(&ctx->image_sem, 0, 0) == -1) {
         LOGE("could not init semaphore\n");
         return -1;
@@ -496,6 +500,7 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr) {
 
     free(ctx->metadata_array);
     sem_destroy(&(ctx->pipe_sem));
+    sem_destroy(&(ctx->local_sem));
     sem_destroy(&(ctx->image_sem));
     clReleaseCommandQueue(ctx->read_queue);
     clReleaseCommandQueue(ctx->remote_queue);
@@ -522,9 +527,10 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr) {
  * @return 0 if successful otherwise -1
  */
 int
-dequeue_spot(pocl_image_processor_context *const ctx, const int timeout) {
+dequeue_spot(pocl_image_processor_context *const ctx, const int timeout, const device_type_enum dev_type) {
     ZoneScoped;
     FrameMark;
+
     struct timespec ts;
     if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {
         return -1;
@@ -533,15 +539,34 @@ dequeue_spot(pocl_image_processor_context *const ctx, const int timeout) {
     add_ns_to_time(&ts, (long)timeout * 1000000);
 
     int ret;
+
+    if(LOCAL_DEVICE == dev_type) {
+        while ((ret = sem_timedwait(&(ctx->local_sem), &ts)) == -1 && errno == EINTR) {
+            // continue if interrupted for any reason
+        }
+        if(ret != 0) {
+            return ret;
+        }
+    }
+
     while ((ret = sem_timedwait(&(ctx->pipe_sem), &ts)) == -1 && errno == EINTR) {
         // continue if interrupted for any reason
     }
+
+    // the local pipe succeeded, but the global didn't,
+    // so give local one back
+    if(LOCAL_DEVICE == dev_type && ret != 0) {
+        sem_post(&(ctx->local_sem));
+    }
+
 
 #ifdef DEBUG_SEMAPHORES
     if (ret == 0) {
         int sem_value;
         sem_getvalue(&(ctx->pipe_sem), &sem_value);
         LOGW("dequeue_spot decremented pipe sem to: %d \n", sem_value);
+        sem_getvalue(&(ctx->local_sem), &sem_value);
+        LOGW("dequeue_spot decremented local sem to: %d \n", sem_value);
     }
 #endif
 
@@ -813,6 +838,7 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     image_metadata->image_timestamp = image_data.image_timestamp;
     image_metadata->segmentation = codec_config.do_segment;
     image_metadata->compression = codec_config.compression_type;
+    image_metadata->device_type = codec_config.device_type;
     image_metadata->event_array = ctx->pipeline_array[index].event_array;
 
     // do some logging
@@ -825,13 +851,14 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
         log_codec_config(ctx->file_descriptor, image_metadata->frame_index, codec_config);
     }
 
-    // increment the semaphore so that image reading thread knows there is an image ready
-    sem_post(&(ctx->image_sem));
 #ifdef DEBUG_SEMAPHORES
     int sem_value;
     sem_getvalue(&(ctx->image_sem), &sem_value);
-    LOGW("submit_image incremented image sem to: %d \n", sem_value);
+    LOGW("submit_image incremented image sem to: %d \n", sem_value + 1);
 #endif
+    // increment the semaphore so that image reading thread knows there is an image ready
+    sem_post(&(ctx->image_sem));
+
 
     return status;
 }
@@ -1014,13 +1041,29 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
     TracyMessage(markId, strlen(markId));
     TracyCFrameMarkEnd(ctx->pipeline_array[index].lane_name);
 
+#ifdef DEBUG_SEMAPHORES
+    {
+        int sem_value;
+        sem_getvalue(&(ctx->pipe_sem), &sem_value);
+        LOGW("receive_image incremented pipe sem to: %d \n", sem_value +1);
+    }
+#endif
     // finally release the semaphore
     sem_post(&(ctx->pipe_sem));
+
+    if(LOCAL_DEVICE == image_metadata.device_type) {
+
 #ifdef DEBUG_SEMAPHORES
-    int sem_value;
-    sem_getvalue(&(ctx->pipe_sem), &sem_value);
-    LOGW("receive_image incremented pipe sem to: %d \n", sem_value);
+        {
+            int sem_value;
+            sem_getvalue(&(ctx->local_sem), &sem_value);
+            LOGW("receive_image incremented local sem to: %d \n", sem_value +1);
+        }
 #endif
+        sem_post(&(ctx->local_sem));
+    }
+
+
 
     return CL_SUCCESS;
 }

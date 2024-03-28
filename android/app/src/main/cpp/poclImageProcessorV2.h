@@ -72,6 +72,7 @@ typedef struct {
     int frame_index_tail; // index of the array to read data from
     int lane_count;
     sem_t pipe_sem; // keep track of how many pipelines are busy
+    sem_t local_sem; // local execution can't handle many lanes
     sem_t image_sem; // keep track of how many images are available
     int file_descriptor; // used to log info
 
@@ -93,7 +94,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ctx, const in
                                     const char *codec_sources, const size_t src_size, int fd);
 
 int
-dequeue_spot(pocl_image_processor_context *ctx, int timeout);
+dequeue_spot(pocl_image_processor_context *const ctx, const int timeout, const device_type_enum dev_type);
 
 int
 submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,

@@ -60,7 +60,7 @@ public class JNIPoclImageProcessor {
 
     public static native float poclGetLastIouV2();
 
-    public static native int dequeue_spot(int timeout);
+    public static native int dequeue_spot(int timeout, int dev_type);
 
     public static native int poclSubmitYUVImage(int deviceIndex, int doSegment, int doCompression,
                                                 int quality, int rotation, int doAlgorithm,

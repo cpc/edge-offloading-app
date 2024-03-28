@@ -299,6 +299,8 @@ public class PoclImageProcessor {
         long currentTime, doneTime, poclTime, imageAcquireTime;
         int size;
         float energy;
+        int currentInferencingDevice; // inference device is needed both for
+        // dequeue_spot and submit image, so copy value over to prevent the value changing
 
         Image image = null;
 
@@ -369,7 +371,8 @@ public class PoclImageProcessor {
                     continue;
                 }
 
-                int sem_status = dequeue_spot(5000);
+                currentInferencingDevice = inferencingDevice;
+                int sem_status = dequeue_spot(60, currentInferencingDevice);
                 if (sem_status != 0) {
                     if (DEBUGEXECUTION) {
                         Log.println(Log.INFO, "poclimageprocessor", "no spot in pocl queue");
@@ -425,7 +428,7 @@ public class PoclImageProcessor {
                 int doAlgorithm = enableQualityAlgorithm ? 1 : 0;
                 currentTime = System.currentTimeMillis();
 
-                poclSubmitYUVImage(inferencingDevice, do_segment, compressionParam, quality,
+                poclSubmitYUVImage(currentInferencingDevice, do_segment, compressionParam, quality,
                         rotation, doAlgorithm,
                         Y, YRowStride, YPixelStride,
                         U, UVRowStride, UVPixelStride,
@@ -504,7 +507,7 @@ public class PoclImageProcessor {
                         " iteration");
             }
 
-            int sem_status = waitImageAvailable(5000);
+            int sem_status = waitImageAvailable(60);
             if (0 != sem_status) {
                 if (DEBUGEXECUTION) {
                     Log.println(Log.INFO, "poclimageprocessor", "no image available pocl queue");

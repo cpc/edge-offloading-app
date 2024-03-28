@@ -124,9 +124,10 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
 
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_dequeue_1spot(JNIEnv *env, jclass clazz,
-                                                                     jint timeout) {
+                                                                     jint timeout,
+                                                                     jint dev_type) {
 
-    return dequeue_spot(ctx, timeout);
+    return dequeue_spot(ctx, timeout, (device_type_enum) dev_type);
 }
 
 JNIEXPORT jint JNICALL

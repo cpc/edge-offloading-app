@@ -145,6 +145,7 @@ typedef struct {
     long image_timestamp;
     int is_eval_frame;
     int segmentation;
+    device_type_enum device_type;
     compression_t compression;
 } eval_metadata_t;
 
