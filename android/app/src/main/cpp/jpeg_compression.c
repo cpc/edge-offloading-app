@@ -139,9 +139,16 @@ write_buffer_jpeg(const jpeg_codec_context_t *ctx, uint8_t *inp_host_buf, size_t
                   cl_mem cl_buf, event_array_t *event_array, cl_event *result_event) {
 
     cl_int status;
-    cl_event write_img_event;
+    cl_event write_img_event, undef_mig_event;
+
+    status = clEnqueueMigrateMemObjects(ctx->enc_queue, 1, &cl_buf,
+                                        CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED,
+                                        0, NULL, &undef_mig_event);
+    CHECK_AND_RETURN(status, "could migrate enc buffer back before writing");
+    append_to_event_array(event_array, undef_mig_event, VAR_NAME(undef_mig_event));
+
     status = clEnqueueWriteBuffer(ctx->enc_queue, cl_buf, CL_FALSE, 0,
-                                  buf_size, inp_host_buf, 0, NULL, &write_img_event);
+                                  buf_size, inp_host_buf, 1, &undef_mig_event, &write_img_event);
     CHECK_AND_RETURN(status, "failed to write image to enc buffers");
     append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
     *result_event = write_img_event;

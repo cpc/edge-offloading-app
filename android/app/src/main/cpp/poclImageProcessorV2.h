@@ -46,12 +46,16 @@ typedef struct {
 
     char lane_name[16]; // the name shown in tracy
 
+
+    // todo: see if it makes more sense to store the codec config  in the pipeline instead of the
+    // eval_metadata and just use the metadata to return the values back at the function caller
+//    codec_config_t config;
+//    cl_event wait_events[2];
+//    int wait_events_size;
+
 } pipeline_context;
 
 typedef struct {
-    cl_mem detection_array;
-    cl_mem segmentation_array;
-//    cl_event result_event;
     cl_event event_list[2];
     int event_list_size;
 } dnn_results;
@@ -84,7 +88,7 @@ typedef struct {
     TracyCLCtx *tracy_ctxs; // used for opencl tracy profiling
     int devices_found; // used to keep track of how many devices there are
 
-    eval_pipeline_context_t eval_ctx;
+    eval_pipeline_context_t eval_ctx; // used to run the eval pipeline
 
 } pocl_image_processor_context;
 

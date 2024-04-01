@@ -18,8 +18,14 @@ extern "C" {
 #endif
 
 typedef struct {
-    cl_mem out_mask_buf;
-    cl_mem postprocess_buf;
+    cl_mem out_mask_buf; // input for postprocess kernel
+    cl_mem postprocess_buf; // input for postprocess kernel
+
+    // the ctx knows which queues to use for reading these results back
+    // that is why it is in charge of maintaining these
+    cl_mem detect_buf; // holds the detected objects and some other things
+    cl_mem segmentation_buf; // reconstructed result to be returned
+
     cl_kernel dnn_kernel;
     cl_kernel postprocess_kernel;
     cl_kernel reconstruct_kernel;
@@ -27,8 +33,8 @@ typedef struct {
     size_t global_size[3];
     size_t local_size[3];
     uint32_t work_dim;
-    cl_command_queue remote_queue;
-    cl_command_queue local_queue;
+    cl_command_queue remote_queue; // used to run the dnn and postprocess
+    cl_command_queue local_queue; // used for reading and reconstruction
     int32_t rotate_cw_degrees;
     uint32_t height;
     uint32_t width;
@@ -46,7 +52,8 @@ typedef struct {
 dnn_context_t *create_dnn_context();
 
 int
-init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, cl_device_id *dnn_device,
+init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, int width, int height,
+                 cl_device_id *dnn_device,
                  cl_device_id *reconstruct_device, int enable_eval);
 
 cl_int
@@ -58,14 +65,18 @@ write_buffer_dnn(const dnn_context_t *ctx, device_type_enum device_type, uint8_t
 cl_int
 enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_config_t config,
             const pixel_format_enum input_format, cl_mem inp_buf,
-            cl_mem detection_array, cl_mem segmentation_array,
             event_array_t *event_array, cl_event *out_event);
 
 cl_int
-enqueue_eval_dnn(dnn_context_t *ctx, cl_mem base_detect_buf, cl_mem base_seg_buf,
-                 cl_mem eval_detect_buf, cl_mem eval_seg_buf, codec_config_t *config,
+enqueue_eval_dnn(dnn_context_t *eval_ctx, dnn_context_t *ctx, codec_config_t *config,
                  cl_event *wait_list, int wait_list_size,
                  event_array_t *event_array, cl_event *result_event);
+
+cl_int
+enqueue_read_results_dnn(dnn_context_t *ctx, codec_config_t *config,
+                         int32_t *detection_array, uint8_t *segmentation_array,
+                         event_array_t *event_array, int wait_size,
+                         cl_event *wait_list);
 
 cl_int
 destroy_dnn_context(dnn_context_t **context);

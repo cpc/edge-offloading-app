@@ -12,18 +12,19 @@
 extern "C" {
 #endif
 
+#define DNN_VERBOSITY 0
+
 #define MAX_DETECTIONS 10
 #define MASK_W 160
 #define MASK_H 120
 
-#define DNN_VERBOSITY 0
+#define DET_COUNT (1 + MAX_DETECTIONS * 6)
+#define SEG_COUNT (MAX_DETECTIONS * MASK_W * MASK_H)
+#define SEG_OUT_COUNT (MASK_W * MASK_H * 4)
+// TODO: check if this size actually needed, or one value can be dropped
+#define TOT_OUT_COUNT (DET_COUNT + SEG_COUNT)
 
-const static int detection_count = 1 + MAX_DETECTIONS * 6;
-const static int segmentation_count = MAX_DETECTIONS * MASK_W * MASK_H;
-const static int seg_out_count = MASK_W * MASK_H * 4; // RGBA image
-static int total_out_count = detection_count + segmentation_count;
-
-dnn_context_t * create_dnn_context() {
+dnn_context_t *create_dnn_context() {
 
     dnn_context_t *context = (dnn_context_t *) calloc(1, sizeof(dnn_context_t));
     context->iou = -5.0;
@@ -41,6 +42,19 @@ char *kernel_names = dnn_kernel_name ";"
                      eval_kernel_name;
 
 /**
+ *  Macro that sets the queue object to the right queue based on the codec config
+ */
+#define PICK_QUEUE(queue, ctx, config) \
+    if (LOCAL_DEVICE == config->device_type) {\
+    queue = ctx->local_queue;\
+    } else if (REMOTE_DEVICE == config->device_type) {\
+    queue = ctx->remote_queue;\
+    } else {\
+    LOGE("unknown device type to enqueue dnn to\n");\
+    return -1;\
+    }\
+
+/**
  * init the dnn context
  * @param dnn_context
  * @param ocl_context
@@ -51,10 +65,14 @@ char *kernel_names = dnn_kernel_name ";"
  * @return OpenCL status message
  */
 int
-init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, cl_device_id *dnn_device,
+init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, int width, int height,
+                 cl_device_id *dnn_device,
                  cl_device_id *reconstruct_device, int enable_eval) {
 
     int status;
+
+    dnn_context->width = width;
+    dnn_context->height = height;
 
     // if both devices are the same, don't pass the same device twice to
     // the program
@@ -80,9 +98,8 @@ init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, cl_device_i
     dnn_context->reconstruct_kernel = clCreateKernel(program, reconstruct_kernel_name, &status);
     CHECK_AND_RETURN(status, "creating reconstruct kernel failed");
 
-    // TODO: don't hardcode image dimensions
     dnn_context->out_mask_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
-                                               640 * 480 * MAX_DETECTIONS *
+                                               width * height * MAX_DETECTIONS *
                                                sizeof(cl_char) / 4,
                                                NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
@@ -92,18 +109,31 @@ init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, cl_device_i
                                                   NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation postprocessing buffer");
 
+    dnn_context->detect_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
+                                             TOT_OUT_COUNT * sizeof(cl_int), NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create the detection + other stuff buffer");
+
+    dnn_context->segmentation_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
+                                                   SEG_OUT_COUNT * sizeof(cl_uchar), NULL, &status);
+    CHECK_AND_RETURN(status, "failed to create segmentation output buffer")
+
     // set the kernel parameters
     status = clSetKernelArg(dnn_context->dnn_kernel, 1, sizeof(cl_uint), &(dnn_context->width));
     status |= clSetKernelArg(dnn_context->dnn_kernel, 2, sizeof(cl_uint), &(dnn_context->height));
     status |=
             clSetKernelArg(dnn_context->dnn_kernel, 3, sizeof(cl_int),
                            &(dnn_context->rotate_cw_degrees));
+    status |= clSetKernelArg(dnn_context->dnn_kernel, 5, sizeof(cl_mem),
+                             &(dnn_context->detect_buf));
+
     status |= clSetKernelArg(dnn_context->dnn_kernel, 6, sizeof(cl_mem),
                              &(dnn_context->out_mask_buf));
     CHECK_AND_RETURN(status, "could not assign dnn kernel args");
 
-    status = clSetKernelArg(dnn_context->postprocess_kernel, 1, sizeof(cl_mem),
-                            &(dnn_context->out_mask_buf));
+    status = clSetKernelArg(dnn_context->postprocess_kernel, 0, sizeof(cl_mem),
+                            &(dnn_context->detect_buf));
+    status |= clSetKernelArg(dnn_context->postprocess_kernel, 1, sizeof(cl_mem),
+                             &(dnn_context->out_mask_buf));
     status |= clSetKernelArg(dnn_context->postprocess_kernel, 2, sizeof(cl_mem),
                              &(dnn_context->postprocess_buf));
     CHECK_AND_RETURN(status, "could not assign postprocess kernel args");
@@ -111,6 +141,8 @@ init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, cl_device_i
 
     status = clSetKernelArg(dnn_context->reconstruct_kernel, 0, sizeof(cl_mem),
                             &(dnn_context->postprocess_buf));
+    status = clSetKernelArg(dnn_context->reconstruct_kernel, 1, sizeof(cl_mem),
+                            &(dnn_context->segmentation_buf));
     CHECK_AND_RETURN(status, "could not assign reconstruct_kernel args");
 
     if (enable_eval) {
@@ -151,13 +183,14 @@ init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, cl_device_i
  * @return CL_SUCCESS or an error otherwise
  */
 cl_int
-write_buffer_dnn(const dnn_context_t *ctx, device_type_enum device_type, uint8_t *inp_host_buf, size_t buf_size,
+write_buffer_dnn(const dnn_context_t *ctx, device_type_enum device_type, uint8_t *inp_host_buf,
+                 size_t buf_size,
                  cl_mem cl_buf, const cl_event *wait_event, event_array_t *event_array,
                  cl_event *result_event) {
     ZoneScoped;
 
     cl_int status;
-    cl_event write_img_event;
+    cl_event write_img_event, undef_mig_event;
 
     // figure out on which queue to run
     cl_command_queue write_queue;
@@ -175,8 +208,14 @@ write_buffer_dnn(const dnn_context_t *ctx, device_type_enum device_type, uint8_t
         wait_size = 1;
     }
 
+    status = clEnqueueMigrateMemObjects(write_queue, 1, &cl_buf,
+                                        CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, wait_size,
+                                        wait_event, &undef_mig_event);
+    CHECK_AND_RETURN(status, "could migrate enc buffer back before writing");
+    append_to_event_array(event_array, undef_mig_event, VAR_NAME(undef_mig_event));
+
     status = clEnqueueWriteBuffer(write_queue, cl_buf, CL_FALSE, 0,
-                                  buf_size, inp_host_buf, wait_size, wait_event, &write_img_event);
+                                  buf_size, inp_host_buf, 1, &undef_mig_event, &write_img_event);
     CHECK_AND_RETURN(status, "failed to write image to enc buffers");
     append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
     *result_event = write_img_event;
@@ -199,10 +238,7 @@ write_buffer_dnn(const dnn_context_t *ctx, device_type_enum device_type, uint8_t
 cl_int
 enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_config_t config,
             const pixel_format_enum input_format, const cl_mem inp_buf,
-            cl_mem detection_array, cl_mem segmentation_array,
             event_array_t *event_array, cl_event *out_event) {
-
-    // TODO: either enable tracy again or remove it
     ZoneScoped;
     cl_int status;
 
@@ -213,15 +249,7 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
     status |=
             clSetKernelArg(ctx->dnn_kernel, 3, sizeof(cl_int), &(config.rotation));
     status |= clSetKernelArg(ctx->dnn_kernel, 4, sizeof(cl_int), &inp_format);
-    status |= clSetKernelArg(ctx->dnn_kernel, 5, sizeof(cl_mem), &detection_array);
     CHECK_AND_RETURN(status, "could not assign buffers to DNN kernel");
-
-    status = clSetKernelArg(ctx->postprocess_kernel, 0, sizeof(cl_mem), &detection_array);
-    CHECK_AND_RETURN(status, "could not assign buffers to postprocess kernel");
-
-    status = clSetKernelArg(ctx->reconstruct_kernel, 1, sizeof(cl_mem),
-                            &segmentation_array);
-    CHECK_AND_RETURN(status, "could not assign buffers to reconstruct kernel");
 
     // figure out on which queue to run the dnn
     cl_command_queue dnn_queue;
@@ -276,7 +304,8 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
         {
             // reconstruct postprocessed data to RGBA segmentation mask
             TracyCLZone(ctx->local_tracy_ctx, "reconstruct");
-            status = clEnqueueNDRangeKernel(ctx->local_queue, ctx->reconstruct_kernel, ctx->work_dim,
+            status = clEnqueueNDRangeKernel(ctx->local_queue, ctx->reconstruct_kernel,
+                                            ctx->work_dim,
                                             NULL,
                                             ctx->global_size, ctx->local_size, 1,
                                             &mig_seg_event, &run_reconstruct_event);
@@ -297,58 +326,115 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
 
 /**
  * enqueue the eval kernel which calculates the iou and stores it in the iou var of the ctx
- * @param ctx
- * @param base_detect_buf
- * @param base_seg_buf
- * @param eval_detect_buf
- * @param eval_seg_buf
+ * @param eval_ctx baseline context used a ground truth
+ * @param ctx the current context that may be working on a compressed image
  * @param config
  * @param wait_list
  * @param wait_list_size
- * @param event_array used to keep track of the events
- * @param result_event can be waited on
- * @return a OpenCL status message
+ * @param event_array
+ * @param result_event
+ * @return OpenCL status
  */
 cl_int
-enqueue_eval_dnn(dnn_context_t *ctx, cl_mem base_detect_buf, cl_mem base_seg_buf,
-                 cl_mem eval_detect_buf, cl_mem eval_seg_buf, codec_config_t *config,
+enqueue_eval_dnn(dnn_context_t *eval_ctx, dnn_context_t *ctx, codec_config_t *config,
                  cl_event *wait_list, int wait_list_size,
                  event_array_t *event_array, cl_event *result_event) {
 
+    // basic check that the dnn contexts are compatible.
+    assert((ctx->height == eval_ctx->height) && (ctx->width == eval_ctx->width));
+
     cl_int status;
-    status = clSetKernelArg(ctx->eval_kernel, 0, sizeof(cl_mem), &(base_detect_buf));
-    status |= clSetKernelArg(ctx->eval_kernel, 1, sizeof(cl_mem), &(base_seg_buf));
-    status |= clSetKernelArg(ctx->eval_kernel, 2, sizeof(cl_mem), &(eval_detect_buf));
-    status |= clSetKernelArg(ctx->eval_kernel, 3, sizeof(cl_mem), &(eval_seg_buf));
-    status |= clSetKernelArg(ctx->eval_kernel, 4, sizeof(cl_int), &(config->do_segment));
+    status = clSetKernelArg(eval_ctx->eval_kernel, 0, sizeof(cl_mem), &(ctx->detect_buf));
+    status |= clSetKernelArg(eval_ctx->eval_kernel, 1, sizeof(cl_mem), &(ctx->segmentation_buf));
+    status |= clSetKernelArg(eval_ctx->eval_kernel, 2, sizeof(cl_mem), &(eval_ctx->detect_buf));
+    status |= clSetKernelArg(eval_ctx->eval_kernel, 3, sizeof(cl_mem),
+                             &(eval_ctx->segmentation_buf));
+    status |= clSetKernelArg(eval_ctx->eval_kernel, 4, sizeof(cl_int), &(config->do_segment));
     CHECK_AND_RETURN(status, "could not assign eval kernel params");
 
     // figure out on which queue to run the dnn
     cl_command_queue queue;
-    if (LOCAL_DEVICE == config->device_type) {
-        queue = ctx->local_queue;
-    } else if (REMOTE_DEVICE == config->device_type) {
-        queue = ctx->remote_queue;
-    } else {
-        LOGE("unknown device type to enqueue dnn to\n");
-        return -1;
-    }
+    PICK_QUEUE(queue, eval_ctx, config)
+
+    // TODO: add check to see if queue is present in eval_ctx as well
+    // and give a warning that unexpected buffer transfers might happen
+    // if this is not the case
 
     cl_event eval_iou_event, eval_read_iou_event;
 
-    status = clEnqueueNDRangeKernel(queue, ctx->eval_kernel, ctx->work_dim, NULL,
-                                    ctx->global_size, ctx->local_size,
+    status = clEnqueueNDRangeKernel(queue, eval_ctx->eval_kernel, eval_ctx->work_dim, NULL,
+                                    eval_ctx->global_size, eval_ctx->local_size,
                                     wait_list_size, wait_list, &eval_iou_event);
     CHECK_AND_RETURN(status, "failed to enqueue ND range eval kernel");
     append_to_event_array(event_array, eval_iou_event, VAR_NAME(eval_iou_event));
 
-    status = clEnqueueReadBuffer(queue, ctx->eval_buf, CL_FALSE, 0,
-                                 1 * sizeof(cl_float), &(ctx->iou), 1, &eval_iou_event,
+    status = clEnqueueReadBuffer(queue, eval_ctx->eval_buf, CL_FALSE, 0,
+                                 1 * sizeof(cl_float), &(eval_ctx->iou), 1, &eval_iou_event,
                                  &eval_read_iou_event);
     CHECK_AND_RETURN(status, "failed to read eval iou result buffer");
     append_to_event_array(event_array, eval_read_iou_event, VAR_NAME(eval_read_iou_event));
 
     *result_event = eval_read_iou_event;
+
+    return CL_SUCCESS;
+}
+
+/**
+ * read the results of the dnn stage and put them in the arrays
+ * @param ctx
+ * @param config contains relevant things like device type and do_segmentation
+ * @param detection_array output: contains bounding boxes
+ * @param segmentation_array output: contains a segmentation mask
+ * @param event_array for bookkeeping
+ * @param wait_size
+ * @param wait_list list of event to wait on before starting
+ * @return OpenCL status
+ */
+cl_int
+enqueue_read_results_dnn(dnn_context_t *ctx, codec_config_t *config,
+                         int32_t *detection_array, uint8_t *segmentation_array,
+                         event_array_t *event_array, int wait_size,
+                         cl_event *wait_list) {
+    ZoneScoped;
+    // TODO: create special remote reading queue to not block on dnn
+
+    // figure out on which queue to run the dnn
+    cl_command_queue queue;
+    PICK_QUEUE(queue, ctx, config)
+
+    int status;
+    cl_event read_detect_event, read_segment_event = NULL;
+    int wait_event_size = 1;
+
+    status = clEnqueueReadBuffer(queue, ctx->detect_buf, CL_FALSE, 0,
+                                 DET_COUNT * sizeof(cl_int), detection_array,
+                                 wait_size,
+                                 wait_list,
+                                 &read_detect_event);
+    CHECK_AND_RETURN(status, "could not read detection array");
+
+    append_to_event_array(event_array, read_detect_event,
+                          VAR_NAME(read_detect_event));
+
+    if (config->do_segment) {
+        status = clEnqueueReadBuffer(ctx->local_queue, ctx->segmentation_buf, CL_FALSE, 0,
+                                     SEG_OUT_COUNT * sizeof(cl_uchar), segmentation_array,
+                                     wait_size, wait_list,
+                                     &read_segment_event);
+        CHECK_AND_RETURN(status, "could not read segmentation array");
+        append_to_event_array(event_array, read_segment_event,
+                              VAR_NAME(read_segment_event));
+        // increment the size of the wait event list
+        wait_event_size = 2;
+    }
+
+    {
+        ZoneScopedN("wait");
+        cl_event wait_events[] = {read_detect_event, read_segment_event};
+        // after this wait, the detection and segmentation arrays are valid
+        status = clWaitForEvents(wait_event_size, wait_events);
+        CHECK_AND_RETURN(status, "could not wait on final event");
+    }
 
     return CL_SUCCESS;
 }
@@ -363,7 +449,7 @@ destroy_dnn_context(dnn_context_t **context) {
 
     dnn_context_t *c = *context;
 
-    if(NULL == c) {
+    if (NULL == c) {
         return CL_SUCCESS;
     }
 
@@ -380,6 +466,10 @@ destroy_dnn_context(dnn_context_t **context) {
     COND_REL_KERNEL(c->eval_kernel)
 
     COND_REL_MEM(c->eval_buf)
+
+    COND_REL_MEM(c->detect_buf)
+
+    COND_REL_MEM(c->segmentation_buf)
 
     free(c);
     *context = NULL;

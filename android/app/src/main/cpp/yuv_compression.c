@@ -141,15 +141,21 @@ write_buffer_yuv(const yuv_codec_context_t *ctx, const uint8_t *inp_host_buf, si
                  cl_mem cl_buf, const cl_event *wait_event,
                  event_array_t *event_array, cl_event *result_event) {
     cl_int status;
-    cl_event write_img_event;
+    cl_event write_img_event, undef_mig_event;
 
     int wait_size = 0;
     if (NULL != wait_event) {
         wait_size = 1;
     }
 
+    status = clEnqueueMigrateMemObjects(ctx->enc_queue, 1, &cl_buf,
+                                        CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, wait_size,
+                                        wait_event, &undef_mig_event);
+    CHECK_AND_RETURN(status, "could migrate enc buffer back before writing");
+    append_to_event_array(event_array, undef_mig_event, VAR_NAME(undef_mig_event));
+
     status = clEnqueueWriteBuffer(ctx->enc_queue, cl_buf, CL_FALSE, 0, buf_size,
-                                  inp_host_buf, wait_size, wait_event, &write_img_event);
+                                  inp_host_buf, 1, &undef_mig_event, &write_img_event);
     CHECK_AND_RETURN(status, "failed to write input image with yuv ctx");
     append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
     *result_event = write_img_event;

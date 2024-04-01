@@ -144,9 +144,7 @@ typedef struct {
     int frame_index;
     long image_timestamp;
     int is_eval_frame;
-    int segmentation;
-    device_type_enum device_type;
-    compression_t compression;
+    codec_config_t codec;
 } eval_metadata_t;
 
 #ifdef __cplusplus
