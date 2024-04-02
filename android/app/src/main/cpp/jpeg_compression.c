@@ -23,6 +23,42 @@ create_jpeg_context() {
 }
 
 /**
+ * function that does a blocking call to the init kernel
+ * @param ctx
+ * @return OpenCL status
+ */
+cl_int
+run_init(jpeg_codec_context_t *ctx) {
+    cl_int status;
+    cl_event init_event;
+    status = clEnqueueNDRangeKernel(ctx->dec_queue, ctx->init_dec_kernel, ctx->work_dim, NULL,
+                                    ctx->enc_global_size,
+                                    NULL, 0, NULL, &init_event);
+    CHECK_AND_RETURN(status, "failed to enqueue init kernel");
+    status = clWaitForEvents(1, &init_event);
+    status |= clReleaseEvent(init_event);
+    return status;
+}
+
+/**
+ * function that does a blocking call to the destroy kernel
+ * @param ctx
+ * @return OpenCL status
+ */
+cl_int
+run_destroy(jpeg_codec_context_t *ctx) {
+    cl_int status;
+    cl_event des_event;
+    status = clEnqueueNDRangeKernel(ctx->dec_queue, ctx->des_dec_kernel, ctx->work_dim, NULL,
+                                    ctx->enc_global_size,
+                                    NULL, 0, NULL, &des_event);
+    CHECK_AND_RETURN(status, "failed to enqueue destroy kernel");
+    status = clWaitForEvents(1, &des_event);
+    status |= clReleaseEvent(des_event);
+    return status;
+}
+
+/**
  * setup the context so that it can be used.
  * @warning requires the following fields to be set beforehand <br>
  *  * height <br>
@@ -58,16 +94,14 @@ init_jpeg_context(jpeg_codec_context_t *codec_context, cl_context ocl_context,
     CHECK_AND_RETURN(status, "could not build enc program");
 
     cl_program dec_program = clCreateProgramWithBuiltInKernels(ocl_context, 1, dec_device,
-                                                               "pocl.decompress.from.jpeg.rgb888",
+                                                               "pocl.init.decompress.jpeg.handle.rgb888;"
+                                                               "pocl.decompress.from.jpeg.handle.rgb888;"
+                                                               "pocl.destroy.decompress.jpeg.handle.rgb888",
                                                                &status);
     CHECK_AND_RETURN(status, "could not create dec program");
 
     status = clBuildProgram(dec_program, 1, dec_device, NULL, NULL, NULL);
     CHECK_AND_RETURN(status, "could not build dec program");
-
-//    codec_context->inp_buf = clCreateBuffer(ocl_context, CL_MEM_READ_ONLY, total_pixels * 3 / 2,
-//                                            NULL, &status);
-//    CHECK_AND_RETURN(status, "failed to create the input buffer");
 
     // overprovision this buffer since the compressed output size can vary
     codec_context->comp_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE, total_pixels * 3 / 2,
@@ -79,9 +113,10 @@ init_jpeg_context(jpeg_codec_context_t *codec_context, cl_context ocl_context,
                                              &status);
     CHECK_AND_RETURN(status, "failed to create the output size buffer");
 
-//    codec_context->out_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE, total_pixels * 3, NULL,
-//                                            &status);
-//    CHECK_AND_RETURN(status, "failed to create out_buf");
+    // needed to indicate how big the compressed image is
+    codec_context->ctx_handle = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE, 8, NULL,
+                                               &status);
+    CHECK_AND_RETURN(status, "failed to create the ctx handle buffer");
 
     // pocl content extension, allows for only the used part of the buffer to be transferred
     // https://registry.khronos.org/OpenCL/extensions/pocl/cl_pocl_content_size.html
@@ -94,12 +129,21 @@ init_jpeg_context(jpeg_codec_context_t *codec_context, cl_context ocl_context,
                                                &status);
     CHECK_AND_RETURN(status, "failed to create enc kernel");
 
-    codec_context->dec_kernel = clCreateKernel(dec_program, "pocl.decompress.from.jpeg.rgb888",
+    codec_context->dec_kernel = clCreateKernel(dec_program,
+                                               "pocl.decompress.from.jpeg.handle.rgb888",
                                                &status);
     CHECK_AND_RETURN(status, "failed to create dec kernel");
 
-//    status = clSetKernelArg(codec_context->enc_kernel, 0, sizeof(cl_mem),
-//                            &(codec_context->inp_buf));
+    codec_context->init_dec_kernel = clCreateKernel(dec_program,
+                                                    "pocl.init.decompress.jpeg.handle.rgb888",
+                                                    &status);
+    CHECK_AND_RETURN(status, "failed to create dec kernel");
+
+    codec_context->des_dec_kernel = clCreateKernel(dec_program,
+                                                   "pocl.destroy.decompress.jpeg.handle.rgb888",
+                                                   &status);
+    CHECK_AND_RETURN(status, "failed to create dec kernel");
+
     status |= clSetKernelArg(codec_context->enc_kernel, 1, sizeof(cl_int), &(codec_context->width));
     status |= clSetKernelArg(codec_context->enc_kernel, 2, sizeof(cl_int),
                              &(codec_context->height));
@@ -112,21 +156,29 @@ init_jpeg_context(jpeg_codec_context_t *codec_context, cl_context ocl_context,
     CHECK_AND_RETURN(status, "failed to assign kernel parameters to  enc kernel");
 
     status = clSetKernelArg(codec_context->dec_kernel, 0, sizeof(cl_mem),
-                            &(codec_context->comp_buf));
+                            &(codec_context->ctx_handle));
     status |= clSetKernelArg(codec_context->dec_kernel, 1, sizeof(cl_mem),
+                             &(codec_context->comp_buf));
+    status |= clSetKernelArg(codec_context->dec_kernel, 2, sizeof(cl_mem),
                              &(codec_context->size_buf));
-    status |= clSetKernelArg(codec_context->dec_kernel, 2, sizeof(cl_int), &(codec_context->width));
-    status |= clSetKernelArg(codec_context->dec_kernel, 3, sizeof(cl_int),
-                             &(codec_context->height));
-//    status |= clSetKernelArg(codec_context->dec_kernel, 4, sizeof(cl_mem),
-//                             &(codec_context->out_buf));
     CHECK_AND_RETURN(status, "failed to assign kernel parameters to  dec kernel");
+
+    status = clSetKernelArg(codec_context->init_dec_kernel, 0, sizeof(cl_mem),
+                            &(codec_context->ctx_handle));
+    CHECK_AND_RETURN(status, "failed to assign kernel parameters to init decompress kernel");
+
+    status = clSetKernelArg(codec_context->des_dec_kernel, 0, sizeof(cl_mem),
+                            &(codec_context->ctx_handle));
+    CHECK_AND_RETURN(status, "failed to assign kernel parameters to destroy decompress kernel");
 
     // built-in kernels, so one dimensional
     codec_context->work_dim = 1;
     codec_context->enc_global_size[0] = 1;
     codec_context->dec_global_size[0] = 1;
     codec_context->profile_compressed_size = profile_compressed_size;
+
+    status = run_init(codec_context);
+    CHECK_AND_RETURN(status, "could not run init kernel");
 
     clReleaseProgram(enc_program);
     clReleaseProgram(dec_program);
@@ -155,18 +207,6 @@ write_buffer_jpeg(const jpeg_codec_context_t *ctx, uint8_t *inp_host_buf, size_t
     return status;
 }
 
-///**
-// * compress the image with the given context
-// * @param cxt the compression context
-// * @param event_array
-// * @param result_event
-// * @return cl status value
-// * @param cxt
-// * @param wait_event
-// * @param inp_buf
-// * @param out_buf
-//
-// */
 /**
  * compress the image with the given context
  * @param cxt compression context
@@ -191,10 +231,10 @@ enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, cl_event wait_event, c
     status = clSetKernelArg(cxt->enc_kernel, 3, sizeof(cl_int), &(cxt->quality));
     CHECK_AND_RETURN(status, "could not set compression quality");
 
-    status |= clSetKernelArg(cxt->dec_kernel, 4, sizeof(cl_mem),
+    status |= clSetKernelArg(cxt->dec_kernel, 3, sizeof(cl_mem),
                              &out_buf);
+    CHECK_AND_RETURN(status, "could not set output buffer");
 
-//    cl_event write_img_event,
     cl_event enc_event, dec_event, undef_mig_event, mig_event;
 
     // the compressed image and the size of the image are in these buffers respectively
@@ -208,14 +248,6 @@ enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, cl_event wait_event, c
     CHECK_AND_RETURN(status, "could not migrate buffers back");
     append_to_event_array(event_array, undef_mig_event, VAR_NAME(undef_mig_event));
 
-//    status = clEnqueueWriteBuffer(cxt->enc_queue, cxt->inp_buf, CL_FALSE, 0,
-//                                  cxt->img_buf_size, cxt->host_img_buf, 0, NULL, &write_img_event);
-//    CHECK_AND_RETURN(status, "failed to write image to enc buffers");
-
-//    append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
-//
-//    cl_event wait_events[] = {write_img_event, undef_mig_event};
-
     cl_event wait_events[] = {wait_event, undef_mig_event};
     status = clEnqueueNDRangeKernel(cxt->enc_queue, cxt->enc_kernel, cxt->work_dim, NULL,
                                     cxt->enc_global_size,
@@ -223,25 +255,10 @@ enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, cl_event wait_event, c
     CHECK_AND_RETURN(status, "failed to enqueue compression kernel");
     append_to_event_array(event_array, enc_event, VAR_NAME(enc_event));
 
-    // if the comressed size is required,
-    // read the value before it gets sent off to the remote device
-    cl_event read_compress_size_event;
-    if (cxt->profile_compressed_size) {
-        status = clEnqueueReadBuffer(cxt->dec_queue, cxt->size_buf, CL_FALSE, 0,
-                                     sizeof(cl_ulong), &(cxt->compressed_size),
-                                     1, &enc_event, &read_compress_size_event);
-        CHECK_AND_RETURN(status, "failed to read the jpeg compressed size");
-        append_to_event_array(event_array, read_compress_size_event,
-                              VAR_NAME(read_compress_size_event));
-
-    } else {
-        read_compress_size_event = enc_event;
-    }
-
     // explicitly migrate the image instead of having enqueueNDrangekernel do it implicitly
     // so that we can profile the transfer times
     status = clEnqueueMigrateMemObjects(cxt->dec_queue, 2, migrate_bufs, 0, 1,
-                                        &read_compress_size_event,
+                                        &enc_event,
                                         &mig_event);
     CHECK_AND_RETURN(status, "failed to enqueue migration to remote");
     append_to_event_array(event_array, mig_event, VAR_NAME(mig_event));
@@ -252,7 +269,21 @@ enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, cl_event wait_event, c
     CHECK_AND_RETURN(status, "failed to enqueue decompression kernel");
     append_to_event_array(event_array, dec_event, VAR_NAME(dec_event));
 
-    *result_event = dec_event;
+    // if the comressed size is required,
+    // read the value before it gets sent off to the remote device
+    if (cxt->profile_compressed_size) {
+        cl_event read_compress_size_event;
+        status = clEnqueueReadBuffer(cxt->dec_queue, cxt->size_buf, CL_FALSE, 0,
+                                     sizeof(cl_ulong), &(cxt->compressed_size),
+                                     1, &enc_event, &read_compress_size_event);
+        CHECK_AND_RETURN(status, "failed to read the jpeg compressed size");
+        append_to_event_array(event_array, read_compress_size_event,
+                              VAR_NAME(read_compress_size_event));
+        *result_event = read_compress_size_event;
+
+    } else {
+        *result_event = dec_event;
+    }
 
     TracyCZoneEnd(ctx);
     return 0;
@@ -278,13 +309,16 @@ destroy_jpeg_context(jpeg_codec_context_t **context) {
         return 0;
     }
 
-//    COND_REL_MEM(c->inp_buf)
+    // destroy the jp handle
+    run_destroy(c);
+
+    COND_REL_MEM(c->ctx_handle);
+    COND_REL_KERNEL(c->init_dec_kernel);
+    COND_REL_KERNEL(c->des_dec_kernel);
 
     COND_REL_MEM(c->comp_buf)
 
     COND_REL_MEM(c->size_buf)
-
-//    COND_REL_MEM(c->out_buf)
 
     COND_REL_KERNEL(c->enc_kernel)
 

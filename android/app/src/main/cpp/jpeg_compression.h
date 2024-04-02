@@ -30,17 +30,18 @@ typedef struct {
     cl_mem inp_buf;
     cl_mem comp_buf;
     cl_mem size_buf;
-//    cl_mem out_buf;
+
     cl_kernel enc_kernel;
     cl_kernel dec_kernel;
+    cl_kernel init_dec_kernel;
+    cl_kernel des_dec_kernel;
+    cl_mem ctx_handle;
 
     uint32_t height;
     uint32_t width;
     cl_command_queue enc_queue; // needs to be freed manually
     cl_command_queue dec_queue; // needs to be freed manually
-//    uint8_t *host_img_buf; // needs to be freed manually
-//    size_t img_buf_size;
-//    uint8_t *host_postprocess_buf; // needs to be freed manually
+
     int32_t quality; // currently not used
     uint32_t work_dim;
     size_t enc_global_size[3];
