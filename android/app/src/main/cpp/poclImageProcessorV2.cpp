@@ -192,16 +192,20 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
     if (no_devs > 1) {
         ctx->dnn_context->remote_queue = ctx->enq_queues[2];
         ctx->dnn_context->local_queue = ctx->enq_queues[0];
+#ifdef TRACY_ENABLE
         ctx->dnn_context->remote_tracy_ctx = tracy_ctxs[2];
         ctx->dnn_context->local_tracy_ctx = tracy_ctxs[0];
+#endif
         status = init_dnn_context(ctx->dnn_context, cl_ctx, width, height,
                                   &devices[2], &devices[0], is_eval);
     } else {
         // setup local dnn
         ctx->dnn_context->remote_queue = ctx->enq_queues[0];
         ctx->dnn_context->local_queue = ctx->enq_queues[0];
+#ifdef TRACY_ENABLE
         ctx->dnn_context->remote_tracy_ctx = tracy_ctxs[0];
         ctx->dnn_context->local_tracy_ctx = tracy_ctxs[0];
+#endif
         status = init_dnn_context(ctx->dnn_context, cl_ctx, width, height,
                                   &devices[0], &devices[0], is_eval);
     }
@@ -383,8 +387,13 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
                                                  &status);
         CHECK_AND_RETURN(status, "creating remote queue failed");
 
+#ifdef TRACY_ENABLE
+        TracyCLCtx * tracy_ctx = &(ctx->tracy_ctxs[REMOTE_DEVICE]);
+#else
+        TracyCLCtx * tracy_ctx = NULL;
+#endif
         init_eval_ctx(&(ctx->eval_ctx), width, height, context, &(devices[REMOTE_DEVICE]),
-                      &(ctx->tracy_ctxs[REMOTE_DEVICE]));
+                      tracy_ctx);
         // TODO: create a thread that waits on the eval queue
         // for now read eval data when reading results
     }

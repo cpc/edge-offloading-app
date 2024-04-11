@@ -15,6 +15,7 @@
 #include "dnn_stage.h"
 #include <stdint.h>
 #include <semaphore.h>
+#include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
