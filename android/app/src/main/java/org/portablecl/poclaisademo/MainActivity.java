@@ -239,6 +239,8 @@ public class MainActivity extends AppCompatActivity {
 
     private static PoclImageProcessor poclImageProcessor;
 
+    private static Discovery discoveryService;
+
     private static Switch compressionSwitch;
 
     /**
@@ -434,6 +436,10 @@ public class MainActivity extends AppCompatActivity {
             setNativeEnv("POCL_REMOTE1_PARAMETERS", IPAddress + ":10998/1");
         }
 
+        setNativeEnv("POCL_DISCOVERY", "0");
+
+        discoveryService = new Discovery();
+
         String nativeLibraryPath = this.getApplicationInfo().nativeLibraryDir;
         setNativeEnv("LD_LIBRARY_PATH", nativeLibraryPath);
 
@@ -476,6 +482,7 @@ public class MainActivity extends AppCompatActivity {
             qualityText.setFocusable(false);
         }
 
+//        modeSwitch.performClick();
 
         // if the quality algorithm is on, the user has no say
         // so disable all the buttons
@@ -797,6 +804,7 @@ public class MainActivity extends AppCompatActivity {
 
             setupCamera();
             poclImageProcessor.start();
+            discoveryService.initDiscovery(this);
 
         } else {
             Log.println(Log.INFO, "MA flow", "preview not available, not setting up camera");
@@ -997,6 +1005,8 @@ public class MainActivity extends AppCompatActivity {
         }
 
         pingMonitor.stop();
+
+        discoveryService.stopDiscovery();
 
         // imageprocessthread depends on camera and background threads, so close this first
         poclImageProcessor.stop();

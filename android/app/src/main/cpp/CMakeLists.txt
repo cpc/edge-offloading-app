@@ -182,6 +182,7 @@ set(POCL_CMAKE_ARGS
         -DENABLE_ANDROID_MEDIACODEC=YES
         -DENABLE_LATEST_CXX_STD=YES
 		-DTRACY_ENABLE=${TRACY_ENABLE}
+		-DENABLE_RESOURCE_DISCOVERY_ANDROID=YES
         )
 
 ExternalProject_Add(pocl
@@ -225,7 +226,7 @@ add_library(poclnative
 		poclImageProcessorV2.cpp poclImageProcessorV2.h
 		jniWrapperV2.cpp
 		codec_select.cpp codec_select.h
-
+		jni_discovery.cpp
         )
 
 
