@@ -21,6 +21,13 @@
 extern "C" {
 #endif
 
+typedef enum {
+    LANE_SHUTDOWN = -2,
+    LANE_ERROR = -1,
+    LANE_READY = 0,
+    LANE_BUSY = 1,
+} lane_state_t;
+
 typedef struct {
     event_array_t *event_array;
     int config_flags; // used to configure codecs
@@ -47,6 +54,14 @@ typedef struct {
 
     char lane_name[16]; // the name shown in tracy
 
+    pthread_mutex_t state_mut;
+    /**
+     * -2 shutdown
+     * -1 error
+     * 0 ready
+     * 1 busy
+     */
+    lane_state_t state;
 
     // todo: see if it makes more sense to store the codec config  in the pipeline instead of the
     // eval_metadata and just use the metadata to return the values back at the function caller

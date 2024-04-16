@@ -12,6 +12,7 @@
 #include <ctime>
 #include <stdlib.h>
 #include <cstring>
+#include <pthread.h>
 #include "config.h"
 
 #include "Tracy.hpp"
@@ -64,6 +65,27 @@ supports_config_flags(const int config_flags) {
 
     return 0;
 }
+
+#ifdef DEBUG_SEMAPHORES
+
+#define SET_CTX_STATE(ctx, expected_state, new_state) \
+        pthread_mutex_lock(&(ctx->state_mut)); \
+        if(LANE_ERROR != new_state) {\
+            assert(expected_state == ctx->state);\
+        }\
+        ctx->state = new_state;                       \
+                                         \
+        LOGW("set state to: %d (ln : %d)\n", ctx->state, __LINE__);\
+        pthread_mutex_unlock(&(ctx->state_mut));      \
+
+#else
+
+#define SET_CTX_STATE(ctx, expected_state, new_state) \
+        pthread_mutex_lock(&(ctx->state_mut)); \
+        ctx->state = new_state;                       \
+        pthread_mutex_unlock(&(ctx->state_mut));
+
+#endif
 
 /**
  * create a pipeline context that has the requested codecs initialized
@@ -225,6 +247,7 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
  */
 cl_int
 destroy_pipeline_context(pipeline_context ctx) {
+
     destroy_dnn_context(&ctx.dnn_context);
 
 #ifndef DISABLE_HEVC
@@ -553,6 +576,8 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
 
     TracyCFrameMarkStart(ctx->lane_name);
 
+    SET_CTX_STATE(ctx, LANE_READY, LANE_BUSY)
+
     if (NULL != metadata) {
         metadata->host_ts_ns.start = get_timestamp_ns();
     }
@@ -706,6 +731,8 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
 //                         output->detection_array, output->segmentation_array,
                          ctx->event_array, &(output->event_list[0]));
     CHECK_AND_RETURN(status, "could not enqueue dnn stage");
+
+    // TODO: create goto statement putting the state to an error
 
     return CL_SUCCESS;
 }
@@ -898,7 +925,9 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
     dnn_results results = ctx->collected_results[index];
     eval_metadata_t image_metadata = ctx->metadata_array[index];
 
-    int config_flags = ctx->pipeline_array[index].config_flags;
+    pipeline_context *pipeline = &(ctx->pipeline_array[index]);
+
+    int config_flags = pipeline->config_flags;
 
     // used to send segmentation back to java
     *segmentation = image_metadata.codec.do_segment;
@@ -907,7 +936,8 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
 
     int status;
 
-    status = enqueue_read_results_dnn((ctx->pipeline_array[index].dnn_context),
+    // TODO: wrap with pipeline function
+    status = enqueue_read_results_dnn(pipeline->dnn_context,
                                       &image_metadata.codec, detection_array, segmentation_array,
                                       image_metadata.event_array, results.event_list_size,
                                       results.event_list);
@@ -942,7 +972,7 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
             CHECK_AND_RETURN(status, "failed to print events");
         }
 
-        uint64_t compressed_size = get_compression_size(ctx->pipeline_array[index],
+        uint64_t compressed_size = get_compression_size(*pipeline,
                                                         image_metadata.codec.compression_type);
         dprintf(ctx->file_descriptor, "%d,compression,size_bytes,%lu\n", image_metadata.frame_index,
                 compressed_size);
@@ -962,13 +992,20 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
     char *markId = new char[16];
     snprintf(markId, 16, "frame end: %i", ctx->frame_index_tail - 1);
     TracyMessage(markId, strlen(markId));
-    TracyCFrameMarkEnd(ctx->pipeline_array[index].lane_name);
+    TracyCFrameMarkEnd(pipeline->lane_name);
+
+    SET_CTX_STATE(pipeline, LANE_BUSY, LANE_READY)
+
+
+    if (image_metadata.is_eval_frame) {
+        SET_CTX_STATE(ctx->eval_ctx.eval_pipeline, LANE_BUSY, LANE_READY)
+    }
 
 #ifdef DEBUG_SEMAPHORES
     {
         int sem_value;
         sem_getvalue(&(ctx->pipe_sem), &sem_value);
-        LOGW("receive_image incremented pipe sem to: %d \n", sem_value +1);
+        LOGW("receive_image incremented pipe sem to: %d \n", sem_value + 1);
     }
 #endif
     // finally release the semaphore
@@ -985,9 +1022,7 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
 #endif
         sem_post(&(ctx->local_sem));
     }
-
-
-
+    
     return CL_SUCCESS;
 }
 
