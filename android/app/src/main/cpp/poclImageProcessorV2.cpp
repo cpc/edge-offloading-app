@@ -404,7 +404,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     ctx->collected_results = (dnn_results *) calloc(max_lanes, sizeof(dnn_results));
 
     // create a queue used to receive images
-    assert(3 <= devices_found && "expected at least 3 devices, but not the case");
+    assert(1 <= devices_found && "expected at least 1 device, but not the case");
     cl_command_queue_properties cq_properties = CL_QUEUE_PROFILING_ENABLE;
     ctx->read_queue = clCreateCommandQueue(context, devices[LOCAL_DEVICE], cq_properties, &status);
     CHECK_AND_RETURN(status, "creating read queue failed");
@@ -456,7 +456,9 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
  */
 float
 get_last_iou(pocl_image_processor_context *ctx) {
-    return ctx->eval_ctx.eval_pipeline->dnn_context->iou;
+    if(ctx->eval_ctx.eval_pipeline != NULL)
+        return ctx->eval_ctx.eval_pipeline->dnn_context->iou;
+    return -5;
 }
 
 cl_int

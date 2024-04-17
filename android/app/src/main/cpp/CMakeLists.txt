@@ -138,10 +138,13 @@ ExternalProject_Add(build_turbojpeg
         CMAKE_FLAGS ${TURBO_JPEG_ARGS}
         BUILD_COMMAND cmake --build . --target all -- -j ${EXTERNAL_PROJECT_CORES}
         BUILD_ALWAYS True
+		BUILD_BYPRODUCTS
+		${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/libturbojpeg.so
         )
 # find the jpeg lib that was just built
-set(libjpeg-turbo_DIR ${EXTERNAL_PATH}/libjpeg-turbo/libturbojpeg/armv8/lib/cmake/libjpeg-turbo)
-find_package(libjpeg-turbo REQUIRED)
+set(libjpeg-turbo_DIR ${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/cmake/libjpeg-turbo)
+add_library(libjpeg-turbo SHARED IMPORTED)
+set_target_properties(libjpeg-turbo PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/libturbojpeg.so)
 
 # build pocl project
 set(POCL_CMAKE_ARGS
@@ -175,7 +178,7 @@ set(POCL_CMAKE_ARGS
         -DENABLE_OPENCV_ONNX=YES
 		-DORT_INSTALL_DIR=${EXTERNAL_PATH}/onnxruntime-android
         -DENABLE_TURBO_JPEG_COMPRESSION=YES
-		-Dlibjpeg-turbo_DIR=${CMAKE_CURRENT_BINARY_DIR}/libturbojpeg/lib/cmake/libjpeg-turbo/
+		-Dlibjpeg-turbo_DIR=${libjpeg-turbo_DIR}
         -DENABLE_ANDROID_MEDIACODEC=YES
         -DENABLE_LATEST_CXX_STD=YES
 		-DTRACY_ENABLE=${TRACY_ENABLE}
@@ -261,7 +264,7 @@ target_link_libraries(
         opencv_imgcodecs
         opencv_core
 		onnxruntime
-		libjpeg-turbo::turbojpeg
+		libjpeg-turbo
         jnigraphics
 		mediandk
         libpocl_pthread_add_i8
