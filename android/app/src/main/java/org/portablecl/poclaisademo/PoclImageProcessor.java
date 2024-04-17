@@ -99,6 +99,8 @@ public class PoclImageProcessor {
 
     private final boolean enableQualityAlgorithm;
 
+    private int targetFPS;
+
     /**
      * constructor for pocl image processor
      *
@@ -196,6 +198,8 @@ public class PoclImageProcessor {
         this.imageSubmitThread = null;
         this.receiverThread = null;
 
+        this.targetFPS = 30;
+
     }
 
     /**
@@ -236,6 +240,13 @@ public class PoclImageProcessor {
 
     public void setCompressionType(int compressionType) {
         this.compressionType = compressionType;
+    }
+
+    public void setTargetFPS(int targetFPS) {
+        if(targetFPS > 30) {
+            Log.println(Log.WARN, "PoclImageProcessor.java", "higher target than allowed, capping to 30");
+        }
+        this.targetFPS = targetFPS;
     }
 
     /**
@@ -306,6 +317,11 @@ public class PoclImageProcessor {
 
         ParcelFileDescriptor parcelFileDescriptor = null;
 
+        // used for frame limiting.
+        // set a starting time that is definitely smaller
+        // than the first time we check this value
+        long lastFrameTime = System.nanoTime() - 10_000_000_000L;
+
         int nativeFd = -1;
         if ((ENABLE_PROFILING & configFlags) > 0) {
             try {
@@ -341,6 +357,17 @@ public class PoclImageProcessor {
 
             // the main loop, will continue until an interrupt is sent
             while (!Thread.interrupted()) {
+
+                // artificial frame limiting
+                if(targetFPS >= 1) {
+                    long timeNow = System.nanoTime();
+                    long timeSince = (timeNow- lastFrameTime);
+                    if(timeSince < (1_000_000_000 / targetFPS)){
+                        Thread.sleep(0, 333333);
+                        continue;
+                    }
+                    lastFrameTime = timeNow;
+                }
 
                 if (DEBUGEXECUTION) {
                     Log.println(Log.INFO, "EXECUTIONFLOW", "started new image process" +
