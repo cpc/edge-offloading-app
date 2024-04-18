@@ -35,8 +35,8 @@ constexpr int SEGMENTATION_COUNT = MAX_DETECTIONS * MASK_W * MASK_H;
 constexpr int SEG_POSTPROCESS_COUNT = 4 * MASK_W * MASK_H; // RGBA image
 
 constexpr float FPS = 30.0f;
-constexpr int NFRAMES = 100;
-// constexpr int NFRAMES = 10;
+//constexpr int NFRAMES = 100;
+ constexpr int NFRAMES = 4;
 
 cl_int test_pthread_bik() {
     ZoneScoped;
@@ -263,7 +263,7 @@ int main() {
     //    constexpr compression_t compression_type = JPEG_COMPRESSION;
     constexpr int config_flags = ENABLE_PROFILING | compression_type;
 
-    constexpr devic_type_enum device_index = REMOTE_DEVICE;
+    constexpr device_type_enum device_index = REMOTE_DEVICE;
     //    constexpr devic_type_enum device_index = LOCAL_DEVICE;
     constexpr int do_segment = 1;
     constexpr int quality = 80;
@@ -363,8 +363,10 @@ int main() {
         }
 
         FrameMark;
-
-        if (dequeue_spot(ctx, 1000) != 0) {
+        // set a long timeout so that the loop is at minimum
+        // 30 fps (see above code) and maximum as long as it takes
+        // for another frame
+        if (dequeue_spot(ctx, 20000) != 0) {
             continue;
         }
 
