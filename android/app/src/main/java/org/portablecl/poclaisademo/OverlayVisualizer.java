@@ -19,6 +19,7 @@ import java.nio.ByteBuffer;
  */
 public class OverlayVisualizer {
 
+    private static final int classesSize = 80;
     private static final String[] classes =
             {"person", "bicycle", "car",
                     "motorcycle", "airplane", "bus",
@@ -141,6 +142,11 @@ public class OverlayVisualizer {
 
             for (int i = 0; i < numDetections; i++) {
                 classIds = detections[1 + 6 * i];
+
+                if(classIds < 0 || classIds > classesSize) {
+                    Log.println(Log.WARN, "drawOverlay", "bogus classid, breaking off");
+                    break;
+                }
                 className = classes[classIds];
                 confidence = Float.intBitsToFloat(detections[1 + 6 * i + 1]);
                 overlayLabel = className + String.format(" %.2f", confidence);
