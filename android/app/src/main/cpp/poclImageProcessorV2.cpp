@@ -235,6 +235,9 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
 
     ctx->event_array = create_event_array_pointer(MAX_EVENTS);
 
+    ctx->state_mut = PTHREAD_MUTEX_INITIALIZER;
+    ctx->state = LANE_READY;
+
     return CL_SUCCESS;
 }
 
@@ -266,6 +269,7 @@ destroy_pipeline_context(pipeline_context ctx) {
         COND_REL_QUEUE(ctx.enq_queues[i]);
     }
     free_event_array_pointer(&ctx.event_array);
+    pthread_mutex_destroy(&(ctx.state_mut));
 
     return CL_SUCCESS;
 }
