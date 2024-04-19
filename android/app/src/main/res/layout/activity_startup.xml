@@ -8,30 +8,30 @@
 
     <org.portablecl.poclaisademo.DropEditText
         android:id="@+id/jpegQualityEditText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_width="119dp"
+        android:layout_height="48dp"
+        android:layout_marginStart="5dp"
+        android:layout_marginTop="15dp"
+        android:layout_marginEnd="5dp"
         android:ems="3"
         android:inputType="number"
         android:selectAllOnFocus="true"
         android:text="80"
         android:textAlignment="textEnd"
-        app:layout_constraintEnd_toEndOf="@+id/jpegImageButton"
-        app:layout_constraintStart_toStartOf="@+id/jpegImageButton"
+        app:layout_constraintEnd_toStartOf="@+id/softwareHevcCompButton"
+        app:layout_constraintStart_toEndOf="@+id/hevcCompButton"
         app:layout_constraintTop_toBottomOf="@+id/jpegImageButton" />
 
     <TextView
         android:id="@+id/greeting"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="145dp"
+        android:layout_height="24dp"
         android:layout_marginTop="16dp"
-        android:layout_marginBottom="13dp"
         android:ems="10"
         android:inputType="text"
         android:text="Configure the demo"
-        app:layout_constraintBottom_toTopOf="@+id/infoText"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.497"
+        app:layout_constraintHorizontal_bias="0.498"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
@@ -51,13 +51,14 @@
         android:id="@+id/IPTextView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="5dp"
+        android:layout_marginStart="100dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="101dp"
         android:completionThreshold="0"
         android:ems="10"
         android:inputType="text"
         android:text="192.168.88.240"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.497"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/infoText" />
 
@@ -65,23 +66,11 @@
         android:id="@+id/infoText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="5dp"
+        android:layout_marginTop="48dp"
         android:text="Remote server IP address (IPv4)"
-        app:layout_constraintBottom_toTopOf="@+id/IPTextView"
-        app:layout_constraintEnd_toEndOf="@+id/IPTextView"
-        app:layout_constraintStart_toStartOf="@+id/IPTextView" />
-
-    <Switch
-        android:id="@+id/disableSwitch"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="25dp"
-        android:checked="false"
-        android:showText="true"
-        android:text="Local only"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/IPTextView" />
+        app:layout_constraintTop_toBottomOf="@+id/discoverySpinner" />
 
     <!--    <Button-->
     <!--        android:id="@+id/printURI"-->
@@ -93,6 +82,20 @@
     <!--        app:layout_constraintHorizontal_bias="0.498"-->
     <!--        app:layout_constraintStart_toStartOf="parent"-->
     <!--        app:layout_constraintTop_toBottomOf="@+id/fileNameView" />-->
+
+    <Switch
+        android:id="@+id/disableSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="145dp"
+        android:layout_marginTop="24dp"
+        android:layout_marginEnd="146dp"
+        android:checked="false"
+        android:showText="true"
+        android:text="Local only"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/IPTextView" />
 
     <Switch
         android:id="@+id/disableLoggingSwitch"
@@ -135,75 +138,95 @@
         android:id="@+id/yuvCompButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginStart="30dp"
         android:layout_marginEnd="10dp"
         android:text="ToggleButton"
         android:textOff="YUV:OFF"
         android:textOn="YUV:ON"
-        app:layout_constraintBottom_toBottomOf="@+id/jpegImageButton"
         app:layout_constraintEnd_toStartOf="@+id/jpegImageButton"
+        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="@+id/jpegImageButton" />
 
     <ToggleButton
         android:id="@+id/jpegCompButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="126dp"
+        android:layout_height="47dp"
         android:layout_marginStart="10dp"
+        android:layout_marginEnd="26dp"
         android:text="ToggleButton"
         android:textOff="JPEG:OFF"
         android:textOn="JPEG:ON"
-        app:layout_constraintBottom_toBottomOf="@+id/jpegImageButton"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@+id/jpegImageButton"
-        app:layout_constraintTop_toTopOf="@+id/jpegImageButton"
-        app:layout_constraintVertical_bias="0.0" />
+        app:layout_constraintTop_toTopOf="@+id/jpegImageButton" />
 
     <TextView
         android:id="@+id/compressionText"
         android:layout_width="242dp"
         android:layout_height="22dp"
-        android:layout_marginBottom="200dp"
+        android:layout_marginTop="274dp"
         android:gravity="center"
         android:text="Compression Type: "
         android:textAppearance="@style/TextAppearance.AppCompat.Body2"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.497"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/disableLoggingSwitch" />
 
     <ToggleButton
         android:id="@+id/jpegImageButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginStart="5dp"
         android:layout_marginTop="10dp"
+        android:layout_marginEnd="5dp"
         android:text="ToggleButton"
         android:textOff="JPEG CAM:OFF"
         android:textOn="JPEG CAM:ON"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/jpegCompButton"
+        app:layout_constraintStart_toEndOf="@+id/yuvCompButton"
         app:layout_constraintTop_toBottomOf="@+id/compressionText" />
 
     <ToggleButton
         android:id="@+id/hevcCompButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginStart="32dp"
+        android:layout_marginEnd="10dp"
         android:text="ToggleButton"
         android:textOff="HEVC:OFF"
         android:textOn="HEVC:ON"
-        app:layout_constraintEnd_toEndOf="@+id/yuvCompButton"
-        app:layout_constraintStart_toStartOf="@+id/yuvCompButton"
-        app:layout_constraintTop_toBottomOf="@+id/yuvCompButton" />
+        app:layout_constraintEnd_toStartOf="@+id/jpegQualityEditText"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/jpegQualityEditText" />
 
     <ToggleButton
         android:id="@+id/softwareHevcCompButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="26dp"
         android:text="ToggleButton"
         android:textOff="SOFT HEVC:OFF"
         android:textOn="SOFT HEVC:ON"
-        app:layout_constraintEnd_toEndOf="@+id/jpegCompButton"
-        app:layout_constraintStart_toStartOf="@+id/jpegCompButton"
-        app:layout_constraintTop_toBottomOf="@+id/jpegCompButton" />
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/jpegQualityEditText"
+        app:layout_constraintTop_toTopOf="@+id/jpegQualityEditText" />
+
+    <Spinner
+        android:id="@+id/discoverySpinner"
+        android:layout_width="355dp"
+        android:layout_height="48dp"
+        android:layout_marginStart="2dp"
+        android:layout_marginTop="24dp"
+        android:layout_marginEnd="2dp"
+        android:background="@android:drawable/btn_dropdown"
+        android:popupBackground="@color/purple_200"
+        android:spinnerMode="dropdown"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/greeting" />
 
     <TextView
         android:id="@+id/targetFPSText"

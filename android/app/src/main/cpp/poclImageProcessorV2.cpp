@@ -210,7 +210,7 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
     ctx->dnn_context->width = width;
     ctx->dnn_context->rotate_cw_degrees = 90;
 
-    if (no_devs > 1) {
+    if (no_devs > 2) {
         ctx->dnn_context->remote_queue = ctx->enq_queues[2];
         ctx->dnn_context->local_queue = ctx->enq_queues[0];
 #ifdef TRACY_ENABLE
@@ -300,6 +300,50 @@ init_eval_ctx(eval_pipeline_context_t *const ctx, int width, int height, cl_cont
     return CL_SUCCESS;
 }
 
+cl_int
+pick_device(cl_platform_id platform, cl_device_id *devices, cl_uint *devices_found,
+            char *service_name) {
+    cl_uint device_num = 0;
+    cl_device_id *all_devices = NULL;
+    cl_int status;
+    char result_array[256];
+
+    status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, 0, NULL, &device_num);
+    LOGI("JNI DISCOVERY DEVICE: %d", device_num);
+    all_devices = (cl_device_id *) malloc(device_num * sizeof(cl_device_id));
+    status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, device_num, all_devices, NULL);
+
+    if (device_num == 0) {
+        *devices_found = 0;
+        goto END;
+    } else if (device_num <= 2) {
+        devices[0] = all_devices[0];
+        devices[1] = all_devices[1];
+        *devices_found = 2;
+        goto END;
+    } else {
+        for (uint i = 0; i < device_num; ++i) {
+            clGetDeviceInfo(all_devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
+            if (!strncmp(service_name, result_array, 32)) {
+                devices[0] = all_devices[0];
+                devices[1] = all_devices[1];
+                devices[2] = all_devices[i];
+                devices[3] = all_devices[i + 1];
+                *devices_found = 4;
+                LOGI("JNI DISCOVERY SUCCEEDED");
+                status = CL_SUCCESS;
+                goto END;
+            }
+        }
+        LOGE("JNI DISCOVERY FAILED");
+        status = CL_DEVICE_NOT_AVAILABLE;
+    }
+    END:
+    free(all_devices);
+    return status;
+}
+
+
 /**
  * create a context that with a number of pipelines
  * @param ret_ctx destination pointer to the created object
@@ -315,7 +359,8 @@ init_eval_ctx(eval_pipeline_context_t *const ctx, int width, int height, cl_cont
 int
 create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, const int max_lanes,
                                     const int width, const int height, const int config_flags,
-                                    const char *codec_sources, const size_t src_size, int fd) {
+                                    const char *codec_sources, const size_t src_size, int fd,
+                                    char *service_name) {
 
     if (supports_config_flags(config_flags) != 0) {
         return -1;
@@ -351,8 +396,13 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     status = clGetPlatformIDs(1, &platform, NULL);
     CHECK_AND_RETURN(status, "getting platform id failed");
 
-    status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, MAX_NUM_CL_DEVICES, devices,
-                            &devices_found);
+    if (service_name != NULL) {
+        status = pick_device(platform, devices, &devices_found, service_name);
+    } else {
+        status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, MAX_NUM_CL_DEVICES, devices,
+                                &devices_found);
+    }
+
     CHECK_AND_RETURN(status, "getting device id failed");
     LOGI("Platform has %d devices\n", devices_found);
     assert(devices_found > 0);
@@ -409,7 +459,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     ctx->read_queue = clCreateCommandQueue(context, devices[LOCAL_DEVICE], cq_properties, &status);
     CHECK_AND_RETURN(status, "creating read queue failed");
 
-    if (devices_found > 1) {
+    if (devices_found > 2) {
         ping_fillbuffer_init(&(ctx->ping_context), context);
         ctx->remote_queue = clCreateCommandQueue(context, devices[REMOTE_DEVICE], cq_properties,
                                                  &status);
@@ -464,8 +514,11 @@ get_last_iou(pocl_image_processor_context *ctx) {
 cl_int
 destroy_eval_context(eval_pipeline_context_t *ctx) {
 
-    destroy_pipeline_context(*(ctx->eval_pipeline));
-    free(ctx->eval_pipeline);
+    if ((ctx->eval_pipeline) != NULL) {
+        destroy_pipeline_context(*(ctx->eval_pipeline));
+        free(ctx->eval_pipeline);
+        ctx->eval_pipeline = NULL;
+    }
     free(ctx->eval_results);
     return CL_SUCCESS;
 }

@@ -54,6 +54,8 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
+import android.widget.AdapterView;
+import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -239,7 +241,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static PoclImageProcessor poclImageProcessor;
 
-    private static Discovery discoveryService;
+//    private static Discovery discoveryService;
 
     private static Switch compressionSwitch;
 
@@ -287,6 +289,7 @@ public class MainActivity extends AppCompatActivity {
     private Switch softwareHEVCSwitch;
 
     private StatLogger statLogger;
+    private Discovery DS;
 
     /**
      * see https://developer.android.com/guide/components/activities/activity-lifecycle
@@ -424,21 +427,62 @@ public class MainActivity extends AppCompatActivity {
         counter = new FPSCounter();
         statUpdateScheduler = Executors.newScheduledThreadPool(2);
 
+        setNativeEnv("POCL_DISCOVERY", "0");
+        DS = new Discovery(this);
+        Spinner discoverySpinner = binding.discoverySpinner;
+        final boolean[] once = {true};
+        DS.initDiscovery(discoverySpinner, new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                String selectedServer = Discovery.spinnerList.get(position);
+                if(!selectedServer.equals(Discovery.DEFAULT_SPINNER_VAL)){
+                    modeSwitch.setClickable(true);
+                    Log.d("DISC","Spinner position selected: " + position + " : server selected : " + selectedServer);
+                    Discovery.serviceInfo temp = Discovery.serviceMap.get(selectedServer);
+                    if(selectedServer.contains(IPAddress) && once[0]){
+                        temp.reconnect = true;
+                        once[0] =false;
+                    }
+                    poclImageProcessor.stop();
+                    Discovery.addDevice(selectedServer + "/0", (temp.reconnect ? 1:0) );
+                    Discovery.addDevice(selectedServer + "/1", (temp.reconnect ? 1:0) );
+                    temp.reconnect = true;
+                    poclImageProcessor.start(temp.name);
+                }
+                else{
+                    if(modeSwitch.isChecked()){
+                        modeSwitch.performClick();
+                    }
+                }
+            }
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                if(IPAddress != null) {
+                    modeSwitch.setClickable(true);
+                }
+                else{
+                    modeSwitch.setClickable(false);
+                }
+
+            }
+        });
+
         if (disableRemote) {
             // disable this switch when remote is disabled
             modeSwitch.setClickable(false);
             setNativeEnv("POCL_DEVICES", "pthread");
         } else {
-            modeSwitch.setClickable(true);
-
-            setNativeEnv("POCL_DEVICES", "pthread proxy remote remote");
-            setNativeEnv("POCL_REMOTE0_PARAMETERS", IPAddress + ":10998/0");
-            setNativeEnv("POCL_REMOTE1_PARAMETERS", IPAddress + ":10998/1");
+            if(IPAddress==null || IPAddress.isEmpty()){
+                setNativeEnv("POCL_DEVICES", "pthread proxy");
+                modeSwitch.setClickable(false);
+            }
+            else{
+                modeSwitch.setClickable(true);
+                setNativeEnv("POCL_DEVICES", "pthread proxy remote remote");
+                setNativeEnv("POCL_REMOTE0_PARAMETERS", IPAddress + "/0");
+                setNativeEnv("POCL_REMOTE1_PARAMETERS", IPAddress + "/1");
+            }
         }
-
-        setNativeEnv("POCL_DISCOVERY", "0");
-
-        discoveryService = new Discovery();
 
         String nativeLibraryPath = this.getApplicationInfo().nativeLibraryDir;
         setNativeEnv("LD_LIBRARY_PATH", nativeLibraryPath);
@@ -762,6 +806,10 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
 
+        if(Discovery.serviceMap !=null && Discovery.serviceMap.get(IPAddress)!=null){
+            Discovery.serviceMap.get(IPAddress).reconnect = true;
+        }
+
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started onResume method");
         }
@@ -804,7 +852,7 @@ public class MainActivity extends AppCompatActivity {
 
             setupCamera();
             poclImageProcessor.start();
-            discoveryService.initDiscovery(this);
+
 
         } else {
             Log.println(Log.INFO, "MA flow", "preview not available, not setting up camera");
@@ -1006,8 +1054,6 @@ public class MainActivity extends AppCompatActivity {
 
         pingMonitor.stop();
 
-        discoveryService.stopDiscovery();
-
         // imageprocessthread depends on camera and background threads, so close this first
         poclImageProcessor.stop();
         closeCamera();
@@ -1024,6 +1070,8 @@ public class MainActivity extends AppCompatActivity {
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started onDestroy method");
         }
+
+        DS.stopDiscovery();
 
         // restart the app if the main activity is closed
         Context applicationContext = getApplicationContext();

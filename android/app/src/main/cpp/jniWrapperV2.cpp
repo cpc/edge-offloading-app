@@ -52,21 +52,29 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(
                                                                                 jint width,
                                                                                 jint height,
                                                                                 jint fd,
-                                                                                jint max_lanes) {
+                                                                                jint max_lanes,
+                                                                                jstring service_name) {
 
     bool file_there = put_asset_in_local_storage(env, j_asset_manager, "yolov8n-seg.onnx");
     assert(file_there);
 
     size_t src_size;
     char *codec_sources = read_file(env, j_asset_manager, "kernels/copy.cl", &src_size);
+
+    char *_service_name = NULL;
+    if(service_name != NULL)
+        _service_name = (char *) env->GetStringUTFChars(service_name, 0);
+
     jint status = create_pocl_image_processor_context(&ctx, max_lanes, width,
                                                       height, config_flags, codec_sources, src_size,
-                                                      fd);
+                                                      fd, _service_name);
 
     free(codec_sources);
 
     init_codec_select(&state);
 
+    if(service_name != NULL)
+        env->ReleaseStringUTFChars(service_name, _service_name);
     return status;
 
 }

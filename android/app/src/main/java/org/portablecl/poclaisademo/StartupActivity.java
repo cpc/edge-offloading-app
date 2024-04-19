@@ -28,9 +28,11 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 import android.widget.Button;
+import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -511,6 +513,10 @@ public class StartupActivity extends AppCompatActivity {
                 return;
             }
 
+            if (!value.contains(":") && value.length()!=0){
+                value = value + ":10998";
+            }
+
             Toast.makeText(StartupActivity.this, "Starting demo, please wait",
                     Toast.LENGTH_SHORT).show();
 
@@ -554,6 +560,8 @@ public class StartupActivity extends AppCompatActivity {
         }
     };
 
+
+    Discovery DS;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -646,6 +654,25 @@ public class StartupActivity extends AppCompatActivity {
         pipelineLanesField.setOnEditorActionListener(loseFocusListener);
         pipelineLanesField.setOnFocusChangeListener(pipelineFocusListener);
 
+        DS = new Discovery(this);
+        Spinner discoverySpinner = binding.discoverySpinner;
+        DS.initDiscovery(discoverySpinner, new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+
+                String selectedServer = DS.spinnerList.get(position);
+                if(!selectedServer.equals(DS.DEFAULT_SPINNER_VAL)){
+                    Log.d("DISC","Spinner position selected: " + position + " : server selected : " + selectedServer);
+                    IPAddressView.setText(DS.spinnerList.get(position));
+                }
+
+            }
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+
+            }
+        });
+
     }
 
     /**
@@ -682,7 +709,7 @@ public class StartupActivity extends AppCompatActivity {
         boolean numeric = true;
         for (int i = 0; i < value.length(); i++) {
             char curChar = value.charAt(i);
-            if (!isDigit(curChar) && curChar != '.') {
+            if (!isDigit(curChar) && curChar != '.' && curChar != ':') {
                 numeric = false;
                 break;
             }
@@ -699,7 +726,7 @@ public class StartupActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-
+        DS.stopDiscovery();
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started StartupActivity onDestroy method");
         }

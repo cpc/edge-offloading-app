@@ -52,7 +52,7 @@ public class JNIPoclImageProcessor {
 
     public static native int initPoclImageProcessorV2(int configFlags,
                                                       AssetManager jAssetManager,
-                                                      int width, int height, int fd, int max_lanes);
+                                                      int width, int height, int fd, int max_lanes, String serviceName);
 
     public static native int destroyPoclImageProcessorV2();
 

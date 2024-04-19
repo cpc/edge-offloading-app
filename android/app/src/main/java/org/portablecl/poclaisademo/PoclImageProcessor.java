@@ -337,7 +337,7 @@ public class PoclImageProcessor {
      * This method makes sure to start and destroy needed opencl objects.
      * This method also makes sure to queue an image capture for the next iteration.
      */
-    private void imageProcessLoop() {
+    private void imageProcessLoop(String serviceName) {
 
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started image process loop");
@@ -377,7 +377,7 @@ public class PoclImageProcessor {
             AssetManager assetManager = context.getAssets();
             int status = initPoclImageProcessorV2(configFlags, assetManager,
                     captureSize.getWidth(),
-                    captureSize.getHeight(), nativeFd, this.pipelineLanes);
+                    captureSize.getHeight(), nativeFd, this.pipelineLanes, serviceName);
 
             if (-33 == status) {
                 if (null != activity) {
@@ -627,7 +627,7 @@ public class PoclImageProcessor {
 
         imageSubmitThread = new Thread() {
             public void run() {
-                imageProcessLoop();
+                imageProcessLoop(null);
             }
         };
 
@@ -635,6 +635,20 @@ public class PoclImageProcessor {
 
     }
 
+    public void start(String serviceName) {
+        if (DEBUGEXECUTION) {
+            Log.println(Log.INFO, "EXECUTIONFLOW", "started startImageProcessThread method");
+        }
+
+        imageSubmitThread = new Thread() {
+            public void run() {
+                imageProcessLoop(serviceName);
+            }
+        };
+
+        imageSubmitThread.start();
+
+    }
     /**
      * function to safely stop the image process thread and
      * ask it nicely to stop anything it is doing
