@@ -860,7 +860,11 @@ public class MainActivity extends AppCompatActivity {
                         "bandwidth: ∇ %s | ∆ %s\n" +
                         "ping: %5.1fms AVG: %5.1fms | IoU: %6.4f\n";
 
-                float fps = counter.getEMAFPS();
+                float fps = counter.getEMAFPSTimespan();
+                // fallback to the emafps for lower values since it captures it better
+                if (fps < 3) {
+                    fps = counter.getEMAFPS();
+                }
                 float avgfps = counter.getAverageFPS();
                 float eps = -energyMonitor.getEMAEPS();
                 float avgeps = -energyMonitor.getAverageEPS();

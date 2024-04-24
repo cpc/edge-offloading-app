@@ -19,6 +19,11 @@ public class FPSCounter {
      */
     private float ema_fps;
 
+    long timespanPrevFrameTime;
+    long timespanFrameCount;
+
+    float timespanEmaFps;
+
     /**
      * the smoothing factor determines how receptive the
      * ema_fps is to change. closer to 1 means very receptive.
@@ -38,6 +43,10 @@ public class FPSCounter {
         frameTime = 0;
         previousFrameTime = 0;
         ema_fps = 0;
+
+        timespanPrevFrameTime = 0;
+        timespanFrameCount = 0;
+        timespanEmaFps = 0;
     }
 
     /**
@@ -49,6 +58,10 @@ public class FPSCounter {
         frameTime = 0;
         previousFrameTime = 0;
         ema_fps = 0;
+
+        timespanPrevFrameTime = 0;
+        timespanFrameCount = 0;
+        timespanEmaFps = 0;
     }
 
     /**
@@ -95,6 +108,34 @@ public class FPSCounter {
      */
     public float getEMAFPS() {
         return ema_fps;
+    }
+
+    /**
+     * return the exponential moving average fps over the timespan
+     * this function was last called
+     *
+     * @return
+     */
+    public float getEMAFPSTimespan() {
+
+        long curTime = System.nanoTime();
+        if (timespanPrevFrameTime == 0) {
+            timespanPrevFrameTime = curTime;
+            timespanFrameCount = frameCount;
+            return 0;
+        }
+
+        long frameTime = curTime - timespanPrevFrameTime;
+        timespanPrevFrameTime = curTime;
+
+        long curFrameCount = frameCount;
+        long framediff = curFrameCount - timespanFrameCount;
+        timespanFrameCount = curFrameCount;
+
+        float fps = (framediff / (frameTime / timePrecision));
+        timespanEmaFps = timespanEmaFps + smoothingFactor * (fps - timespanEmaFps);
+
+        return timespanEmaFps;
     }
 
     /**
