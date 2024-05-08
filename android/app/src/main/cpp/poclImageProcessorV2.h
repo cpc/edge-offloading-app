@@ -118,7 +118,8 @@ typedef struct {
 int
 create_pocl_image_processor_context(pocl_image_processor_context **ctx, const int max_lanes,
                                     const int width, const int height, const int config_flags,
-                                    const char *codec_sources, const size_t src_size, int fd, char* service_name);
+                                    const char *codec_sources, const size_t src_size, int fd,
+                                    char *service_name);
 
 int
 dequeue_spot(pocl_image_processor_context *const ctx, const int timeout,

@@ -461,6 +461,7 @@ public class StartupActivity extends AppCompatActivity {
     private Switch qualityAlgorithmSwitch;
 
     private Switch modeSwitch;
+    DiscoverySelect DSSelect;
 
     /**
      * function to create a csv log file
@@ -513,7 +514,7 @@ public class StartupActivity extends AppCompatActivity {
                 return;
             }
 
-            if (!value.contains(":") && value.length()!=0){
+            if (!value.contains(":") && value.length() != 0) {
                 value = value + ":10998";
             }
 
@@ -560,8 +561,6 @@ public class StartupActivity extends AppCompatActivity {
         }
     };
 
-
-    Discovery DS;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -642,6 +641,7 @@ public class StartupActivity extends AppCompatActivity {
             qualityAlgorithmSwitch.performClick();
         }
 
+
         targetFPS = configStore.getTargetFPS();
         DropEditText targetFPSField = binding.targetFPS;
         targetFPSField.setText(Integer.toString(targetFPS));
@@ -654,25 +654,27 @@ public class StartupActivity extends AppCompatActivity {
         pipelineLanesField.setOnEditorActionListener(loseFocusListener);
         pipelineLanesField.setOnFocusChangeListener(pipelineFocusListener);
 
-        DS = new Discovery(this);
         Spinner discoverySpinner = binding.discoverySpinner;
-        DS.initDiscovery(discoverySpinner, new AdapterView.OnItemSelectedListener() {
+        // Create a listener callback for the spinner object to use the selected server from the
+        // list.
+        //  The callback is passed to an instance of DiscoverSelect class: DSSelect.
+        DSSelect = new DiscoverySelect(this, discoverySpinner,
+                new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
 
-                String selectedServer = DS.spinnerList.get(position);
-                if(!selectedServer.equals(DS.DEFAULT_SPINNER_VAL)){
-                    Log.d("DISC","Spinner position selected: " + position + " : server selected : " + selectedServer);
-                    IPAddressView.setText(DS.spinnerList.get(position));
+                String selectedServer = DSSelect.spinnerList.get(position).getAddress();
+                if (!selectedServer.equals(DiscoverySelect.DEFAULT_SPINNER_VAL)) {
+                    Log.d("DISC", "Spinner position selected: " + position + " : server selected " +
+                            ": " + selectedServer);
+                    IPAddressView.setText(DSSelect.spinnerList.get(position).getAddress());
                 }
-
             }
+
             @Override
             public void onNothingSelected(AdapterView<?> parent) {
-
             }
         });
-
     }
 
     /**
@@ -705,7 +707,7 @@ public class StartupActivity extends AppCompatActivity {
     }
 
     private boolean validateInput(String value) {
-        // check that the input is ipv4
+        // check that the input is ipv4. ip with and without port is accepted
         boolean numeric = true;
         for (int i = 0; i < value.length(); i++) {
             char curChar = value.charAt(i);
@@ -726,7 +728,7 @@ public class StartupActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        DS.stopDiscovery();
+        DSSelect.stopDiscovery();
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started StartupActivity onDestroy method");
         }

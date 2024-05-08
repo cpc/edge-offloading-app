@@ -241,8 +241,6 @@ public class MainActivity extends AppCompatActivity {
 
     private static PoclImageProcessor poclImageProcessor;
 
-//    private static Discovery discoveryService;
-
     private static Switch compressionSwitch;
 
     /**
@@ -289,7 +287,7 @@ public class MainActivity extends AppCompatActivity {
     private Switch softwareHEVCSwitch;
 
     private StatLogger statLogger;
-    private Discovery DS;
+    private DiscoverySelect DSSelect;
 
     /**
      * see https://developer.android.com/guide/components/activities/activity-lifecycle
@@ -383,13 +381,13 @@ public class MainActivity extends AppCompatActivity {
         YUVSwitch = binding.YUVSwitch;
         YUVSwitch.setOnClickListener(SetCompressListener);
         // disable switch if compression is not available
-        if(0==(YUV_COMPRESSION & configFlags)) {
+        if (0 == (YUV_COMPRESSION & configFlags)) {
             YUVSwitch.setClickable(false);
         }
 
         JPEGSwitch = binding.JPEGSwitch;
         JPEGSwitch.setOnClickListener(SetCompressListener);
-        if(0==(JPEG_COMPRESSION & configFlags)) {
+        if (0 == (JPEG_COMPRESSION & configFlags)) {
             JPEGSwitch.setClickable(false);
         }
 
@@ -420,7 +418,6 @@ public class MainActivity extends AppCompatActivity {
         Context context = getApplicationContext();
         energyMonitor = new EnergyMonitor(context);
         trafficMonitor = new TrafficMonitor();
-        pingMonitor = new PingMonitor(IPAddress);
         statLogger = new StatLogger(null,
                 trafficMonitor, energyMonitor, pingMonitor);
 
@@ -428,55 +425,65 @@ public class MainActivity extends AppCompatActivity {
         statUpdateScheduler = Executors.newScheduledThreadPool(2);
 
         setNativeEnv("POCL_DISCOVERY", "0");
-        DS = new Discovery(this);
         Spinner discoverySpinner = binding.discoverySpinner;
         final boolean[] once = {true};
-        DS.initDiscovery(discoverySpinner, new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                String selectedServer = Discovery.spinnerList.get(position);
-                if(!selectedServer.equals(Discovery.DEFAULT_SPINNER_VAL)){
-                    modeSwitch.setClickable(true);
-                    Log.d("DISC","Spinner position selected: " + position + " : server selected : " + selectedServer);
-                    Discovery.serviceInfo temp = Discovery.serviceMap.get(selectedServer);
-                    if(selectedServer.contains(IPAddress) && once[0]){
-                        temp.reconnect = true;
-                        once[0] =false;
-                    }
-                    poclImageProcessor.stop();
-                    Discovery.addDevice(selectedServer + "/0", (temp.reconnect ? 1:0) );
-                    Discovery.addDevice(selectedServer + "/1", (temp.reconnect ? 1:0) );
-                    temp.reconnect = true;
-                    poclImageProcessor.start(temp.name);
-                }
-                else{
-                    if(modeSwitch.isChecked()){
-                        modeSwitch.performClick();
-                    }
-                }
-            }
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-                if(IPAddress != null) {
-                    modeSwitch.setClickable(true);
-                }
-                else{
-                    modeSwitch.setClickable(false);
-                }
+        DSSelect = new DiscoverySelect(this, discoverySpinner,
+                new AdapterView.OnItemSelectedListener() {
+                    @Override
+                    public void onItemSelected(AdapterView<?> parent, View view, int position,
+                                               long id) {
+                        String selectedServer = DSSelect.spinnerList.get(position).getAddress();
+                        if (DSSelect.serviceMap.containsKey(IPAddress) && once[0]) {
+                            DSSelect.serviceMap.get(IPAddress).reconnect = true;
 
-            }
-        });
+                            for (DiscoverySelect.spinnerObject value : DSSelect.spinnerList) {
+                                if (value.address.equals(IPAddress)) {
+                                    pingMonitor = value.pingMonitor;
+                                }
+                            }
+                            once[0] = false;
+                        }
+                        if (!selectedServer.equals(DiscoverySelect.DEFAULT_SPINNER_VAL)) {
+                            modeSwitch.setClickable(true);
+                            Log.d("DISC", "Spinner position selected: " + position + " : server " +
+                                    "selected " +
+                                    ": " + selectedServer);
+                            DiscoverySelect.serviceInfo temp =
+                                    DSSelect.serviceMap.get(selectedServer);
+                            Log.d("DISC", "Reconnect status: " + temp.reconnect);
+                            poclImageProcessor.stop();
+                            Discovery.addDevice(selectedServer + "/0", (temp.reconnect ? 1 : 0));
+                            Discovery.addDevice(selectedServer + "/1", (temp.reconnect ? 1 : 0));
+                            temp.reconnect = true;
+                            poclImageProcessor.start(temp.name);
+                            pingMonitor = DSSelect.spinnerList.get(position).pingMonitor;
+                        } else {
+                            if (modeSwitch.isChecked()) {
+                                modeSwitch.performClick();
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void onNothingSelected(AdapterView<?> parent) {
+                        if (IPAddress != null) {
+                            modeSwitch.setClickable(true);
+                        } else {
+                            modeSwitch.setClickable(false);
+                        }
+
+                    }
+                });
 
         if (disableRemote) {
             // disable this switch when remote is disabled
             modeSwitch.setClickable(false);
             setNativeEnv("POCL_DEVICES", "pthread");
         } else {
-            if(IPAddress==null || IPAddress.isEmpty()){
+            if (IPAddress == null || IPAddress.isEmpty()) {
                 setNativeEnv("POCL_DEVICES", "pthread proxy");
                 modeSwitch.setClickable(false);
-            }
-            else{
+            } else {
                 modeSwitch.setClickable(true);
                 setNativeEnv("POCL_DEVICES", "pthread proxy remote remote");
                 setNativeEnv("POCL_REMOTE0_PARAMETERS", IPAddress + "/0");
@@ -684,20 +691,13 @@ public class MainActivity extends AppCompatActivity {
                         Toast.LENGTH_SHORT).show();
                 // local compression is not an option,
                 // so make sure to turn it off
-                if(compressionSwitch.isChecked()) {
+                if (compressionSwitch.isChecked()) {
                     compressionSwitch.performClick();
                 }
                 poclImageProcessor.setInferencingDevice(LOCAL_DEVICE);
             }
 
             resetMonitors();
-
-            if (disableRemote) {
-                pingMonitor.stop();
-            } else {
-                pingMonitor.start();
-            }
-            pingMonitor.reset();
         }
     };
 
@@ -730,19 +730,19 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onClick(View v) {
 
-            if( HEVCSwitch == v) {
+            if (HEVCSwitch == v) {
                 poclImageProcessor.setCompressionType(HEVC_COMPRESSION);
-            }else {
+            } else {
                 HEVCSwitch.setChecked(false);
             }
 
-            if( JPEGSwitch == v) {
+            if (JPEGSwitch == v) {
                 poclImageProcessor.setCompressionType(JPEG_COMPRESSION);
-            }else {
+            } else {
                 JPEGSwitch.setChecked(false);
             }
 
-            if( YUVSwitch == v) {
+            if (YUVSwitch == v) {
                 poclImageProcessor.setCompressionType(YUV_COMPRESSION);
             } else {
                 YUVSwitch.setChecked(false);
@@ -806,10 +806,6 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
 
-        if(Discovery.serviceMap !=null && Discovery.serviceMap.get(IPAddress)!=null){
-            Discovery.serviceMap.get(IPAddress).reconnect = true;
-        }
-
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started onResume method");
         }
@@ -817,11 +813,6 @@ public class MainActivity extends AppCompatActivity {
         startBackgroundThreads();
 
         resetMonitors();
-
-        if (!disableRemote) {
-            pingMonitor.start();
-        }
-        pingMonitor.reset();
 
         // schedule the metrics to update every second
         statUpdateFuture = statUpdateScheduler.scheduleAtFixedRate(statUpdater, 1, 1,
@@ -911,7 +902,6 @@ public class MainActivity extends AppCompatActivity {
 
                 energyMonitor.tick();
                 trafficMonitor.tick();
-                pingMonitor.tick();
                 String formatString = "FPS: %3.1f (%4.0fms) AVG: %3.1f (%4.0fms)\n" +
                         "pow: %02.2f (%02.2f) W | EPF: %02.2f (%02.2f) J\n" +
                         new String(Character.toChars(0x1F50B)) + "time left:%3dm:%2ds |avg " +
@@ -958,8 +948,10 @@ public class MainActivity extends AppCompatActivity {
                         remainingMinutes, remainingSeconds, emaLatency,
                         trafficMonitor.getRXBandwidthString(),
                         trafficMonitor.getTXBandwidthString(),
-                        ping,
-                        ping_avg,
+                        (modeSwitch.isChecked() && pingMonitor != null) ?
+                                pingMonitor.getPing() : 0,
+                        (modeSwitch.isChecked() && pingMonitor != null) ?
+                                pingMonitor.getAveragePing() : 0,
                         iou
                 );
 
@@ -1068,8 +1060,6 @@ public class MainActivity extends AppCompatActivity {
             statLoggerFuture = null;
         }
 
-        pingMonitor.stop();
-
         // imageprocessthread depends on camera and background threads, so close this first
         poclImageProcessor.stop();
         closeCamera();
@@ -1087,7 +1077,7 @@ public class MainActivity extends AppCompatActivity {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started onDestroy method");
         }
 
-        DS.stopDiscovery();
+        DSSelect.stopDiscovery();
 
         // restart the app if the main activity is closed
         Context applicationContext = getApplicationContext();

@@ -323,6 +323,11 @@ init_eval_ctx(eval_pipeline_context_t *const ctx, int width, int height, cl_cont
     return CL_SUCCESS;
 }
 
+/*
+ * pick_device retrieves all available devices in the platform and returns array of 4 devices
+ * containing 2 local devices and 2 remote devices. The remote devices are selected by comparing
+ * service_name with the name gotten through clGetDeviceInfo().
+ */
 cl_int
 pick_device(cl_platform_id platform, cl_device_id *devices, cl_uint *devices_found,
             char *service_name) {
@@ -332,7 +337,7 @@ pick_device(cl_platform_id platform, cl_device_id *devices, cl_uint *devices_fou
     char result_array[256];
 
     status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, 0, NULL, &device_num);
-    LOGI("JNI DISCOVERY DEVICE: %d", device_num);
+    LOGI("JNI DISCOVERY NUM OF DEVICES: %d", device_num);
     all_devices = (cl_device_id *) malloc(device_num * sizeof(cl_device_id));
     status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, device_num, all_devices, NULL);
 
@@ -377,6 +382,7 @@ pick_device(cl_platform_id platform, cl_device_id *devices, cl_uint *devices_fou
  * @param codec_sources
  * @param src_size
  * @param fd filedescriptor of the file where profiling data is written to
+ * @param service_name name of the selected remote server
  * @return
  */
 int
@@ -869,7 +875,7 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config, ima
     // check if we need to run the eval kernels
     timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    if (compare_timespec(&ts, &(ctx->eval_ctx.next_eval_ts)) > 0 &&
+    if (ctx->devices_found > 2 && compare_timespec(&ts, &(ctx->eval_ctx.next_eval_ts)) > 0 &&
         REMOTE_DEVICE == codec_config.device_type) {
         codec_config_t eval_config = {NO_COMPRESSION, codec_config.device_type,
                                       codec_config.rotation, codec_config.do_segment, NULL};

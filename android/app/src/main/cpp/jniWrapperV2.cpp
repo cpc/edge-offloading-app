@@ -62,7 +62,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(
     char *codec_sources = read_file(env, j_asset_manager, "kernels/copy.cl", &src_size);
 
     char *_service_name = NULL;
-    if(service_name != NULL)
+    if (service_name != NULL)
         _service_name = (char *) env->GetStringUTFChars(service_name, 0);
 
     jint status = create_pocl_image_processor_context(&ctx, max_lanes, width,
@@ -73,7 +73,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(
 
     init_codec_select(&state);
 
-    if(service_name != NULL)
+    if (service_name != NULL)
         env->ReleaseStringUTFChars(service_name, _service_name);
     return status;
 

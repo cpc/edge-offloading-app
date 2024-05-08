@@ -84,7 +84,9 @@ public class PingMonitor {
             pingReader = new BufferedReader(new InputStreamReader(pingProcess.getInputStream()));
 
             // the first line is not relevant
-            pingReader.readLine();
+            if (pingReader.ready()) {
+                pingReader.readLine();
+            }
         } catch (IOException e) {
             Log.println(Log.WARN, "pingmonitor", "error while trying to start pingMonitor");
             e.printStackTrace();
@@ -133,7 +135,7 @@ public class PingMonitor {
     public void tick() {
         try {
             String pingLine;
-            while (pingReader.ready()) {
+            while (pingReader != null && pingReader.ready()) {
 
                 pingLine = pingReader.readLine();
                 if (null == pingLine) {
