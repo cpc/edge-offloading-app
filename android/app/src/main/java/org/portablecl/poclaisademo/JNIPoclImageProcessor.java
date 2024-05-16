@@ -75,7 +75,7 @@ public class JNIPoclImageProcessor {
     public static native int waitImageAvailable(int timeout);
 
     public static native int receiveImage(int[] detectionResult, byte[] segmentationResult,
-                                          int[] do_segment_array,
+                                          long[] dataExchangeArray,
                                           float energy);
 
     public static native String getProfilingStats();

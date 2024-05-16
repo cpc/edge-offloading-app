@@ -24,6 +24,10 @@ public class FPSCounter {
 
     float timespanEmaFps;
 
+    float emaLatency;
+
+    private final static float latencySmoothingFactor = 2f / 16f;
+
     /**
      * the smoothing factor determines how receptive the
      * ema_fps is to change. closer to 1 means very receptive.
@@ -62,24 +66,28 @@ public class FPSCounter {
         timespanPrevFrameTime = 0;
         timespanFrameCount = 0;
         timespanEmaFps = 0;
+
+        emaLatency = 0;
     }
 
     /**
      * measures times between being called to calculate FPS.
      * Should be called after every frame has been shown
      */
-    public void tickFrame() {
+    public void tickFrame(long frame_latency) {
         long currentTime = System.nanoTime();
 
         if (previousFrameTime == 0) {
             previousFrameTime = currentTime;
-
+            emaLatency = frame_latency;
             return;
         }
 
         frameTime = currentTime - previousFrameTime;
 
         ema_fps = ema_fps + smoothingFactor * ((timePrecision / frameTime) - ema_fps);
+
+        emaLatency = emaLatency + latencySmoothingFactor * ((float) frame_latency - emaLatency);
 
         totalTime += frameTime;
         frameCount += 1;
@@ -136,6 +144,10 @@ public class FPSCounter {
         timespanEmaFps = timespanEmaFps + smoothingFactor * (fps - timespanEmaFps);
 
         return timespanEmaFps;
+    }
+
+    public float getEmaLatency() {
+        return emaLatency;
     }
 
     /**

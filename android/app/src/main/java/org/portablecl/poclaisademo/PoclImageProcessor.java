@@ -524,7 +524,11 @@ public class PoclImageProcessor {
 
         int[] detection_results = new int[detection_count];
         byte[] segmentation_results = new byte[seg_postprocess_count];
-        int[] do_segment = {0};
+        // a trick to have pointer like functionality.
+        // different indexes point to different values:
+        // index 0: do segment
+        // 1: latency
+        long[] dataExchange = {0, 0};
         float energy = 0;
 
         while (!Thread.interrupted()) {
@@ -543,12 +547,12 @@ public class PoclImageProcessor {
             }
 
             energy = statLogger.getCurrentEnergy();
-            receiveImage(detection_results, segmentation_results, do_segment, energy);
+            receiveImage(detection_results, segmentation_results, dataExchange, energy);
 
             this.lastIou = poclGetLastIouV2();
 
             if (null != activity) {
-                activity.drawOverlay(do_segment[0], detection_results, segmentation_results,
+                activity.drawOverlay((int) dataExchange[0], detection_results, segmentation_results,
                         captureSize, orientationsSwapped);
 
                 // update the buttons
@@ -559,7 +563,7 @@ public class PoclImageProcessor {
 
             // used to calculate the (avg) FPS
             if (null != counter) {
-                counter.tickFrame();
+                counter.tickFrame(dataExchange[1]);
             }
 
         }

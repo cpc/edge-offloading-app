@@ -2,7 +2,6 @@ package org.portablecl.poclaisademo;
 
 
 import static android.hardware.camera2.CameraMetadata.LENS_FACING_BACK;
-import static android.hardware.camera2.CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE;
 import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
 import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
@@ -47,7 +46,6 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
-import android.util.Range;
 import android.util.Size;
 import android.view.KeyEvent;
 import android.view.Surface;
@@ -854,9 +852,10 @@ public class MainActivity extends AppCompatActivity {
 
                 energyMonitor.tick();
                 trafficMonitor.tick();
-                String formatString = "FPS: %3.1f (%4.0fms)  AVG: %3.1f (%4.0fms)\n" +
+                String formatString = "FPS: %3.1f (%4.0fms) AVG: %3.1f (%4.0fms)\n" +
                         "pow: %02.2f (%02.2f) W | EPF: %02.2f (%02.2f) J\n" +
-                        new String(Character.toChars(0x1F50B)) + " remaining time: %4dm:%2ds\n" +
+                        new String(Character.toChars(0x1F50B)) + "time left:%3dm:%2ds |avg " +
+                        "latency:%4.0f ms\n" +
                         "bandwidth: ∇ %s | ∆ %s\n" +
                         "ping: %5.1fms AVG: %5.1fms | IoU: %6.4f\n";
 
@@ -876,12 +875,13 @@ public class MainActivity extends AppCompatActivity {
                 float epf = (0 != fps) ? eps / fps : 0;
                 float avgepf = (0 != avgfps) ? avgeps / avgfps : 0;
                 float iou = poclImageProcessor.getLastIou();
+                float emaLatency = counter.getEmaLatency() / 1000;
                 String statString = String.format(Locale.US, formatString,
                         fps, fpssecs,
                         avgfps, avgfpssecs,
                         eps, avgeps,
                         epf, avgepf,
-                        remainingMinutes, remainingSeconds,
+                        remainingMinutes, remainingSeconds, emaLatency,
                         trafficMonitor.getRXBandwidthString(),
                         trafficMonitor.getTXBandwidthString(),
                         (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) ?

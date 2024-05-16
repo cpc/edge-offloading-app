@@ -140,7 +140,7 @@ JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_receiveImage(JNIEnv *env, jclass clazz,
                                                                     jintArray detection_result,
                                                                     jbyteArray segmentation_result,
-                                                                    jintArray do_segment_array,
+                                                                    jlongArray metadataExchange,
                                                                     jfloat energy) {
 
     // todo: look into if iscopy=true works on android
@@ -148,18 +148,22 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_receiveImage(JNIEnv *env,
     // pocl returns segmentation result in uint8_t, but jbyte is int8_t
     uint8_t *segmentation_array = reinterpret_cast<uint8_t *>(env->GetByteArrayElements(
             segmentation_result, JNI_FALSE));
-    int32_t *do_segment = env->GetIntArrayElements(do_segment_array, JNI_FALSE);
+    int64_t *metadata_array = env->GetLongArrayElements(metadataExchange, JNI_FALSE);
 
     int status;
     // todo: process this metadata
     eval_metadata_t metadata;
-    status = receive_image(ctx, detection_array, segmentation_array, &metadata, do_segment);
+    status = receive_image(ctx, detection_array, segmentation_array, &metadata,
+                           (int32_t *) metadata_array);
+
+    // narrow down to micro seconds
+    metadata_array[1] = ((metadata.host_ts_ns.stop - metadata.host_ts_ns.start) / 1000);
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
     env->ReleaseByteArrayElements(segmentation_result,
                                   reinterpret_cast<jbyte *>(segmentation_array), JNI_FALSE);
-    env->ReleaseIntArrayElements(do_segment_array, do_segment, JNI_FALSE);
+    env->ReleaseLongArrayElements(metadataExchange, metadata_array, JNI_FALSE);
 
     return status;
 
