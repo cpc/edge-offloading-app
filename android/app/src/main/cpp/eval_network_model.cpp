@@ -130,10 +130,10 @@ void llewma_add_sample(float x, float y, network_model_data_t *data) {
     data->llewma.nsamples[CUR_CODEC_ID] += 1;
 
     data->llewma.mean_size_bytes[CUR_CODEC_ID] = ewma(x, data->llewma.mean_size_bytes[CUR_CODEC_ID],
-                                                      data->llewma.alpha_stable);
+                                                  data->llewma.alpha_stable);
 
     data->llewma.mean_rtt_ms[CUR_CODEC_ID] = ewma(y, data->llewma.mean_rtt_ms[CUR_CODEC_ID],
-                                                  data->llewma.alpha_agile);
+                                              data->llewma.alpha_agile);
 
     if (data->llewma.last_codec_id != CUR_CODEC_ID) {
         data->llewma.last_codec_id = CUR_CODEC_ID;

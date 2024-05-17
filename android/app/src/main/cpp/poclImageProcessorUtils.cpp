@@ -80,7 +80,7 @@ copy_yuv_to_arrayV2(const int width, const int height, const image_data_t image,
 
 void
 log_eval_metadata(const int file_descriptor, const int frame_index,
-                   const eval_metadata_t metadata) {
+                   const frame_metadata_t metadata) {
     dprintf(file_descriptor, "%d,frame,timestamp,%ld\n", frame_index,
             metadata.image_timestamp);
     dprintf(file_descriptor, "%d,frame,is_eval,%d\n", frame_index, metadata.is_eval_frame);

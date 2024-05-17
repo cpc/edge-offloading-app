@@ -16,7 +16,6 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.REMOTE_DEVICE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SOFTWARE_HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getButtonConfig;
 import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 
 import android.Manifest;
@@ -876,6 +875,16 @@ public class MainActivity extends AppCompatActivity {
                 float avgepf = (0 != avgfps) ? avgeps / avgfps : 0;
                 float iou = poclImageProcessor.getLastIou();
                 float emaLatency = counter.getEmaLatency() / 1000;
+
+                float ping = 0.0f;
+                float ping_avg = 0.0f;
+
+                // pingMonitor can be null because the pingreader is started when the mode switch is pressed
+                if (!pingMonitor.isReaderNull() && (REMOTE_DEVICE == poclImageProcessor.inferencingDevice)) {
+                    ping = pingMonitor.getPing();
+                    ping_avg = pingMonitor.getAveragePing();
+                }
+
                 String statString = String.format(Locale.US, formatString,
                         fps, fpssecs,
                         avgfps, avgfpssecs,
@@ -884,10 +893,8 @@ public class MainActivity extends AppCompatActivity {
                         remainingMinutes, remainingSeconds, emaLatency,
                         trafficMonitor.getRXBandwidthString(),
                         trafficMonitor.getTXBandwidthString(),
-                        (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) ?
-                                pingMonitor.getPing() : 0,
-                        (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) ?
-                                pingMonitor.getAveragePing() : 0,
+                        ping,
+                        ping_avg,
                         iou
                 );
 
@@ -912,38 +919,22 @@ public class MainActivity extends AppCompatActivity {
                 segmentationResults, captureSize, orientationsSwapped, overlayView));
     }
 
-    static class ButtonConfig {
-        private final int compressiontType;
-        private final int deviceIndex;
-        private final int configIndex;
-
-        public ButtonConfig(int compressiontType, int deviceIndex, int configIndex) {
-            this.compressiontType = compressiontType;
-            this.deviceIndex = deviceIndex;
-            this.configIndex = configIndex;
-        }
-    }
-
     /**
      * A function that changes the state of all buttons on the screen depending on the given
      * config
      */
-    public void setButtonsFromJNI() {
+    public void setButtonsFromJNI(CodecConfig config) {
 
         runOnUiThread(() -> {
-
-            // jni function to get values that the quality algorithm set
-            ButtonConfig config = getButtonConfig();
-
             // flip the right compression type switch
-            HEVCSwitch.setChecked(HEVC_COMPRESSION == config.compressiontType);
-            JPEGSwitch.setChecked(JPEG_COMPRESSION == config.compressiontType);
-            YUVSwitch.setChecked(YUV_COMPRESSION == config.compressiontType);
-            CamSwitch.setChecked(JPEG_IMAGE == config.compressiontType);
-            softwareHEVCSwitch.setChecked(SOFTWARE_HEVC_COMPRESSION == config.compressiontType);
+            HEVCSwitch.setChecked(HEVC_COMPRESSION == config.compressionType);
+            JPEGSwitch.setChecked(JPEG_COMPRESSION == config.compressionType);
+            YUVSwitch.setChecked(YUV_COMPRESSION == config.compressionType);
+            CamSwitch.setChecked(JPEG_IMAGE == config.compressionType);
+            softwareHEVCSwitch.setChecked(SOFTWARE_HEVC_COMPRESSION == config.compressionType);
 
             // flip the compression switch
-            if (NO_COMPRESSION == config.compressiontType) {
+            if (NO_COMPRESSION == config.compressionType) {
                 compressionSwitch.setChecked(false);
                 HEVCSwitch.setChecked(false);
                 YUVSwitch.setChecked(false);

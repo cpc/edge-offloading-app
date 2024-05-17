@@ -122,6 +122,10 @@ public class PingMonitor {
         ping = 0;
     }
 
+    public boolean isReaderNull() {
+        return this.pingReader == null;
+    }
+
     /**
      * function to flush the ping output and update the metrics.
      * gets called with getping and getaverageping

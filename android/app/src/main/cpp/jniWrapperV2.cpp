@@ -6,6 +6,7 @@
 #include <jni.h>
 #include "poclImageProcessor.h"
 #include "poclImageProcessorV2.h"
+#include "codec_select.h"
 #include "eval.h"
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +24,8 @@ extern "C" {
 #endif
 
 pocl_image_processor_context *ctx = NULL;
+selected_codec_t *selected_codec = NULL;
+frame_stats_t *frame_stats = NULL;
 
 
 JNIEXPORT jint JNICALL
@@ -45,6 +48,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(
                                                       fd);
 
     free(codec_sources);
+
+    init_codec_select(&selected_codec, &frame_stats);
+
     return status;
 
 }
@@ -53,6 +59,7 @@ JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessorV2(JNIEnv *env,
                                                                                    jclass clazz) {
 
+    destroy_codec_select(&selected_codec, &frame_stats);
     return destroy_pocl_image_processor_context(&ctx);
 }
 
@@ -63,10 +70,19 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclGetLastIouV2(JNIEnv *
 }
 
 JNIEXPORT jint JNICALL
+Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSelectCodecAuto(JNIEnv *env,
+                                                                           jclass clazz,
+                                                                           jint do_segment,
+                                                                           jint rotation) {
+    select_codec_auto(do_segment, rotation, frame_stats, selected_codec);
+    return 0;
+}
+
+JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv *env, jclass clazz,
                                                                           jint device_index,
                                                                           jint do_segment,
-                                                                          jint do_compression,
+                                                                          jint compression_type,
                                                                           jint quality,
                                                                           jint rotation,
                                                                           jint do_algorithm,
@@ -81,8 +97,6 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
                                                                           jint pixel_stride2,
                                                                           jlong image_timestamp) {
 
-
-    // TODO: implement poclSubmitYUVImage()
     image_data_t image_data;
     image_data.type = YUV_DATA_T;
     image_data.data.yuv.planes[0] = (uint8_t *) env->GetDirectBufferAddress(plane0);
@@ -95,28 +109,18 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
     image_data.data.yuv.row_strides[1] = row_stride1;
     image_data.data.yuv.row_strides[2] = row_stride2;
 
-    codec_config_t config;
-    config.rotation = rotation;
-    config.compression_type = (compression_t) do_compression;
-    config.device_type = (device_type_enum) device_index;
-    config.do_segment = do_segment;
-    if (HEVC_COMPRESSION == do_compression ||
-        SOFTWARE_HEVC_COMPRESSION == do_compression) {
-        const int framerate = 5;
-        config.config.hevc.framerate = framerate;
-        config.config.hevc.i_frame_interval = 2;
-        // heuristical map of the bitrate to quality parameter
-        // (640 * 480 * (3 / 2) * 8 / (1 / framerate)) * (quality / 100)
-        // equation can be simplied to equation below
-        config.config.hevc.bitrate = 36864 * framerate * quality;
-    } else if (JPEG_COMPRESSION == do_compression) {
-        config.config.jpeg.quality = quality;
+    int status;
+    // TODO: set eval
+    int is_eval_frame = 0;
+
+    if (!do_algorithm) {
+        select_codec_manual((device_type_enum) (device_index), do_segment,
+                            (compression_t) (compression_type),
+                            quality, rotation, selected_codec);
     }
 
-    int status;
-    // TODO: set eval and use do algorithm
-    int is_eval_frame = 0;
-    status = submit_image(ctx, config, image_data, is_eval_frame);
+    codec_config_t codec_config = get_codec_config(selected_codec);
+    status = submit_image(ctx, codec_config, image_data, is_eval_frame);
 
     return status;
 }
@@ -152,12 +156,17 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_receiveImage(JNIEnv *env,
 
     int status;
     // todo: process this metadata
-    eval_metadata_t metadata;
+    frame_metadata_t metadata;
     status = receive_image(ctx, detection_array, segmentation_array, &metadata,
                            (int32_t *) metadata_array);
 
     // narrow down to micro seconds
     metadata_array[1] = ((metadata.host_ts_ns.stop - metadata.host_ts_ns.start) / 1000);
+
+    if (status == CL_SUCCESS) {
+        // log statistics to codec selection data
+        update_stats(&metadata, frame_stats);
+    }
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
@@ -169,27 +178,28 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_receiveImage(JNIEnv *env,
 
 }
 
-///**
-// * Function to return what the quality algorithm decided on.
-// * @param env
-// * @param clazz
-// * @return ButtonConfig that returns relevant config values
-// */
-//JNIEXPORT jobject JNICALL
-//Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getButtonConfig(JNIEnv *env, jclass clazz) {
-//
-//    jclass button_config_class = env->FindClass(
-//            "org/portablecl/poclaisademo/MainActivity$ButtonConfig");
-//    assert(nullptr != button_config_class);
-//
-//    jmethodID button_config_constructor = env->GetMethodID(button_config_class, "<init>", "(III)V");
-//    assert(nullptr != button_config_constructor);
-//
-//    return env->NewObject(button_config_class, button_config_constructor,
-//                          (jint) config.compression_type, (jint) config.device_type,
-//                          (jint) CUR_CODEC_ID);
-//}
+/**
+ * Function to return what the quality algorithm decided on.
+ * @param env
+ * @param clazz
+ * @return ButtonConfig that returns relevant config values
+ */
+JNIEXPORT jobject JNICALL
+Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getCodecConfig(JNIEnv *env, jclass clazz) {
+    jclass button_config_class = env->FindClass(
+            "org/portablecl/poclaisademo/CodecConfig");
+    assert(nullptr != button_config_class);
 
+    jmethodID button_config_constructor = env->GetMethodID(button_config_class, "<init>", "(III)V");
+    assert(nullptr != button_config_constructor);
+
+    codec_config_t config = get_codec_config(selected_codec);
+    int codec_id = get_codec_id(selected_codec);
+
+    return env->NewObject(button_config_class, button_config_constructor,
+                          (jint) config.compression_type, (jint) config.device_type,
+                          (jint) codec_id);
+}
 
 #ifdef __cplusplus
 }

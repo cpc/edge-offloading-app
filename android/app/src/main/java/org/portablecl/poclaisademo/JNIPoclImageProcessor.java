@@ -9,23 +9,20 @@ import android.content.res.AssetManager;
 import java.nio.ByteBuffer;
 
 public class JNIPoclImageProcessor {
+    // The below constants must match those in poclImageProcessorTypes.h:
 
     public final static int NO_COMPRESSION = 1;
     public final static int YUV_COMPRESSION = 2;
     public final static int JPEG_COMPRESSION = 4;
-
     public final static int JPEG_IMAGE = (1 << 3);
-
     public final static int HEVC_COMPRESSION = (1 << 4);
-
     public final static int SOFTWARE_HEVC_COMPRESSION = (1 << 5);
-
     public final static int ENABLE_PROFILING = (1 << 8);
 
     public final static int LOCAL_DEVICE = 0;
-
     public final static int PASSTHRU_DEVICE = 1;
     public final static int REMOTE_DEVICE = 2;
+    public final static int REMOTE_DEVICE_2 = 3;
 
     public static native int initPoclImageProcessor(int configFlags,
                                                     AssetManager jAssetManager,
@@ -35,7 +32,8 @@ public class JNIPoclImageProcessor {
 
     public static native float poclGetLastIou();
 
-    public static native int poclProcessYUVImage(int deviceIndex, int doSegment, int doCompression,
+    public static native int poclProcessYUVImage(int deviceIndex, int doSegment,
+                                                 int compressionType,
                                                  int quality, int rotation, int doAlgorithm,
                                                  int[] detectionResult,
                                                  byte[] segmentationResult,
@@ -62,7 +60,9 @@ public class JNIPoclImageProcessor {
 
     public static native int dequeue_spot(int timeout, int dev_type);
 
-    public static native int poclSubmitYUVImage(int deviceIndex, int doSegment, int doCompression,
+    public static native int poclSelectCodecAuto(int doSegment, int rotation);
+
+    public static native int poclSubmitYUVImage(int deviceIndex, int doSegment, int compressionType,
                                                 int quality, int rotation, int doAlgorithm,
                                                 ByteBuffer plane0, int rowStride0,
                                                 int pixelStride0,
@@ -86,6 +86,6 @@ public class JNIPoclImageProcessor {
 
     public static native TrafficMonitor.DataPoint getRemoteTrafficStats();
 
-    public static native MainActivity.ButtonConfig getButtonConfig();
+    public static native CodecConfig getCodecConfig();
 
 }

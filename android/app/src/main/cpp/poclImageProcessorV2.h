@@ -84,7 +84,7 @@ typedef struct {
 
 typedef struct {
     // unless mentioned, these arrays act like loop buffers
-    eval_metadata_t *metadata_array; // metadata on images used for
+    frame_metadata_t *metadata_array; // metadata on images used for
     pipeline_context *pipeline_array; // collection of pipelines that can run independently from each other
     dnn_results *collected_results; // buffer with processed image results returned with receive_image
     // TODO: add mutex to index head and tail
@@ -105,7 +105,6 @@ typedef struct {
     int devices_found; // used to keep track of how many devices there are
 
     eval_pipeline_context_t eval_ctx; // used to run the eval pipeline
-
 } pocl_image_processor_context;
 
 int
@@ -114,7 +113,8 @@ create_pocl_image_processor_context(pocl_image_processor_context **ctx, const in
                                     const char *codec_sources, const size_t src_size, int fd);
 
 int
-dequeue_spot(pocl_image_processor_context *const ctx, const int timeout, const device_type_enum dev_type);
+dequeue_spot(pocl_image_processor_context *const ctx, const int timeout,
+             const device_type_enum dev_type);
 
 int
 submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
@@ -126,7 +126,7 @@ wait_image_available(pocl_image_processor_context *ctx, int timeout);
 int
 receive_image(pocl_image_processor_context *ctx, int32_t *detection_array,
               uint8_t *segmentation_array,
-              eval_metadata_t *eval_metadata, int *segmentation);
+              frame_metadata_t *eval_metadata, int *segmentation);
 
 int
 destroy_pocl_image_processor_context(pocl_image_processor_context **ctx);

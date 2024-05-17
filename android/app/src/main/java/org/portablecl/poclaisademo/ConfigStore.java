@@ -121,7 +121,7 @@ public class ConfigStore {
         return preferences.getBoolean(qualityAlgorithmKey, false);
     }
 
-    public void setQualityAlgorithmOtion(boolean value) {
+    public void setQualityAlgorithmOption(boolean value) {
         if (VERBOSITY >= 2) {
             Log.println(Log.INFO, logTag, String.format("setting quality algorithm option to: %b"
                     , value));

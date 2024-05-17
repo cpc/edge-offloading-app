@@ -30,7 +30,7 @@ typedef enum {
     PASSTHRU_DEVICE = 1,
     REMOTE_DEVICE = 2,
     REMOTE_DEVICE_2 = 3,
-}device_type_enum;
+} device_type_enum;
 
 enum {
     ENABLE_PROFILING = (1 << 8)
@@ -145,7 +145,7 @@ typedef struct {
     long image_timestamp;
     int is_eval_frame;
     codec_config_t codec;
-} eval_metadata_t;
+} frame_metadata_t;
 
 #ifdef __cplusplus
 }

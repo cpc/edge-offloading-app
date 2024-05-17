@@ -329,7 +329,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     ctx->frame_index_tail = 0;
     ctx->file_descriptor = fd;
     ctx->lane_count = max_lanes;
-    ctx->metadata_array = (eval_metadata_t *) calloc(max_lanes, sizeof(eval_metadata_t));
+    ctx->metadata_array = (frame_metadata_t *) calloc(max_lanes, sizeof(frame_metadata_t));
     if (sem_init(&ctx->pipe_sem, 0, max_lanes) == -1) {
         LOGE("could not init semaphore\n");
         return -1;
@@ -342,7 +342,6 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         LOGE("could not init semaphore\n");
         return -1;
     }
-
 
     cl_platform_id platform;
     cl_context context;
@@ -369,7 +368,8 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         LOGI("device %d: CL_DEVICE_VERSION: %s\n", i, result_array);
         clGetDeviceInfo(devices[i], CL_DRIVER_VERSION, 1024 * sizeof(char), result_array, NULL);
         LOGI("device %d: CL_DRIVER_VERSION: %s\n", i, result_array);
-        clGetDeviceInfo(devices[i], CL_DEVICE_BUILT_IN_KERNELS, 1024 * sizeof(char), result_array, NULL);
+        clGetDeviceInfo(devices[i], CL_DEVICE_BUILT_IN_KERNELS, 1024 * sizeof(char), result_array,
+                        NULL);
         LOGI("device %d: CL_DRIVER_BUILT_IN_KERNELS: %s\n", i, result_array);
     }
 
@@ -385,7 +385,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         ctx->tracy_ctxs[i] = TracyCLContext(context, devices[i]);
     }
 #else
-    ctx->tracy_ctxs= NULL;
+    ctx->tracy_ctxs = NULL;
 #endif
 
     // create the pipelines
@@ -419,7 +419,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
 #ifdef TRACY_ENABLE
         TracyCLCtx * tracy_ctx = &(ctx->tracy_ctxs[REMOTE_DEVICE]);
 #else
-        TracyCLCtx * tracy_ctx = NULL;
+        TracyCLCtx *tracy_ctx = NULL;
 #endif
         init_eval_ctx(&(ctx->eval_ctx), width, height, context, &(devices[REMOTE_DEVICE]),
                       tracy_ctx);
@@ -520,7 +520,8 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr) {
  * @return 0 if successful otherwise -1
  */
 int
-dequeue_spot(pocl_image_processor_context *const ctx, const int timeout, const device_type_enum dev_type) {
+dequeue_spot(pocl_image_processor_context *const ctx, const int timeout,
+             const device_type_enum dev_type) {
     ZoneScoped;
     FrameMark;
 
@@ -529,15 +530,15 @@ dequeue_spot(pocl_image_processor_context *const ctx, const int timeout, const d
         return -1;
     }
 
-    add_ns_to_time(&ts, (long)timeout * 1000000);
+    add_ns_to_time(&ts, (long) timeout * 1000000);
 
     int ret;
 
-    if(LOCAL_DEVICE == dev_type) {
+    if (LOCAL_DEVICE == dev_type) {
         while ((ret = sem_timedwait(&(ctx->local_sem), &ts)) == -1 && errno == EINTR) {
             // continue if interrupted for any reason
         }
-        if(ret != 0) {
+        if (ret != 0) {
             return ret;
         }
     }
@@ -548,7 +549,7 @@ dequeue_spot(pocl_image_processor_context *const ctx, const int timeout, const d
 
     // the local pipe succeeded, but the global didn't,
     // so give local one back
-    if(LOCAL_DEVICE == dev_type && ret != 0) {
+    if (LOCAL_DEVICE == dev_type && ret != 0) {
         sem_post(&(ctx->local_sem));
     }
 
@@ -576,7 +577,7 @@ dequeue_spot(pocl_image_processor_context *const ctx, const int timeout, const d
  */
 cl_int
 submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
-                         const image_data_t image_data, eval_metadata_t *metadata,
+                         const image_data_t image_data, frame_metadata_t *metadata,
                          const int file_descriptor, dnn_results *output) {
     ZoneScoped;
 
@@ -753,10 +754,9 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
  * @return opencl status
  */
 int
-submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
-             image_data_t image_data, int is_eval_frame) {
-  // this function should be called when dequeue_spot acquired a semaphore,
-  ZoneScoped;
+submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config, image_data_t image_data, int is_eval_frame) {
+    // this function should be called when dequeue_spot acquired a semaphore,
+    ZoneScoped;
 
     int index = ctx->frame_index_head % ctx->lane_count;
     ctx->frame_index_head += 1;
@@ -767,7 +767,7 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     LOGI("submit_image index: %d\n", index);
 
     // store metadata
-    eval_metadata_t *image_metadata = &(ctx->metadata_array[index]);
+    frame_metadata_t *image_metadata = &(ctx->metadata_array[index]);
     dnn_results *collected_result = &(ctx->collected_results[index]);
 
     int status;
@@ -845,7 +845,6 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     // increment the semaphore so that image reading thread knows there is an image ready
     sem_post(&(ctx->image_sem));
 
-
     return status;
 }
 
@@ -921,7 +920,7 @@ get_compression_size(const pipeline_context ctx, const compression_t compression
 int
 receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
               uint8_t *segmentation_array,
-              eval_metadata_t *return_metadata, int *const segmentation) {
+              frame_metadata_t *return_metadata, int *const segmentation) {
     ZoneScoped;
 
     int index = ctx->frame_index_tail % ctx->lane_count;
@@ -929,7 +928,7 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
     LOGI("receive_image index: %d\n", index);
 
     dnn_results results = ctx->collected_results[index];
-    eval_metadata_t image_metadata = ctx->metadata_array[index];
+    frame_metadata_t image_metadata = ctx->metadata_array[index];
 
     pipeline_context *pipeline = &(ctx->pipeline_array[index]);
 
@@ -992,7 +991,7 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
     // before being able to be used. so we should probably do the quality
     // algorithm before releasing the semaphore.
     if (NULL != return_metadata) {
-        memcpy(return_metadata, &image_metadata, sizeof(eval_metadata_t));
+        memcpy(return_metadata, &image_metadata, sizeof(frame_metadata_t));
     }
 
     char *markId = new char[16];
@@ -1028,7 +1027,7 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
 #endif
         sem_post(&(ctx->local_sem));
     }
-    
+
     return CL_SUCCESS;
 }
 

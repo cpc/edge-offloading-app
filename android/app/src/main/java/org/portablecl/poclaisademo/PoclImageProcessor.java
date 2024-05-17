@@ -11,8 +11,10 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SOFTWARE_HEVC_CO
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.dequeue_spot;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.destroyPoclImageProcessorV2;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getCodecConfig;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.initPoclImageProcessorV2;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclGetLastIouV2;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclSelectCodecAuto;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.poclSubmitYUVImage;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.receiveImage;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.waitImageAvailable;
@@ -306,7 +308,7 @@ public class PoclImageProcessor {
         int YPixelStride, YRowStride;
         int UVPixelStride, UVRowStride;
         int VPixelStride, VRowStride;
-        int rotation, do_segment, compressionParam;
+        int rotation, do_segment, compressionParam, do_algorithm;
         long currentTime, doneTime, poclTime, imageAcquireTime;
         int size;
         float energy;
@@ -408,11 +410,12 @@ public class PoclImageProcessor {
                     continue;
                 }
 
-                Image.Plane[] planes = image.getPlanes();
                 rotation = orientationsSwapped ? 90 : 0;
-                do_segment = doSegment ? 1 : 0;
-                // pick the right compression value
+                do_segment = this.doSegment ? 1 : 0;
                 compressionParam = doCompression ? compressionType : NO_COMPRESSION;
+                do_algorithm = enableQualityAlgorithm ? 1 : 0;
+
+                Image.Plane[] planes = image.getPlanes();
 
                 // Camera's timestamp passed to the processor to link camera and pocl logs together
                 long imageTimestamp = image.getTimestamp();
@@ -452,11 +455,10 @@ public class PoclImageProcessor {
                             "V row stride: " + VRowStride);
                 }
 
-                int doAlgorithm = enableQualityAlgorithm ? 1 : 0;
                 currentTime = System.currentTimeMillis();
 
-                poclSubmitYUVImage(currentInferencingDevice, do_segment, compressionParam, quality,
-                        rotation, doAlgorithm,
+                poclSubmitYUVImage(
+                        currentInferencingDevice, do_segment, compressionParam, quality , rotation, do_algorithm,
                         Y, YRowStride, YPixelStride,
                         U, UVRowStride, UVPixelStride,
                         V, VRowStride, VPixelStride,
@@ -555,9 +557,19 @@ public class PoclImageProcessor {
                 activity.drawOverlay((int) dataExchange[0], detection_results, segmentation_results,
                         captureSize, orientationsSwapped);
 
-                // update the buttons
                 if (enableQualityAlgorithm) {
-                    activity.setButtonsFromJNI();
+                    int rotation = orientationsSwapped ? 90 : 0;
+                    int do_segment = this.doSegment ? 1 : 0;
+
+                    // Decide which codec to use for the next frame
+                    poclSelectCodecAuto(do_segment, rotation);
+
+                    // Fetch the compression type, device, etc., from the JNI and flip the buttons accordingly
+                    CodecConfig config = getCodecConfig();
+                    activity.setButtonsFromJNI(config);
+                    setInferencingDevice(config.deviceIndex);
+                    setCompressionType(config.compressionType);
+                    setDoCompression(NO_COMPRESSION != config.compressionType);
                 }
             }
 

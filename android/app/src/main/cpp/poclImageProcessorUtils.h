@@ -20,7 +20,7 @@ copy_yuv_to_arrayV2(const int width, const int height, const image_data_t image,
                     cl_uchar *const dest_buf);
 
 void
-log_eval_metadata(const int fd, const int frame_index, const eval_metadata_t metadata);
+log_eval_metadata(const int fd, const int frame_index, const frame_metadata_t metadata);
 
 void
 log_codec_config(const int fd, const int frame_index, const codec_config_t config);

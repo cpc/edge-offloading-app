@@ -324,8 +324,8 @@ public class StartupActivity extends AppCompatActivity {
                 jpegCompButton.setChecked(true);
             }
 
-            if (!hevcCompButton.isChecked()) {
-                hevcCompButton.setChecked(true);
+            if (hevcCompButton.isChecked()) {
+                hevcCompButton.setChecked(false);
             }
 
             if (softwareHevcCompButton.isChecked()) {
@@ -429,7 +429,7 @@ public class StartupActivity extends AppCompatActivity {
             configStore.setConfigFlags(configFlag);
             configStore.setJpegQuality(jpegQuality);
             configStore.setIpAddressText(value);
-            configStore.setQualityAlgorithmOtion(qualityAlgorithmSwitch.isChecked());
+            configStore.setQualityAlgorithmOption(qualityAlgorithmSwitch.isChecked());
             // settings are only saved when calling this function.
             configStore.flushSetting();
 

@@ -401,7 +401,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getRemoteTrafficStats(JNI
  * @return ButtonConfig that returns relevant config values
  */
 JNIEXPORT jobject JNICALL
-Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getButtonConfig(JNIEnv *env, jclass clazz) {
+Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getCodecConfig(JNIEnv *env, jclass clazz) {
 
     jclass button_config_class = env->FindClass(
             "org/portablecl/poclaisademo/MainActivity$ButtonConfig");
