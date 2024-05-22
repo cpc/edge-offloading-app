@@ -136,11 +136,12 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
     }
 
     size_t img_buf_size = sizeof(cl_uchar) * width * height * 3 / 2;
+    size_t comp_to_dnn_size = sizeof(cl_uchar) * height * width * 3;
     ctx->inp_yuv_mem = clCreateBuffer(cl_ctx, CL_MEM_READ_ONLY, img_buf_size,
                                       NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the input buffer");
     // setting it to the maximum size which is an rgb image
-    ctx->comp_to_dnn_buf = clCreateBuffer(cl_ctx, CL_MEM_READ_WRITE, height * width * 3,
+    ctx->comp_to_dnn_buf = clCreateBuffer(cl_ctx, CL_MEM_READ_WRITE, comp_to_dnn_size,
                                           NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the comp to dnn buf");
     ctx->host_inp_buf = (cl_uchar *) malloc(img_buf_size);
@@ -182,11 +183,10 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
         ctx->hevc_context = create_hevc_context();
         ctx->hevc_context->height = height;
         ctx->hevc_context->width = width;
-//        ctx->hevc_context->img_buf_size = img_buf_size;
+        ctx->hevc_context->input_size = img_buf_size;
+        ctx->hevc_context->output_size = comp_to_dnn_size;
         ctx->hevc_context->enc_queue = ctx->enq_queues[0];
         ctx->hevc_context->dec_queue = ctx->enq_queues[2];
-//        ctx->hevc_context->host_img_buf = host_img_buf;
-//        ctx->hevc_context->host_postprocess_buf = host_postprocess_buf;
         status = init_hevc_context(ctx->hevc_context, cl_ctx, &devices[0], &devices[2], 1);
         CHECK_AND_RETURN(status, "init of hevc codec kernels failed");
     }
@@ -195,11 +195,10 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
         ctx->software_hevc_context = create_hevc_context();
         ctx->software_hevc_context->height = height;
         ctx->software_hevc_context->width = width;
-//        ctx->software_hevc_context->img_buf_size = img_buf_size;
+        ctx->software_hevc_context->input_size = img_buf_size;
+        ctx->software_hevc_context->output_size = comp_to_dnn_size;
         ctx->software_hevc_context->enc_queue = ctx->enq_queues[0];
         ctx->software_hevc_context->dec_queue = ctx->enq_queues[2];
-//        software_hevc_context->host_img_buf = host_img_buf;
-//        software_hevc_context->host_postprocess_buf = host_postprocess_buf;
         status = init_c2_android_hevc_context(ctx->software_hevc_context, cl_ctx, &devices[0],
                                               &devices[2], 1);
         CHECK_AND_RETURN(status, "init of hevc codec kernels failed");
@@ -444,6 +443,8 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         CHECK_AND_RETURN((status < 0), "could not write timestamp");
     }
 
+    // FIXME init global hevc codecs
+
     *ret_ctx = ctx;
     return CL_SUCCESS;
 }
@@ -506,6 +507,8 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr) {
     }
 
     destroy_eval_context(&(ctx->eval_ctx));
+
+    // FIXME release global hevc configs
 
     free(ctx);
     *ctx_ptr = NULL;
@@ -671,58 +674,38 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
         // TODO: test hecv compression
     else if (HEVC_COMPRESSION == compression_type) {
 
-        // TODO: refactor hevc to first read image
-        assert(0 && "not refactored yet");
-
         inp_format = ctx->hevc_context->output_format;
+        cl_event wait_on_hevc_write_event;
+        status = write_buffer_hevc(ctx->hevc_context, ctx->host_inp_buf, ctx->host_inp_buf_size,
+                                   ctx->inp_yuv_mem, NULL, ctx->event_array,
+                                   &wait_on_hevc_write_event);
+        CHECK_AND_RETURN(status, "could no write input image to hevc buffer");
 
-        cl_event configure_event = NULL;
-        // expensive to configure, only do it if it is actually different than
-        // what is currently configured.
-        if (ctx->hevc_context->i_frame_interval != config.config.hevc.i_frame_interval ||
-            ctx->hevc_context->framerate != config.config.hevc.framerate ||
-            ctx->hevc_context->bitrate != config.config.hevc.bitrate ||
-            1 != ctx->hevc_context->codec_configured) {
-
-            ctx->hevc_context->codec_configured = 0;
-            ctx->hevc_context->i_frame_interval = config.config.hevc.i_frame_interval;
-            ctx->hevc_context->framerate = config.config.hevc.framerate;
-            ctx->hevc_context->bitrate = config.config.hevc.bitrate;
-            configure_hevc_codec(ctx->hevc_context, ctx->event_array, &configure_event);
-        }
-
-        status = enqueue_hevc_compression(ctx->hevc_context, ctx->event_array, &configure_event,
+        status = enqueue_hevc_compression(ctx->hevc_context, &wait_on_hevc_write_event,
+                                          ctx->inp_yuv_mem, ctx->comp_to_dnn_buf, ctx->event_array,
                                           &dnn_wait_event);
+
         CHECK_AND_RETURN(status, "could not enqueue hevc compression");
         dnn_input_buf = ctx->comp_to_dnn_buf;
+
     } else if (SOFTWARE_HEVC_COMPRESSION == compression_type) {
 
-        // TODO: refactor hev to first read image
-        assert(0 && "not refactored yet");
-
         inp_format = ctx->software_hevc_context->output_format;
+        cl_event wait_on_soft_hevc_write_event;
+        status = write_buffer_hevc(ctx->software_hevc_context, ctx->host_inp_buf,
+                                   ctx->host_inp_buf_size,
+                                   ctx->inp_yuv_mem, NULL, ctx->event_array,
+                                   &wait_on_soft_hevc_write_event);
+        CHECK_AND_RETURN(status, "could no write input image to hevc buffer");
 
-        cl_event configure_event = NULL;
-
-        // expensive to configure, only do it if it is actually different than
-        // what is currently configured.
-        if (ctx->software_hevc_context->i_frame_interval != config.config.hevc.i_frame_interval ||
-            ctx->software_hevc_context->framerate != config.config.hevc.framerate ||
-            ctx->software_hevc_context->bitrate != config.config.hevc.bitrate ||
-            1 != ctx->software_hevc_context->codec_configured) {
-
-            ctx->software_hevc_context->codec_configured = 0;
-            ctx->software_hevc_context->i_frame_interval = config.config.hevc.i_frame_interval;
-            ctx->software_hevc_context->framerate = config.config.hevc.framerate;
-            ctx->software_hevc_context->bitrate = config.config.hevc.bitrate;
-            configure_hevc_codec(ctx->software_hevc_context, ctx->event_array, &configure_event);
-        }
-
-        status = enqueue_hevc_compression(ctx->software_hevc_context, ctx->event_array,
-                                          &configure_event,
+        status = enqueue_hevc_compression(ctx->software_hevc_context,
+                                          &wait_on_soft_hevc_write_event,
+                                          ctx->inp_yuv_mem, ctx->comp_to_dnn_buf, ctx->event_array,
                                           &dnn_wait_event);
+
         CHECK_AND_RETURN(status, "could not enqueue hevc compression");
         dnn_input_buf = ctx->comp_to_dnn_buf;
+
     }
 #endif // DISABLE_HEVC
     else {
@@ -758,6 +741,7 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config, ima
     // this function should be called when dequeue_spot acquired a semaphore,
     ZoneScoped;
 
+    int status;
     int index = ctx->frame_index_head % ctx->lane_count;
     ctx->frame_index_head += 1;
 
@@ -770,7 +754,14 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config, ima
     frame_metadata_t *image_metadata = &(ctx->metadata_array[index]);
     dnn_results *collected_result = &(ctx->collected_results[index]);
 
-    int status;
+    if (HEVC_COMPRESSION == codec_config.compression_type ||
+        SOFTWARE_HEVC_COMPRESSION == codec_config.compression_type) {
+
+        assert(codec_config.compression_type & ctx->pipeline_array[index].config_flags);
+        status = check_and_configure_global_hevc(ctx, codec_config, &(ctx->pipeline_array[index]));
+        CHECK_AND_RETURN(status, "could not configure hevc codec");
+    }
+
     status = submit_image_to_pipeline(&(ctx->pipeline_array[index]), codec_config, image_data,
                                       image_metadata, ctx->file_descriptor,
                                       collected_result);
@@ -836,6 +827,8 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config, ima
                 is_eval_frame);
         log_codec_config(ctx->file_descriptor, image_metadata->frame_index, codec_config);
     }
+
+    // FIXME release all but one
 
 #ifdef DEBUG_SEMAPHORES
     int sem_value;
@@ -1029,6 +1022,109 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
     }
 
     return CL_SUCCESS;
+}
+
+/**
+ * acquire all lane semaphores so that no other lanes are running
+ * @param ctx
+ */
+void
+halt_lanes(pocl_image_processor_context *ctx) {
+    for (int i = 0; i < ctx->lane_count - 1; i++) {
+        sem_wait(&(ctx->pipe_sem));
+#ifdef DEBUG_SEMAPHORES
+        LOGI("halt lanes acquired semaphore %d", (i + 1));
+#endif
+
+    }
+}
+
+/**
+ * release all lane semaphores acquired by halt_lanes
+ * @param ctx
+ */
+void
+resume_lanes(pocl_image_processor_context *ctx) {
+    for (int i = 0; i < ctx->lane_count - 1; i++) {
+        sem_post(&(ctx->pipe_sem));
+#ifdef DEBUG_SEMAPHORES
+        LOGI("resume lanes released semaphore %d", (i + 1));
+#endif
+    }
+}
+
+/**
+ * set the configured status of all (software) hevc configurations.
+ * @param ctx
+ * @param compression either HEVC_COMPRESSION or SOFT_HEVC_COMPRESSION
+ * @param value configuration value 0/1
+ */
+void
+mark_all_hevc_ctx(pocl_image_processor_context *ctx, compression_t compression, int value) {
+
+    assert(HEVC_COMPRESSION == compression ||
+           SOFTWARE_HEVC_COMPRESSION == compression);
+    for (int i = 0; i < ctx->lane_count; i++) {
+        if (HEVC_COMPRESSION == compression) {
+            ctx->pipeline_array[i].hevc_context->codec_configured = value;
+        } else {
+            ctx->pipeline_array[i].software_hevc_context->codec_configured = value;
+        }
+
+    }
+}
+
+/**
+ * check if the (software) hevc codec needs to be configured and do so if that is the case.
+ * @param ctx
+ * @param codec
+ * @param pipeline
+ * @return CL_SUCCESS and otherwise an ocl error
+ */
+cl_int
+check_and_configure_global_hevc(pocl_image_processor_context *ctx, codec_config_t codec,
+                                pipeline_context *pipeline) {
+
+    assert(HEVC_COMPRESSION == codec.compression_type ||
+           SOFTWARE_HEVC_COMPRESSION == codec.compression_type);
+    int *configured = HEVC_COMPRESSION == codec.compression_type ? &ctx->hevc_configured
+                                                                 : &ctx->soft_hevc_configured;
+    hevc_config_t *hevc_config =
+            HEVC_COMPRESSION == codec.compression_type ? &ctx->global_hevc_config
+                                                       : &ctx->global_soft_hevc_config;
+    hevc_codec_context_t *hevc_context =
+            HEVC_COMPRESSION == codec.compression_type ? pipeline->hevc_context
+                                                       : pipeline->software_hevc_context;
+
+    if (1 == *configured && !hevc_configs_different(*hevc_config, codec.config.hevc)) {
+        return CL_SUCCESS;
+    }
+
+    int status = CL_SUCCESS;
+
+    halt_lanes(ctx);
+
+    cl_event wait_event;
+    memcpy(hevc_config, &(codec.config.hevc), sizeof(hevc_config_t));
+    set_hevc_config(hevc_context, &(codec.config.hevc));
+    status = configure_hevc_codec(hevc_context, pipeline->event_array, &wait_event);
+
+    if (CL_SUCCESS == status) {
+        status = clWaitForEvents(1, &wait_event);
+    }
+
+    if (CL_SUCCESS == status) {
+        *configured = 1;
+        mark_all_hevc_ctx(ctx, codec.compression_type, 1);
+    } else {
+        *configured = 0;
+        mark_all_hevc_ctx(ctx, codec.compression_type, 0);
+    }
+
+    // always resume lanes when done
+    resume_lanes(ctx);
+
+    return status;
 }
 
 #ifdef __cplusplus

@@ -105,6 +105,12 @@ typedef struct {
     int devices_found; // used to keep track of how many devices there are
 
     eval_pipeline_context_t eval_ctx; // used to run the eval pipeline
+
+    hevc_config_t global_hevc_config; // used to configure the global hevc codec
+    int hevc_configured;
+    hevc_config_t global_soft_hevc_config; // used to confige the global software hevc codec
+    int soft_hevc_configured; //used check that hevc needs to be configured
+
 } pocl_image_processor_context;
 
 int
@@ -134,6 +140,15 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx);
 float
 get_last_iou(pocl_image_processor_context *ctx);
 
+int
+check_and_configure_global_hevc(pocl_image_processor_context *ctx, codec_config_t codec,
+                                pipeline_context *pipeline);
+
+void
+halt_lanes(pocl_image_processor_context *ctx);
+
+void
+resume_lanes(pocl_image_processor_context *ctx);
 
 #ifdef __cplusplus
 }

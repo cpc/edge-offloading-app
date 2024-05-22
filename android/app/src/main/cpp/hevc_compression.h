@@ -30,10 +30,9 @@ typedef struct {
  * the hevc codec.
  */
 typedef struct {
-    cl_mem inp_buf;
     cl_mem comp_buf;
     cl_mem size_buf;
-    cl_mem out_buf;
+
     cl_kernel enc_kernel;
     cl_kernel dec_kernel;
 
@@ -41,10 +40,10 @@ typedef struct {
     uint32_t width;
     cl_command_queue enc_queue; // needs to be freed manually
     cl_command_queue dec_queue; // needs to be freed manually
-    uint8_t *host_img_buf; // needs to be freed manually
-    size_t img_buf_size;
-    uint8_t *host_postprocess_buf; // needs to be freed manually
-    int32_t quality; // currently not used
+
+    size_t input_size;
+    size_t output_size;
+
     uint32_t work_dim;
     size_t enc_global_size[3];
     size_t dec_global_size[3];
@@ -54,24 +53,14 @@ typedef struct {
      * used to indicate that the codec has been configured
      */
     int32_t codec_configured;
-    /**
-     * the number of seconds between I-frames
-     */
-    int32_t i_frame_interval;
-    /**
-     * the number of bits sent per second
-     */
-    int32_t bitrate;
-    /**
-     * the target number of frames per second
-     */
-    int32_t framerate;
+
+    hevc_config_t config;
     /**
      * kernel used to configure the codec
      */
     cl_kernel config_kernel;
 
-
+    uint64_t compressed_size;
 } hevc_codec_context_t;
 
 hevc_codec_context_t *create_hevc_context();
@@ -85,8 +74,8 @@ init_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
                   cl_device_id *enc_device, cl_device_id *dec_device, int enable_resize);
 
 cl_int
-enqueue_hevc_compression(const hevc_codec_context_t *cxt, event_array_t *event_array,
-                         cl_event *wait_event, cl_event *result_event);
+enqueue_hevc_compression(const hevc_codec_context_t *cxt, cl_event *wait_event, cl_mem inp_buf,
+                         cl_mem out_buf, event_array_t *event_array, cl_event *result_event);
 
 cl_int
 configure_hevc_codec(hevc_codec_context_t *const codec_context, event_array_t *event_array,
@@ -94,6 +83,20 @@ configure_hevc_codec(hevc_codec_context_t *const codec_context, event_array_t *e
 
 cl_int
 destroy_hevc_context(hevc_codec_context_t **context);
+
+cl_int
+hevc_configs_different(hevc_config_t A, hevc_config_t B);
+
+void
+set_hevc_config(hevc_codec_context_t *ctx, const hevc_config_t *const new_config);
+
+cl_int
+write_buffer_hevc(const hevc_codec_context_t *ctx, uint8_t *inp_host_buf, size_t buf_size,
+                  cl_mem cl_buf, cl_event *wait_event, event_array_t *event_array,
+                  cl_event *result_event);
+
+size_t
+get_compression_size_hevc(hevc_codec_context_t *ctx);
 
 #ifdef __cplusplus
 }
