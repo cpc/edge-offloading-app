@@ -17,11 +17,11 @@ cd $BUILD_DIR || exit
 
 echo "=== BUILDING x86-64 ==="
 cmake -G"Ninja" \
-  -DCMAKE_INSTALL_PREFIX="${INSTALL_DIR_PREFIX}/x86-64" \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
   ..
 
 ninja
-ninja install
+echo "installing libjpeg turbo requires sudo:"
+sudo ninja install
 
 cd "$SCRIPT_DIR" || exit
