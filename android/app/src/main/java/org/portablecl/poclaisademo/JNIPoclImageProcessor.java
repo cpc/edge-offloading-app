@@ -60,7 +60,7 @@ public class JNIPoclImageProcessor {
 
     public static native int dequeue_spot(int timeout, int dev_type);
 
-    public static native int poclSelectCodecAuto(int doSegment, int rotation);
+    public static native int poclSelectCodecAuto();
 
     public static native int poclSubmitYUVImage(int deviceIndex, int doSegment, int compressionType,
                                                 int quality, int rotation, int doAlgorithm,
@@ -87,5 +87,5 @@ public class JNIPoclImageProcessor {
     public static native TrafficMonitor.DataPoint getRemoteTrafficStats();
 
     public static native CodecConfig getCodecConfig();
-
+    public static native MainActivity.Stats getStats();
 }

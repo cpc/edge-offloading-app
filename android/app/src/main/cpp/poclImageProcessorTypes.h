@@ -121,6 +121,7 @@ typedef struct {
         jpeg_config_t jpeg;
         hevc_config_t hevc;
     } config; // codec specific configuration parameters
+    int id; // ID of the codec config pointing at the array of available configs
 } codec_config_t;
 
 /**

@@ -162,7 +162,6 @@ public class PingMonitor {
      */
     public float getPing() {
 
-        tick();
         return ping;
     }
 
@@ -172,7 +171,6 @@ public class PingMonitor {
      * @return the average ping
      */
     public float getAveragePing() {
-        tick();
         if (0 == pingCount) {
             return 0;
         }

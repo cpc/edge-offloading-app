@@ -18,14 +18,20 @@ public class StatLogger implements Runnable {
 
     private final EnergyMonitor energyMonitor;
 
+    private final PingMonitor pingMonitor;
+
     private long timeEnergy, timeBandw;
     private int amp, volt;
+
+    private float ping_ms;
+
     private TrafficMonitor.DataPoint dataPoint;
 
     public StatLogger(FileOutputStream stream, TrafficMonitor trafficMonitor,
-                      EnergyMonitor energyMonitor) {
+                      EnergyMonitor energyMonitor, PingMonitor pingMonitor) {
         this.trafficMonitor = trafficMonitor;
         this.energyMonitor = energyMonitor;
+        this.pingMonitor = pingMonitor;
 
         builder = new StringBuilder();
 
@@ -50,8 +56,8 @@ public class StatLogger implements Runnable {
 
         if (null != this.stream) {
 
-            builder.append("time_bandw_ns, bandw_down_B, bandw_up_B, time_eng_ns, current_mA, " +
-                    "voltage_mV\n");
+            builder.append("time_bandw_ns,bandw_down_B,bandw_up_B,time_eng_ns,current_mA," +
+                    "voltage_mV,ping_ms\n");
             try {
                 stream.write(builder.toString().getBytes());
             } catch (IOException e) {
@@ -70,13 +76,18 @@ public class StatLogger implements Runnable {
         dataPoint = trafficMonitor.pollTrafficStats();
         timeBandw = System.nanoTime();
         builder.append(timeBandw).append(",").append(dataPoint.rx_bytes_confirmed).append(",")
-                .append(dataPoint.tx_bytes_confirmed).append(",");
+                .append(dataPoint.tx_bytes_confirmed);
 
         volt = energyMonitor.pollVoltage();
         amp = energyMonitor.pollCurrent();
         timeEnergy = System.nanoTime();
-        builder.append(timeEnergy).append(",").append(amp).append(",").append(volt)
-                .append("\n");
+        builder.append(",").append(timeEnergy).append(",").append(amp).append(",").append(volt);
+
+        ping_ms = pingMonitor.getPing();
+        builder.append(",").append(ping_ms);
+
+        builder.append("\n");
+
 
         if (null != stream) {
             try {

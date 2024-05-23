@@ -558,11 +558,8 @@ public class PoclImageProcessor {
                         captureSize, orientationsSwapped);
 
                 if (enableQualityAlgorithm) {
-                    int rotation = orientationsSwapped ? 90 : 0;
-                    int do_segment = this.doSegment ? 1 : 0;
-
                     // Decide which codec to use for the next frame
-                    poclSelectCodecAuto(do_segment, rotation);
+                    poclSelectCodecAuto();
 
                     // Fetch the compression type, device, etc., from the JNI and flip the buttons accordingly
                     CodecConfig config = getCodecConfig();

@@ -146,23 +146,20 @@ int ping_fillbuffer_init(ping_fillbuffer_context_t **out_ctx, cl_context context
 }
 
 int ping_fillbuffer_run(ping_fillbuffer_context_t *ctx, cl_command_queue queue,
-                        event_array_t *event_array, cl_event *out_event) {
+                        event_array_t *event_array) {
     cl_int status = CL_SUCCESS;
 
     uint8_t pattern[] = {255};
     size_t pattern_size = sizeof(uint8_t);
     size_t off = 0;
     size_t size = 1 * pattern_size;
-    cl_event fill_event;
     status = clEnqueueFillBuffer(queue, ctx->buf, &pattern, pattern_size, off, size, 0, NULL,
-                                 &fill_event);
+                                 &ctx->event);
     CHECK_AND_RETURN(status, "PING could not fill buffer");
-//    append_to_event_array(event_array, fill_event, VAR_NAME(fill_event));
+//    append_to_event_array(event_array, ctx->event, VAR_NAME(fill_event));
 
-//    status = clWaitForEvents(1, &fill_event);
+//    status = clWaitForEvents(1, &ctx->event);
 //    CHECK_AND_RETURN(status, "PING failed to wait for fill event");
-
-    *out_event = fill_event;
 
     return status;
 }

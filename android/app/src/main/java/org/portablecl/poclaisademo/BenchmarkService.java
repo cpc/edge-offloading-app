@@ -292,7 +292,7 @@ public class BenchmarkService extends Service {
         // log energy and traffic statistics
         EnergyMonitor energyMonitor = new EnergyMonitor(getApplicationContext());
         openFileOutputStream(1);
-        StatLogger statLogger = new StatLogger(logStreams[1], new TrafficMonitor(), energyMonitor);
+        StatLogger statLogger = new StatLogger(logStreams[1], new TrafficMonitor(), energyMonitor, new PingMonitor("0.0.0.0"));
         schedulerService = Executors.newScheduledThreadPool(2);
         statLoggerFuture = schedulerService.scheduleAtFixedRate(statLogger, 1000, 500,
                 TimeUnit.MILLISECONDS);

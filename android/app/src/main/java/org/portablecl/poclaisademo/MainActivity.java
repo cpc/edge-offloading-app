@@ -16,6 +16,7 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.REMOTE_DEVICE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SOFTWARE_HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getStats;
 import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 
 import android.Manifest;
@@ -416,7 +417,7 @@ public class MainActivity extends AppCompatActivity {
         trafficMonitor = new TrafficMonitor();
         pingMonitor = new PingMonitor(IPAddress);
         statLogger = new StatLogger(null,
-                trafficMonitor, energyMonitor);
+                trafficMonitor, energyMonitor, pingMonitor);
 
         counter = new FPSCounter();
         statUpdateScheduler = Executors.newScheduledThreadPool(2);
@@ -611,6 +612,7 @@ public class MainActivity extends AppCompatActivity {
         energyMonitor.reset();
         trafficMonitor.reset();
         poclImageProcessor.resetLastIou();
+        pingMonitor.reset();
     }
 
     /**
@@ -637,10 +639,10 @@ public class MainActivity extends AppCompatActivity {
 
             resetMonitors();
 
-            if (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) {
-                pingMonitor.start();
-            } else {
+            if (disableRemote) {
                 pingMonitor.stop();
+            } else {
+                pingMonitor.start();
             }
             pingMonitor.reset();
         }
@@ -759,7 +761,7 @@ public class MainActivity extends AppCompatActivity {
 
         resetMonitors();
 
-        if (REMOTE_DEVICE == poclImageProcessor.inferencingDevice) {
+        if (!disableRemote) {
             pingMonitor.start();
         }
         pingMonitor.reset();
@@ -851,6 +853,7 @@ public class MainActivity extends AppCompatActivity {
 
                 energyMonitor.tick();
                 trafficMonitor.tick();
+                pingMonitor.tick();
                 String formatString = "FPS: %3.1f (%4.0fms) AVG: %3.1f (%4.0fms)\n" +
                         "pow: %02.2f (%02.2f) W | EPF: %02.2f (%02.2f) J\n" +
                         new String(Character.toChars(0x1F50B)) + "time left:%3dm:%2ds |avg " +
@@ -876,14 +879,18 @@ public class MainActivity extends AppCompatActivity {
                 float iou = poclImageProcessor.getLastIou();
                 float emaLatency = counter.getEmaLatency() / 1000;
 
+                // pingMonitor can be null because the pingreader is started when the mode switch is pressed
                 float ping = 0.0f;
                 float ping_avg = 0.0f;
-
-                // pingMonitor can be null because the pingreader is started when the mode switch is pressed
-                if (!pingMonitor.isReaderNull() && (REMOTE_DEVICE == poclImageProcessor.inferencingDevice)) {
+                if (!pingMonitor.isReaderNull()) {
                     ping = pingMonitor.getPing();
                     ping_avg = pingMonitor.getAveragePing();
                 }
+
+                // get ping from fill buffer
+//                Stats stats = getStats();
+//                float ping = stats.pingMs;
+//                float ping_avg = stats.pingMsAvg;
 
                 String statString = String.format(Locale.US, formatString,
                         fps, fpssecs,
@@ -952,6 +959,19 @@ public class MainActivity extends AppCompatActivity {
             qualityText.setText(Integer.toString(config.configIndex));
         });
 
+    }
+
+    /**
+     * Statistics from the image processing loop that we might be interested in displaying in the UI
+     */
+    static class Stats {
+        public final float pingMs;
+        public final float pingMsAvg;
+
+        public Stats(float pingMs, float pingMsAvg) {
+            this.pingMs = pingMs;
+            this.pingMsAvg = pingMsAvg;
+        }
     }
 
     /**

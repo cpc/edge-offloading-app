@@ -19,7 +19,7 @@
 #include "TracyC.h"
 #include "TracyOpenCL.hpp"
 
-#define DEBUG_SEMAPHORES
+//#define DEBUG_SEMAPHORES
 
 #ifdef __cplusplus
 extern "C" {
@@ -533,7 +533,8 @@ dequeue_spot(pocl_image_processor_context *const ctx, const int timeout,
         return -1;
     }
 
-    add_ns_to_time(&ts, (long) timeout * 1000000);
+    assert(timeout > 0);
+    add_ns_to_time(&ts, ((long) timeout) * 1000000);
 
     int ret;
 
@@ -798,19 +799,16 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config, ima
 
     }
 
-    // run the ping buffer
-    if (REMOTE_DEVICE == codec_config.device_type) {
+    // run the ping buffer (needs to run also on local device to check if network improved)
+    if (ctx->devices_found > 1) {
         // todo: see if this should be run on every device
         image_metadata->host_ts_ns.before_fill = get_timestamp_ns();
-        cl_event fill_event;
         ping_fillbuffer_run(ctx->ping_context, ctx->remote_queue,
-                            ctx->pipeline_array[index].event_array, &fill_event);
-        collected_result->event_list[1] = fill_event;
-        collected_result->event_list_size = 2;
-    } else {
-        collected_result->event_list[1] = NULL;
-        collected_result->event_list_size = 1;
+                            ctx->pipeline_array[index].event_array);
     }
+
+    collected_result->event_list[1] = NULL;
+    collected_result->event_list_size = 1;
 
     // populate the metadata
     image_metadata->frame_index = ctx->frame_index_head - 1;
@@ -949,11 +947,44 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
         CHECK_AND_RETURN(status, "could not wait on eval event");
     }
 
-    image_metadata.host_ts_ns.after_wait = get_timestamp_ns();
-
     if (NULL != ctx->tracy_ctxs) {
         for (int i = 0; i < ctx->devices_found; i++) {
             TracyCLCollect(ctx->tracy_ctxs[i]);
+        }
+    }
+
+    image_metadata.host_ts_ns.after_wait = get_timestamp_ns();
+
+    if (ctx->devices_found <= 1) {
+        // Don't track networking latency if the only available device is local
+        image_metadata.host_ts_ns.fill_ping_duration = 0;
+    } else {
+        cl_int fill_status;
+        status = clGetEventInfo(ctx->ping_context->event, CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int),
+                                &fill_status, NULL);
+        CHECK_AND_RETURN(status, "could not get fill event info");
+
+        if (fill_status == CL_COMPLETE) {
+            // Fill ping completed sooner than the rest of the loop
+            cl_ulong start_time_ns, end_time_ns;
+            status = clGetEventProfilingInfo(ctx->ping_context->event, CL_PROFILING_COMMAND_START,
+                                             sizeof(cl_ulong), &start_time_ns, NULL);
+            if (status != CL_SUCCESS) {
+                LOGE("ERROR: Could not get fill event start\n");
+                return status;
+            }
+
+            status = clGetEventProfilingInfo(ctx->ping_context->event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong),
+                                             &end_time_ns, NULL);
+            if (status != CL_SUCCESS) {
+                LOGE("ERROR: Could not get fill event end\n");
+                return status;
+            }
+
+            image_metadata.host_ts_ns.fill_ping_duration = end_time_ns - start_time_ns;
+        } else {
+            // Fill ping still not complete, don't wait for it and use a negative value to indicate this
+            image_metadata.host_ts_ns.fill_ping_duration = -1;
         }
     }
 
