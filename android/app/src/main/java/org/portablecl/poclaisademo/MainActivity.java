@@ -672,7 +672,10 @@ public class MainActivity extends AppCompatActivity {
         energyMonitor.reset();
         trafficMonitor.reset();
         poclImageProcessor.resetLastIou();
-        pingMonitor.reset();
+        if (pingMonitor != null) {
+            pingMonitor.reset();
+        }
+
     }
 
     /**
@@ -930,7 +933,7 @@ public class MainActivity extends AppCompatActivity {
                 // pingMonitor can be null because the pingreader is started when the mode switch is pressed
                 float ping = 0.0f;
                 float ping_avg = 0.0f;
-                if (!pingMonitor.isReaderNull()) {
+                if (pingMonitor != null && !pingMonitor.isReaderNull()) {
                     ping = pingMonitor.getPing();
                     ping_avg = pingMonitor.getAveragePing();
                 }
