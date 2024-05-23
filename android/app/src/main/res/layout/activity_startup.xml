@@ -160,14 +160,14 @@
         android:id="@+id/compressionText"
         android:layout_width="242dp"
         android:layout_height="22dp"
-        android:layout_marginTop="274dp"
+        android:layout_marginBottom="200dp"
         android:gravity="center"
         android:text="Compression Type: "
         android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.497"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/disableLoggingSwitch" />
+        app:layout_constraintStart_toStartOf="parent" />
 
     <ToggleButton
         android:id="@+id/jpegImageButton"
@@ -204,6 +204,59 @@
         app:layout_constraintEnd_toEndOf="@+id/jpegCompButton"
         app:layout_constraintStart_toStartOf="@+id/jpegCompButton"
         app:layout_constraintTop_toBottomOf="@+id/jpegCompButton" />
+
+    <TextView
+        android:id="@+id/targetFPSText"
+        android:layout_width="wrap_content"
+        android:layout_height="22dp"
+        android:layout_marginEnd="8dp"
+        android:gravity="center"
+        android:text="Max FPS:"
+        android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+        app:layout_constraintBottom_toBottomOf="@+id/targetFPS"
+        app:layout_constraintEnd_toStartOf="@+id/targetFPS"
+        app:layout_constraintTop_toTopOf="@+id/targetFPS"
+        app:layout_constraintVertical_bias="0.434" />
+
+    <org.portablecl.poclaisademo.DropEditText
+        android:id="@+id/targetFPS"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:ems="2"
+        android:inputType="number"
+        android:selectAllOnFocus="true"
+        android:text="30"
+        android:textAlignment="center"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/qualityAlgorithmSwitch" />
+
+    <TextView
+        android:id="@+id/pipelineLaneText"
+        android:layout_width="wrap_content"
+        android:layout_height="22dp"
+        android:layout_marginEnd="8dp"
+        android:gravity="center"
+        android:text="Lane Count:"
+        android:textAppearance="@style/TextAppearance.AppCompat.Body2"
+        app:layout_constraintBottom_toBottomOf="@+id/pipelineLane"
+        app:layout_constraintEnd_toStartOf="@+id/pipelineLane"
+        app:layout_constraintTop_toTopOf="@+id/pipelineLane" />
+
+    <org.portablecl.poclaisademo.DropEditText
+        android:id="@+id/pipelineLane"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:ems="2"
+        android:inputType="number"
+        android:selectAllOnFocus="true"
+        android:text="1"
+        android:textAlignment="center"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/targetFPS" />
 
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -14,6 +14,8 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SOFTWARE_HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
+import static org.portablecl.poclaisademo.PoclImageProcessor.sanitizePipelineLanes;
+import static org.portablecl.poclaisademo.PoclImageProcessor.sanitizeTargetFPS;
 import static java.lang.Character.isDigit;
 
 import android.content.ContentValues;
@@ -52,12 +54,12 @@ public class StartupActivity extends AppCompatActivity {
     /**
      * A callback that loses focus when the done button is pressed on a TextView.
      */
-    private final TextView.OnEditorActionListener jpegQualityTextListener =
+    private final TextView.OnEditorActionListener loseFocusListener =
             new TextView.OnEditorActionListener() {
                 @Override
                 public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
                     if (DEBUGEXECUTION) {
-                        Log.println(Log.INFO, "EXECUTIONFLOW", "started jpegQualityTextListener " +
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "started loseFocusListener " +
                                 "callback");
                     }
 
@@ -107,7 +109,18 @@ public class StartupActivity extends AppCompatActivity {
                 Log.println(Log.INFO, "EXECUTIONFLOW", "started modelistener callback");
             }
 
+            // these two switches are mutually exclusive
+            if(qualityAlgorithmSwitch.isChecked() && ((Switch) v).isChecked()) {
+                qualityAlgorithmSwitch.performClick();
+            }
+
+            enableAllCompButtons(!((Switch) v).isChecked());
+            if(((Switch) v).isChecked()) {
+                setCheckedAllCompButtons(false);
+            }
+
             disableRemote = ((Switch) v).isChecked();
+
         }
     };
     /**
@@ -172,6 +185,81 @@ public class StartupActivity extends AppCompatActivity {
                     }
                 }
             };
+
+    /**
+     * A callback that handles the targetFPS edittext on screen when it loses focus.
+     * This callback checks the input and sets it within the bounds.
+     */
+    private final View.OnFocusChangeListener targetFPSFocusListener =
+            new View.OnFocusChangeListener() {
+                @Override
+                public void onFocusChange(View v, boolean hasFocus) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "started targetFPSFocusListener " +
+                                "callback");
+                    }
+
+                    if (!hasFocus) {
+                        TextView textView = (DropEditText) v;
+                        int value = Integer.MAX_VALUE;
+                        try {
+                            value = Integer.parseInt(textView.getText().toString());
+                        } catch (Exception e) {
+                            if (VERBOSITY >= 3) {
+                                Log.println(Log.INFO, "StartupActivity.java", "could not parse " +
+                                        "target fps, defaulting");
+                            }
+
+                        }
+
+                        // make sure that the value is not an unreasonable value
+                        int sanitizedValue = sanitizeTargetFPS(value);
+                        if (sanitizedValue != value) {
+                            textView.setText(Integer.toString(sanitizedValue));
+                        }
+
+                        targetFPS = sanitizedValue;
+                    }
+                }
+            };
+
+    /**
+     * A callback that handles the pipeline edittext on screen when it loses focus.
+     * This callback checks the input and sets it within the bounds.
+     */
+    private final View.OnFocusChangeListener pipelineFocusListener =
+            new View.OnFocusChangeListener() {
+                @Override
+                public void onFocusChange(View v, boolean hasFocus) {
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "started pipelineFocusListener " +
+                                "callback");
+                    }
+
+                    if (!hasFocus) {
+                        TextView textView = (DropEditText) v;
+                        int value = Integer.MIN_VALUE;
+                        try {
+                            value = Integer.parseInt(textView.getText().toString());
+                        } catch (Exception e) {
+                            if (VERBOSITY >= 3) {
+                                Log.println(Log.INFO, "StartupActivity.java", "could not parse " +
+                                        "number of lanes, defaulting");
+                            }
+
+                        }
+
+                        // make sure that the value is not an unreasonable value
+                        int sanitizedValue = sanitizePipelineLanes(value);
+                        if (sanitizedValue != value) {
+                            textView.setText(Integer.toString(sanitizedValue));
+                        }
+
+                        pipelineLanes = sanitizedValue;
+                    }
+                }
+            };
+
     private Switch enableLoggingSwitch;
     private ConfigStore configStore;
     private ToggleButton yuvCompButton;
@@ -180,6 +268,10 @@ public class StartupActivity extends AppCompatActivity {
     private ToggleButton hevcCompButton;
 
     private ToggleButton softwareHevcCompButton;
+
+    private int targetFPS;
+
+    private int pipelineLanes;
 
     /**
      * callback function that disables compression options not compatible with the jpeg image
@@ -304,6 +396,19 @@ public class StartupActivity extends AppCompatActivity {
     }
 
     /**
+     * set checked on all buttons
+     * @param value true or false
+     */
+    private void setCheckedAllCompButtons(boolean value) {
+        jpegCompButton.setChecked(value);
+        jpegImageButton.setChecked(value);
+        hevcCompButton.setChecked(value);
+        softwareHevcCompButton.setChecked(value);
+        yuvCompButton.setChecked(value);
+
+    }
+
+    /**
      * a callback function that also configures the compression types
      */
     private final View.OnClickListener qualityAlgorithmSwitchListener = new View.OnClickListener() {
@@ -316,9 +421,16 @@ public class StartupActivity extends AppCompatActivity {
                         "callback");
             }
 
+            // local only and quality algorithm are mutually exclusive
+            if( modeSwitch.isChecked() && ((Switch) v).isChecked()) {
+                modeSwitch.performClick();
+            }
+
             // disable or enable all comp buttons
             // if the quality algorithm button is turned on
             enableAllCompButtons(!((Switch) v).isChecked());
+
+            // TODO: check each button that is supported by the quality algorithm
 
             if (!jpegCompButton.isChecked()) {
                 jpegCompButton.setChecked(true);
@@ -345,6 +457,8 @@ public class StartupActivity extends AppCompatActivity {
     private Button startButton;
     private Button benchmarkButton;
     private Switch qualityAlgorithmSwitch;
+
+    private Switch modeSwitch;
 
     /**
      * function to create a csv log file
@@ -430,6 +544,8 @@ public class StartupActivity extends AppCompatActivity {
             configStore.setJpegQuality(jpegQuality);
             configStore.setIpAddressText(value);
             configStore.setQualityAlgorithmOption(qualityAlgorithmSwitch.isChecked());
+            configStore.setTargetFPS(targetFPS);
+            configStore.setPipelineLanes(pipelineLanes);
             // settings are only saved when calling this function.
             configStore.flushSetting();
 
@@ -461,7 +577,7 @@ public class StartupActivity extends AppCompatActivity {
         IPAddressView.setOnEditorActionListener(editorActionListener);
         IPAddressView.setText(configStore.getIpAddressText());
 
-        Switch modeSwitch = binding.disableSwitch;
+        modeSwitch = binding.disableSwitch;
         modeSwitch.setOnClickListener(modeListener);
 
         if (null != bundle && bundle.containsKey(DISABLEREMOTEKEY)) {
@@ -481,22 +597,34 @@ public class StartupActivity extends AppCompatActivity {
         Log.println(Log.INFO, "startupactivity", "setting logging to: " + enableLogging);
         enableLoggingSwitch.setChecked(enableLogging);
 
+        int configFlags = configStore.getConfigFlags();
+
         yuvCompButton = binding.yuvCompButton;
         yuvCompButton.setOnClickListener(yuvCompButtonListener);
+        yuvCompButton.setChecked((YUV_COMPRESSION & configFlags) > 0);
+
         jpegCompButton = binding.jpegCompButton;
         jpegCompButton.setOnClickListener(jpegCompButtonListener);
+        jpegCompButton.setChecked((JPEG_COMPRESSION & configFlags) > 0);
+
         jpegImageButton = binding.jpegImageButton;
         jpegImageButton.setOnClickListener(jpegImageButtonListener);
+        jpegImageButton.setChecked((JPEG_IMAGE & configFlags) > 0);
+        // disable jpeg image compression
+        jpegImageButton.setClickable(false);
+
         hevcCompButton = binding.hevcCompButton;
         hevcCompButton.setOnClickListener(hevcCompButtonListener);
+        hevcCompButton.setChecked((HEVC_COMPRESSION & configFlags) > 0);
+
         softwareHevcCompButton = binding.softwareHevcCompButton;
         softwareHevcCompButton.setOnClickListener(softwareHevcCompButtonListener);
+        softwareHevcCompButton.setChecked((SOFTWARE_HEVC_COMPRESSION & configFlags) > 0);
 
         // code to handle the camera JPEG quality input
         DropEditText qualityText = binding.jpegQualityEditText;
-        qualityText.setOnEditorActionListener(jpegQualityTextListener);
+        qualityText.setOnEditorActionListener(loseFocusListener);
         qualityText.setOnFocusChangeListener(jpegQualityFocusListener);
-
         jpegQuality = configStore.getJpegQuality();
         qualityText.setText(Integer.toString(jpegQuality));
 
@@ -505,6 +633,18 @@ public class StartupActivity extends AppCompatActivity {
         if (configStore.getQualityAlgorithmOption()) {
             qualityAlgorithmSwitch.performClick();
         }
+
+        targetFPS = configStore.getTargetFPS();
+        DropEditText targetFPSField = binding.targetFPS;
+        targetFPSField.setText(Integer.toString(targetFPS));
+        targetFPSField.setOnEditorActionListener(loseFocusListener);
+        targetFPSField.setOnFocusChangeListener(targetFPSFocusListener);
+
+        pipelineLanes = configStore.getPipelineLanes();
+        DropEditText pipelineLanesField = binding.pipelineLane;
+        pipelineLanesField.setText(Integer.toString(pipelineLanes));
+        pipelineLanesField.setOnEditorActionListener(loseFocusListener);
+        pipelineLanesField.setOnFocusChangeListener(pipelineFocusListener);
 
     }
 

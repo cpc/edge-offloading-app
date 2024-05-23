@@ -103,6 +103,8 @@ public class PoclImageProcessor {
 
     private int targetFPS;
 
+    private int pipelineLanes;
+
     /**
      * constructor for pocl image processor
      *
@@ -121,11 +123,12 @@ public class PoclImageProcessor {
                               int configFlags,
                               FPSCounter fpsCounter,
                               int inferencingDevice, boolean doSegment, boolean doCompression,
-                              Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm) {
+                              Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm,
+                              int targetFPS, int pipelineLanes) {
         this(null, context, captureSize, imageReader, imageFormat, imageAvailableLock,
                 configFlags,
                 fpsCounter, inferencingDevice, doSegment, doCompression, uri, statLogger,
-                enableQualityAlgorithm);
+                enableQualityAlgorithm, targetFPS, pipelineLanes);
     }
 
     /**
@@ -146,11 +149,12 @@ public class PoclImageProcessor {
                               Semaphore imageAvailableLock, int configFlags,
                               FPSCounter fpsCounter,
                               int inferencingDevice, boolean doSegment, boolean doCompression,
-                              Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm) {
+                              Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm,
+                              int targetFPS, int pipelineLanes) {
         this(activity, activity, captureSize, imageReader, imageFormat, imageAvailableLock,
                 configFlags,
                 fpsCounter, inferencingDevice, doSegment, doCompression, uri, statLogger,
-                enableQualityAlgorithm);
+                enableQualityAlgorithm, targetFPS, pipelineLanes);
     }
 
     /**
@@ -172,7 +176,8 @@ public class PoclImageProcessor {
                                Semaphore imageAvailableLock, int configFlags,
                                FPSCounter fpsCounter,
                                int inferencingDevice, boolean doSegment, boolean doCompression,
-                               Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm) {
+                               Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm,
+                               int targetFPS, int pipelineLanes) {
         this.activity = activity;
         this.context = context;
         this.captureSize = captureSize;
@@ -200,7 +205,8 @@ public class PoclImageProcessor {
         this.imageSubmitThread = null;
         this.receiverThread = null;
 
-        this.targetFPS = 30;
+        setTargetFPS(targetFPS);
+        setPipelineLanes(pipelineLanes);
 
     }
 
@@ -244,11 +250,43 @@ public class PoclImageProcessor {
         this.compressionType = compressionType;
     }
 
-    public void setTargetFPS(int targetFPS) {
-        if(targetFPS > 30) {
-            Log.println(Log.WARN, "PoclImageProcessor.java", "higher target than allowed, capping to 30");
+    public final static int MAX_FPS = 30;
+
+    public static int sanitizeTargetFPS(int targetFPS) {
+        if (targetFPS > MAX_FPS) {
+            Log.println(Log.WARN, "PoclImageProcessor.java", "higher target than allowed, capping" +
+                    " to MAX_FPS");
+            targetFPS = MAX_FPS;
+        } else if (targetFPS < 1) {
+            Log.println(Log.WARN, "PoclImageProcessor.java", "lower target than allowed, capping " +
+                    "to 1");
+            targetFPS = 1;
         }
-        this.targetFPS = targetFPS;
+        return targetFPS;
+    }
+
+    public void setTargetFPS(int targetFPS) {
+
+        this.targetFPS = sanitizeTargetFPS(targetFPS);
+    }
+    public final static int MAX_LANES = 64;
+
+    public static int sanitizePipelineLanes(int lanes) {
+        if (lanes > MAX_LANES) {
+            Log.println(Log.WARN, "PoclImageProcessor.java", "higher target lanes than allowed, " +
+                    "capping to MAX_LANES");
+            lanes = MAX_LANES;
+        } else if (lanes < 1) {
+            Log.println(Log.WARN, "PoclImageProcessor.java", "lower target lanes than allowed, " +
+                    "capping to 1");
+            lanes = 1;
+        }
+        return lanes;
+    }
+
+    public void setPipelineLanes(int lanes) {
+
+        this.pipelineLanes = sanitizePipelineLanes(lanes);
     }
 
     /**
@@ -339,7 +377,7 @@ public class PoclImageProcessor {
             AssetManager assetManager = context.getAssets();
             int status = initPoclImageProcessorV2(configFlags, assetManager,
                     captureSize.getWidth(),
-                    captureSize.getHeight(), nativeFd, 2);
+                    captureSize.getHeight(), nativeFd, this.pipelineLanes);
 
             if (-33 == status) {
                 if (null != activity) {

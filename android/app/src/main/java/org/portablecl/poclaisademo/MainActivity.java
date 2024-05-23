@@ -451,10 +451,12 @@ public class MainActivity extends AppCompatActivity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         boolean enableQualityAlgorithm = configStore.getQualityAlgorithmOption();
+        int targetFPS = configStore.getTargetFPS();
+        int pipelineLanes = configStore.getPipelineLanes();
         poclImageProcessor = new PoclImageProcessor(this, captureSize, null, captureFormat,
                 imageAvailableLock, configFlags, counter, LOCAL_DEVICE,
                 segmentationSwitch.isChecked(), compressionSwitch.isChecked(), uris[0],
-                statLogger, enableQualityAlgorithm);
+                statLogger, enableQualityAlgorithm, targetFPS, pipelineLanes);
 
         // code to handle the quality input
         qualityText = binding.compressionEditText;

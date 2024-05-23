@@ -260,7 +260,8 @@ public class BenchmarkService extends Service {
         boolean enableQualityAlgorithm = configStore.getQualityAlgorithmOption();
         poclImageProcessor = new PoclImageProcessor(this, captureSize, null,
                 ImageFormat.YUV_420_888, imageAvailableLock, configFlags, null, deviceIndex,
-                enableSegmentation, enableCompression, uris[0], null, enableQualityAlgorithm);
+                enableSegmentation, enableCompression, uris[0], null, enableQualityAlgorithm, 30,
+                1);
 //        poclImageProcessor.setOrientation(true);
 
         // foreground apps only work on api version 26 and up

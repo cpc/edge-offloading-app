@@ -10,6 +10,8 @@ import android.util.Log;
 
 import androidx.annotation.NonNull;
 
+import java.util.Locale;
+
 /**
  * A class that is used to store and share config variables that stay persistent across reboots.
  */
@@ -32,6 +34,10 @@ public class ConfigStore {
     private final static String ipAddressTextKey = keyPrefix + "ipaddresstextkey";
 
     private final static String qualityAlgorithmKey = keyPrefix + "qualityalgorithmkey";
+
+    private final static String pipelineLanesKey = keyPrefix + "pipelanekey";
+
+    private final static String targetFPSKey = keyPrefix + "targetfpskey";
 
     /**
      * @param context can be an activity for example
@@ -127,6 +133,31 @@ public class ConfigStore {
                     , value));
         }
         editor.putBoolean(qualityAlgorithmKey, value);
+    }
+
+    public int getPipelineLanes() {
+        return preferences.getInt(pipelineLanesKey, 2);
+    }
+
+    public void setPipelineLanes(int lanes) {
+        if (VERBOSITY >= 2) {
+            Log.println(Log.INFO, logTag, String.format(Locale.US, "storing number of pipelines " +
+                            "as: %d"
+                    , lanes));
+        }
+        editor.putInt(pipelineLanesKey, lanes);
+    }
+
+    public int getTargetFPS() {
+        return preferences.getInt(targetFPSKey, 30);
+    }
+
+    public void setTargetFPS(int fps) {
+        if (VERBOSITY >= 2) {
+            Log.println(Log.INFO, logTag, String.format(Locale.US, "storing target fps as: %d"
+                    , fps));
+        }
+        editor.putInt(targetFPSKey, fps);
     }
 
     /**
