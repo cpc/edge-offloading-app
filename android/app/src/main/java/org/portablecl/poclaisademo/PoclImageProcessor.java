@@ -1,11 +1,13 @@
 package org.portablecl.poclaisademo;
 
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
+import static org.portablecl.poclaisademo.DevelopmentVariables.ENABLEFALLBACK;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_DEVICE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SOFTWARE_HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
@@ -91,7 +93,7 @@ public class PoclImageProcessor {
 
     private int quality;
 
-    private final int configFlags;
+    private int configFlags;
 
     private int imageFormat;
 
@@ -352,6 +354,7 @@ public class PoclImageProcessor {
         float energy;
         int currentInferencingDevice; // inference device is needed both for
         // dequeue_spot and submit image, so copy value over to prevent the value changing
+        int status = 0;
 
         Image image = null;
 
@@ -362,193 +365,237 @@ public class PoclImageProcessor {
         // than the first time we check this value
         long lastFrameTime = System.nanoTime() - 10_000_000_000L;
 
-        int nativeFd = -1;
-        if ((ENABLE_PROFILING & configFlags) > 0) {
-            try {
-                parcelFileDescriptor = context.getContentResolver().openFileDescriptor(uri, "wa");
-            } catch (FileNotFoundException e) {
-                Log.println(Log.WARN, "PoclImageProcessor.java:imageProcessLoop",
-                        "could not open log filedescriptor");
-                return;
-            }
-            nativeFd = parcelFileDescriptor.getFd();
-        }
-        try {
-            AssetManager assetManager = context.getAssets();
-            int status = initPoclImageProcessorV2(configFlags, assetManager,
-                    captureSize.getWidth(),
-                    captureSize.getHeight(), nativeFd, this.pipelineLanes, serviceName);
+        // work around to checking for interrupted multiple times
+        // gets set when the while loop with the interrupt check exits
+        boolean interrupted = false;
 
-            if (-33 == status) {
-                if (null != activity) {
-                    activity.runOnUiThread(() -> Toast.makeText(context,
-                            "could not connect to server, please check connection",
-                            Toast.LENGTH_SHORT).show());
-                } else {
-                    Log.println(Log.WARN, "PoclImageProcessor.java:imageProcessLoop", "could " +
-                            "not connect to server, please check connection");
-                }
-
-                return;
-            }
-
-            // start the thread to read images
-            startReceiverThread();
-
-            // the main loop, will continue until an interrupt is sent
-            while (!Thread.interrupted()) {
-
-                // artificial frame limiting
-                if(targetFPS >= 1) {
-                    long timeNow = System.nanoTime();
-                    long timeSince = (timeNow- lastFrameTime);
-                    if(timeSince < (1_000_000_000 / targetFPS)){
-                        Thread.sleep(0, 333333);
-                        continue;
-                    }
-                    lastFrameTime = timeNow;
-                }
-
-                if (DEBUGEXECUTION) {
-                    Log.println(Log.INFO, "EXECUTIONFLOW", "started new image process" +
-                            " iteration");
-                }
-
-                // wait until image is available,
-                imageAvailableLock.acquire();
-                image = imageReader.acquireLatestImage();
-
-                // acquirelatestimage closes all other images,
-                // so release all permits related to those images
-                // like this, we will only acquire a lock when a
-                // new image is available
-                int drainedPermits = imageAvailableLock.drainPermits();
-                imageAcquireTime = System.nanoTime();
-
-                if (DEBUGEXECUTION) {
-                    Log.println(Log.INFO, "EXECUTIONFLOW", "acquired image");
-                }
-
-                if (VERBOSITY >= 1) {
-                    Log.println(Log.INFO, "imageprocessloop",
-                            "drained permits: " + drainedPermits);
-                }
-
-                if (null == image) {
-                    continue;
-                }
-
-                currentInferencingDevice = inferencingDevice;
-                int sem_status = dequeue_spot(60, currentInferencingDevice);
-                if (sem_status != 0) {
-                    if (DEBUGEXECUTION) {
-                        Log.println(Log.INFO, "poclimageprocessor", "no spot in pocl queue");
-                    }
-                    image.close();
-                    continue;
-                }
-
-                rotation = orientationsSwapped ? 90 : 0;
-                do_segment = this.doSegment ? 1 : 0;
-                compressionParam = doCompression ? compressionType : NO_COMPRESSION;
-                do_algorithm = enableQualityAlgorithm ? 1 : 0;
-
-                Image.Plane[] planes = image.getPlanes();
-
-                // Camera's timestamp passed to the processor to link camera and pocl logs together
-                long imageTimestamp = image.getTimestamp();
-
-                // check that the image is supported
-                assert checkImageFormat(image);
-                energy = statLogger.getCurrentEnergy();
-
-                ByteBuffer Y = planes[0].getBuffer();
-                YPixelStride = planes[0].getPixelStride();
-                YRowStride = planes[0].getRowStride();
-
-                ByteBuffer U = planes[1].getBuffer();
-                ByteBuffer V = planes[2].getBuffer();
-                UVPixelStride = planes[1].getPixelStride();
-                UVRowStride = planes[1].getRowStride();
-
-                VPixelStride = planes[2].getPixelStride();
-                VRowStride = planes[2].getRowStride();
-
-                if (VERBOSITY >= 3) {
-
-                    Log.println(Log.INFO, "imagereader", "image type: " + imageFormat);
-                    Log.println(Log.INFO, "imagereader", "plane count: " + planes.length);
-                    Log.println(Log.INFO, "imagereader",
-                            "Y pixel stride: " + YPixelStride);
-                    Log.println(Log.INFO, "imagereader",
-                            "Y row stride: " + YRowStride);
-                    Log.println(Log.INFO, "imagereader",
-                            "UV pixel stride: " + UVPixelStride);
-                    Log.println(Log.INFO, "imagereader",
-                            "UV row stride: " + UVRowStride);
-
-                    Log.println(Log.INFO, "imagereader",
-                            "V pixel stride: " + VPixelStride);
-                    Log.println(Log.INFO, "imagereader",
-                            "V row stride: " + VRowStride);
-                }
-
-                currentTime = System.currentTimeMillis();
-
-                poclSubmitYUVImage(
-                        currentInferencingDevice, do_segment, compressionParam, quality , rotation, do_algorithm,
-                        Y, YRowStride, YPixelStride,
-                        U, UVRowStride, UVPixelStride,
-                        V, VRowStride, VPixelStride,
-                        imageTimestamp);
-
-                doneTime = System.currentTimeMillis();
-                poclTime = doneTime - currentTime;
-                if (VERBOSITY >= 2) {
-                    Log.println(Log.INFO, "imageprocessloop",
-                            "pocl compute time: " + poclTime + "ms");
-                }
-
-                // don't forget to close the image when done
-                image.close();
-            }
-
-        } catch (InterruptedException e) {
-            // if an image was open, close it.
-            // can be null if the imagereader didn't have an image available
-            if (image != null) {
-                image.close();
-            }
-            Log.println(Log.INFO, "MainActivity.java:imageProcessLoop", "received " +
-                    "interrupt, closing down");
-
-        } catch (Exception e) {
-
-            if (image != null) {
-                image.close();
-            }
-            Log.println(Log.INFO, "MainActivity.java:imageProcessLoop", "error while " +
-                    "processing image");
-            e.printStackTrace();
-
-        } finally {
-
-            stopReceiverThread();
-
-            // always free pocl
-            destroyPoclImageProcessorV2();
-
-            if (null != parcelFileDescriptor) {
-                try {
-                    parcelFileDescriptor.close();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
+        // this outer while loop allows the loop to fallback to local execution if an error occurs
+        while (!interrupted) {
 
             if (DEBUGEXECUTION) {
-                Log.println(Log.INFO, "EXECUTIONFLOW", "finishing image process loop");
+                Log.println(Log.WARN, "PoclImageProcessor.java:imageProcessLoop", "started a new " +
+                        "process loop");
             }
+
+            int nativeFd = -1;
+            if ((ENABLE_PROFILING & configFlags) > 0) {
+                try {
+                    parcelFileDescriptor = context.getContentResolver().openFileDescriptor(uri,
+                            "wa");
+                } catch (FileNotFoundException e) {
+                    Log.println(Log.WARN, "PoclImageProcessor.java:imageProcessLoop",
+                            "could not open log filedescriptor");
+                    return;
+                }
+                nativeFd = parcelFileDescriptor.getFd();
+            }
+
+            try {
+
+                AssetManager assetManager = context.getAssets();
+                status = initPoclImageProcessorV2(configFlags, assetManager,
+                        captureSize.getWidth(),
+                        captureSize.getHeight(), nativeFd, this.pipelineLanes, serviceName);
+
+                if (-33 == status) {
+                    if (null != activity) {
+                        activity.runOnUiThread(() -> Toast.makeText(context,
+                                "could not connect to server, please check connection",
+                                Toast.LENGTH_SHORT).show());
+                    } else {
+                        Log.println(Log.WARN, "PoclImageProcessor.java:imageProcessLoop", "could " +
+                                "not connect to server, please check connection");
+                    }
+
+                    return;
+                }
+
+                // start the thread to read images
+                startReceiverThread();
+
+                // the main loop, will continue until an interrupt is sent
+                while (!Thread.interrupted()) {
+
+                    // artificial frame limiting
+                    if (targetFPS >= 1) {
+                        long timeNow = System.nanoTime();
+                        long timeSince = (timeNow - lastFrameTime);
+                        if (timeSince < (1_000_000_000 / targetFPS)) {
+                            Thread.sleep(0, 333333);
+                            continue;
+                        }
+                        lastFrameTime = timeNow;
+                    }
+
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "started new image process" +
+                                " iteration");
+                    }
+
+                    // wait until image is available,
+                    imageAvailableLock.acquire();
+                    image = imageReader.acquireLatestImage();
+
+                    // acquirelatestimage closes all other images,
+                    // so release all permits related to those images
+                    // like this, we will only acquire a lock when a
+                    // new image is available
+                    int drainedPermits = imageAvailableLock.drainPermits();
+                    imageAcquireTime = System.nanoTime();
+
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "acquired image");
+                    }
+
+                    if (VERBOSITY >= 1) {
+                        Log.println(Log.INFO, "imageprocessloop",
+                                "drained permits: " + drainedPermits);
+                    }
+
+                    if (null == image) {
+                        continue;
+                    }
+
+                    currentInferencingDevice = inferencingDevice;
+                    int sem_status = dequeue_spot(60, currentInferencingDevice);
+                    if (sem_status != 0) {
+                        if (DEBUGEXECUTION) {
+                            Log.println(Log.INFO, "poclimageprocessor", "no spot in pocl queue");
+                        }
+                        image.close();
+                        continue;
+                    }
+
+                    rotation = orientationsSwapped ? 90 : 0;
+                    do_segment = this.doSegment ? 1 : 0;
+                    compressionParam = doCompression ? compressionType : NO_COMPRESSION;
+                    do_algorithm = enableQualityAlgorithm ? 1 : 0;
+
+                    Image.Plane[] planes = image.getPlanes();
+
+                    // Camera's timestamp passed to the processor to link camera and pocl logs
+                    // together
+                    long imageTimestamp = image.getTimestamp();
+
+                    // check that the image is supported
+                    assert checkImageFormat(image);
+                    energy = statLogger.getCurrentEnergy();
+
+                    ByteBuffer Y = planes[0].getBuffer();
+                    YPixelStride = planes[0].getPixelStride();
+                    YRowStride = planes[0].getRowStride();
+
+                    ByteBuffer U = planes[1].getBuffer();
+                    ByteBuffer V = planes[2].getBuffer();
+                    UVPixelStride = planes[1].getPixelStride();
+                    UVRowStride = planes[1].getRowStride();
+
+                    VPixelStride = planes[2].getPixelStride();
+                    VRowStride = planes[2].getRowStride();
+
+                    if (VERBOSITY >= 3) {
+
+                        Log.println(Log.INFO, "imagereader", "image type: " + imageFormat);
+                        Log.println(Log.INFO, "imagereader", "plane count: " + planes.length);
+                        Log.println(Log.INFO, "imagereader",
+                                "Y pixel stride: " + YPixelStride);
+                        Log.println(Log.INFO, "imagereader",
+                                "Y row stride: " + YRowStride);
+                        Log.println(Log.INFO, "imagereader",
+                                "UV pixel stride: " + UVPixelStride);
+                        Log.println(Log.INFO, "imagereader",
+                                "UV row stride: " + UVRowStride);
+
+                        Log.println(Log.INFO, "imagereader",
+                                "V pixel stride: " + VPixelStride);
+                        Log.println(Log.INFO, "imagereader",
+                                "V row stride: " + VRowStride);
+                    }
+
+                    currentTime = System.currentTimeMillis();
+
+                    status = poclSubmitYUVImage(
+                            currentInferencingDevice, do_segment, compressionParam, quality,
+                            rotation, do_algorithm,
+                            Y, YRowStride, YPixelStride,
+                            U, UVRowStride, UVPixelStride,
+                            V, VRowStride, VPixelStride,
+                            imageTimestamp);
+
+                    if (status != 0) {
+                        throw new IllegalStateException("native poclSubmitYUVImage returned " +
+                                "error: " + status);
+                    }
+
+                    doneTime = System.currentTimeMillis();
+                    poclTime = doneTime - currentTime;
+                    if (VERBOSITY >= 2) {
+                        Log.println(Log.INFO, "imageprocessloop",
+                                "pocl compute time: " + poclTime + "ms");
+                    }
+
+                    // don't forget to close the image when done
+                    image.close();
+                }
+
+                interrupted = true;
+
+            } catch (InterruptedException e) {
+                // if an image was open, close it.
+                // can be null if the imagereader didn't have an image available
+                if (image != null) {
+                    image.close();
+                }
+                Log.println(Log.INFO, "MainActivity.java:imageProcessLoop", "received " +
+                        "interrupt, closing down");
+
+            } catch (Exception e) {
+
+                if (image != null) {
+                    image.close();
+                }
+                Log.println(Log.INFO, "MainActivity.java:imageProcessLoop", "error while " +
+                        "processing image");
+                e.printStackTrace();
+
+            } finally {
+
+                stopReceiverThread();
+
+                // always free pocl
+                destroyPoclImageProcessorV2();
+
+                if (null != parcelFileDescriptor) {
+                    try {
+                        parcelFileDescriptor.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                if (DEBUGEXECUTION) {
+                    Log.println(Log.INFO, "EXECUTIONFLOW", "finishing image process loop");
+                }
+            }
+
+            // if fallback is enabled, start the loop again
+            if (ENABLEFALLBACK && !interrupted) {
+                this.setInferencingDevice(LOCAL_DEVICE);
+
+                // TODO: restore old config flags when remote is back
+                boolean doProfiling = (configFlags & ENABLE_PROFILING) > 1;
+                this.configFlags = NO_COMPRESSION | (doProfiling ? ENABLE_PROFILING : 0);
+
+                if (null != activity) {
+                    activity.runOnUiThread(() -> Toast.makeText(context,
+                            "lost connect, falling back to local",
+                            Toast.LENGTH_SHORT).show());
+                    activity.enableRemote(false);
+                }
+            } else {
+                break;
+            }
+
         }
 
     }
@@ -570,6 +617,7 @@ public class PoclImageProcessor {
         // 1: latency
         long[] dataExchange = {0, 0};
         float energy = 0;
+        int status = 0;
 
         while (!Thread.interrupted()) {
 
@@ -587,7 +635,14 @@ public class PoclImageProcessor {
             }
 
             energy = statLogger.getCurrentEnergy();
-            receiveImage(detection_results, segmentation_results, dataExchange, energy);
+            status = receiveImage(detection_results, segmentation_results, dataExchange, energy);
+
+            if (status != 0) {
+                Log.println(Log.WARN, "poclimageprocessor",
+                        "jni receive image returned error: " + status);
+                break;
+            }
+
 
             this.lastIou = poclGetLastIouV2();
 

@@ -212,7 +212,7 @@ static void throw_if_cl_err(cl_int status, const char *msg) {
     err_msg.append("'");
 
     printf("%s\n", err_msg.c_str());
-    exit(1);
+//    exit(1);
 }
 
 static void throw_if_nullptr(void *ptr, const char *msg) {

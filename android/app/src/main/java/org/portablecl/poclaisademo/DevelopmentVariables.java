@@ -13,4 +13,11 @@ public class DevelopmentVariables {
      * if true, each function will print when they are being called
      */
     public static final boolean DEBUGEXECUTION = false;
+
+
+    /**
+     * allow the pocl image processor to fallback to local only on
+     * a device lost
+     */
+    public static final boolean ENABLEFALLBACK = true;
 }

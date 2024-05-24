@@ -1033,6 +1033,22 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * enable or disable the mode switch. when disabling it, also set the switch to not checked
+     *
+     * @param value true to allow users to use the mode switch otherwise disable it
+     */
+    public void enableRemote(boolean value) {
+
+        runOnUiThread(() -> {
+            modeSwitch.setClickable(value);
+
+            if (!value) {
+                modeSwitch.setChecked(false);
+            }
+        });
+    }
+
+    /**
      * this is the first function is called when stopping an activity
      * <p>
      * see https://developer.android.com/guide/components/activities/activity-lifecycle

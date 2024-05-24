@@ -22,6 +22,7 @@ extern "C" {
 #endif
 
 typedef enum {
+    LANE_REMOTE_LOST = -3,
     LANE_SHUTDOWN = -2,
     LANE_ERROR = -1,
     LANE_READY = 0,
@@ -62,6 +63,7 @@ typedef struct {
      * 1 busy
      */
     lane_state_t state;
+    int local_only; // used to indicate that it is not possible to use the remote device
 
     // todo: see if it makes more sense to store the codec config  in the pipeline instead of the
     // eval_metadata and just use the metadata to return the values back at the function caller

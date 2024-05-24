@@ -36,7 +36,8 @@ constexpr int SEG_POSTPROCESS_COUNT = 4 * MASK_W * MASK_H; // RGBA image
 
 constexpr float FPS = 30.0f;
 //constexpr int NFRAMES = 100;
- constexpr int NFRAMES = 4;
+constexpr int NFRAMES = 4;
+constexpr bool RETRY_ON_DISCONNECT = true;
 
 cl_int test_pthread_bik() {
     ZoneScoped;
@@ -177,36 +178,50 @@ cl_int test_pthread_bik() {
     return CL_SUCCESS;
 }
 
+// keep track of how many image that have been read
+int read_frame_count;
 /**
  * The function that receives images continuously
  * @param ctx image processor context
  */
 void read_function(pocl_image_processor_context *ctx) {
 
-    int frame_index = 0;
     int segmentation = 0;
     eval_metadata_t eval_metadata;
     int status;
     std::vector<int32_t> detections(DETECTION_COUNT);
     std::vector<uint8_t> segmentations(SEG_POSTPROCESS_COUNT);
 
-    while (frame_index < NFRAMES) {
+    bool error_state = false;
 
-        if (wait_image_available(ctx, 1000) != 0) {
-            continue;
+    while (read_frame_count < NFRAMES) {
+
+        if (wait_image_available(ctx, 100) != 0) {
+            if (!error_state) {
+                continue;
+            } else {
+                break;
+            }
         }
+
+        detections[0] = 0;
         status = receive_image(ctx, detections.data(), segmentations.data(),
                                &eval_metadata, &segmentation);
+        read_frame_count += 1;
 
-        throw_if_cl_err(status, "could not enqueue image");
-        printf("==== Frame %d, no. detections: %d ====\n", frame_index,
+        throw_if_cl_err(status, "main.c could not enqueue image");
+        printf("==== Frame %d, no. detections: %d ====\n", read_frame_count,
                detections[0]);
+
+        if(CL_SUCCESS != status) {
+            error_state = true;
+            continue;
+        }
 
         cv::Mat seg_out(MASK_H, MASK_W, CV_8UC4, segmentations.data());
         cv::cvtColor(seg_out, seg_out, cv::COLOR_RGBA2RGB);
         cv::imwrite("seg_out.png", seg_out);
 
-        frame_index += 1;
     }
 }
 
@@ -258,13 +273,15 @@ int main() {
     throw_if_cl_err(status, "Getting device info");
 
     /* Settings */
-    constexpr compression_t compression_type = YUV_COMPRESSION;
-    //    constexpr compression_t compression_type = NO_COMPRESSION;
+    //    constexpr compression_t compression_type = YUV_COMPRESSION;
+    constexpr compression_t compression_type = NO_COMPRESSION;
     //    constexpr compression_t compression_type = JPEG_COMPRESSION;
-    constexpr int config_flags = ENABLE_PROFILING | compression_type;
+    constexpr int config_flags =
+        NO_COMPRESSION | ENABLE_PROFILING | compression_type;
 
-    constexpr device_type_enum device_index = REMOTE_DEVICE;
-    //    constexpr devic_type_enum device_index = LOCAL_DEVICE;
+    device_type_enum device_index = REMOTE_DEVICE;
+    //  device_type_enum device_index = LOCAL_DEVICE;
+
     constexpr int do_segment = 1;
     constexpr int quality = 80;
     constexpr int rotation = 0;
@@ -336,18 +353,25 @@ int main() {
     uint64_t size_bytes;
     host_ts_ns_t host_ts_ns;
     codec_config_t codec_config;
+
+    // used by the reader thread to figure out when to stop
+    read_frame_count = 0;
+
+RETRY:
+
     codec_config.rotation = rotation;
     codec_config.do_segment = do_segment;
     codec_config.compression_type = compression_type;
     codec_config.device_type = device_index;
     codec_config.config.jpeg.quality = quality;
 
-    pocl_image_processor_context *ctx;
+    pocl_image_processor_context *ctx = NULL;
 
     status = create_pocl_image_processor_context(
         &ctx, 2, inp_w, inp_h, config_flags, codec_sources.at(0).c_str(),
-        codec_sources.at(0).size(), fd);
+        codec_sources.at(0).size(), fd, "b850a72c2fca810ab754b77b1e31726b");
     assert(status == CL_SUCCESS);
+    assert(ctx != NULL);
 
     // create read thread
     std::thread thread(read_function, ctx);
@@ -366,7 +390,7 @@ int main() {
         // set a long timeout so that the loop is at minimum
         // 30 fps (see above code) and maximum as long as it takes
         // for another frame
-        if (dequeue_spot(ctx, 20000) != 0) {
+        if (dequeue_spot(ctx, 20000, device_index) != 0) {
             continue;
         }
 
@@ -374,15 +398,27 @@ int main() {
         image_data.image_timestamp = image_timestamp;
 
         status = submit_image(ctx, codec_config, image_data, is_eval_frame);
-        assert(status == CL_SUCCESS);
 
         frame_index += 1;
+        printf("submitted image : %d\n", frame_index);
+
+        //        assert(status == CL_SUCCESS);
+        throw_if_cl_err(status, "main.c could not submit image");
+        if (CL_SUCCESS != status) {
+            break;
+        }
     }
 
     // join the thread
     thread.join();
 
     status = destroy_pocl_image_processor_context(&ctx);
+
+    if (true == RETRY_ON_DISCONNECT && (frame_index < NFRAMES)) {
+        device_index = LOCAL_DEVICE;
+        goto RETRY;
+    }
+
     assert(status == CL_SUCCESS);
 
     close(fd);

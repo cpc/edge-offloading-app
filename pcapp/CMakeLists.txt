@@ -19,6 +19,9 @@ include(ProcessorCount)
 
 project(pcapp LANGUAGES C CXX)
 
+add_compile_options(-fsanitize=thread -g -fno-omit-frame-pointer -fPIC -pie)
+add_link_options(-fsanitize=thread -ltsan)
+
 set(POCL_ASAN 0)
 if (ENABLE_ASAN)
     add_compile_options(-fsanitize=address)
@@ -75,19 +78,22 @@ set(POCL_CMAKE_ARGS
         -DVISIBILITY_HIDDEN=0
 
         # STILL USED?
-        -DOpenCV_DIR=${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/jni
+#        -DOpenCV_DIR=${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/jni
 
         -DENABLE_OPENCV_ONNX=ON
-        -DORT_INSTALL_DIR=${ORT_INSTALL_DIR}
-        -DCUDA_TOOLKIT_ROOT_DIR=${CUDA_TOOLKIT_ROOT_DIR}
+#        -DORT_INSTALL_DIR=${ORT_INSTALL_DIR}
+#        -DCUDA_TOOLKIT_ROOT_DIR=${CUDA_TOOLKIT_ROOT_DIR}
 
         -DENABLE_TURBO_JPEG_COMPRESSION=YES
         -DENABLE_TURBO_JPEG_DECOMPRESSION=YES
-        -Dlibjpeg-turbo_DIR=${EXTERNAL_DIR}/libjpeg-turbo/libturbojpeg/x86-64/lib/cmake/libjpeg-turbo
+#        -Dlibjpeg-turbo_DIR=${EXTERNAL_DIR}/libjpeg-turbo/libturbojpeg/x86-64/lib/cmake/libjpeg-turbo
+        -Dlibjpeg-turbo_DIR=${libjpeg-turbo_DIR}
         -DENABLE_FFMPEG_DECODE=NO
-        -DENABLE_LATEST_CXX_STD=YES
+        -DENABLE_LATEST_CXX_STD=NO
 
         -DTRACY_ENABLE=${TRACY_ENABLE}
+        -DCMAKE_VERBOSE_MAKEFILE=${CMAKE_VERBOSE_MAKEFILE}
+        -DENABLE_TSAN=YES
         )
 
 ExternalProject_Add(pocl

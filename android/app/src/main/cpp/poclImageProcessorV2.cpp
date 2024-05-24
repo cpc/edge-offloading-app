@@ -70,11 +70,13 @@ supports_config_flags(const int config_flags) {
 
 #define SET_CTX_STATE(ctx, expected_state, new_state) \
         pthread_mutex_lock(&(ctx->state_mut)); \
-        if(LANE_ERROR != new_state) {\
-            assert(expected_state == ctx->state);\
+        if((LANE_ERROR < (expected_state)) &&(ctx->state != expected_state)) {\
+            assert(0 && "pipeline state was not one of the expected state");\
         }\
         ctx->state = new_state;                       \
-                                         \
+        if(LANE_REMOTE_LOST == new_state) {           \
+            ctx->local_only = 1;                      \
+        }\
         LOGW("set state to: %d (ln : %d)\n", ctx->state, __LINE__);\
         pthread_mutex_unlock(&(ctx->state_mut));      \
 
@@ -83,9 +85,30 @@ supports_config_flags(const int config_flags) {
 #define SET_CTX_STATE(ctx, expected_state, new_state) \
         pthread_mutex_lock(&(ctx->state_mut)); \
         ctx->state = new_state;                       \
+        if(LANE_REMOTE_LOST == new_state) {            \
+            ctx->local_only = 1;                      \
+        }                                              \
         pthread_mutex_unlock(&(ctx->state_mut));
 
 #endif
+
+
+/**
+ * check the return value and goto finish if it is CL_DEVICE_NOT_AVAILABLE
+ * in a debug build, the assert will crash the program
+ */
+#define CHECK_AND_CATCH(ret, msg, new_state)                                          \
+        if(CL_SUCCESS != ret) {                                                       \
+            LOGE(msg);                                                                \
+            new_state = LANE_REMOTE_LOST;                                              \
+            goto FINISH;                                                              \
+        }
+
+#define CHECK_AND_CATCH_NO_STATE(ret, msg)                                          \
+        if(CL_SUCCESS != ret) {                                                     \
+            LOGE(msg);                                                                        \
+            goto FINISH;                                                              \
+        }
 
 /**
  * create a pipeline context that has the requested codecs initialized
@@ -113,7 +136,7 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
     assert(1 <= no_devs && "setup_pipeline_context requires atleast one device");
     if ((config_flags &
          (YUV_COMPRESSION | HEVC_COMPRESSION | SOFTWARE_HEVC_COMPRESSION | JPEG_COMPRESSION)) &&
-        1 == no_devs) {
+        no_devs <= 2) {
         CHECK_AND_RETURN(-1, "compression is not supported with one device");
     }
 
@@ -642,13 +665,18 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
 
     TracyCFrameMarkStart(ctx->lane_name);
 
-    SET_CTX_STATE(ctx, LANE_READY, LANE_BUSY)
+    if (1 == ctx->local_only) {
+        return CL_DEVICE_NOT_AVAILABLE;
+    }
+
+    SET_CTX_STATE(ctx, LANE_ERROR, LANE_BUSY)
 
     if (NULL != metadata) {
         metadata->host_ts_ns.start = get_timestamp_ns();
     }
 
     cl_int status;
+    lane_state_t new_state = LANE_BUSY;
 
     compression_t compression_type = config.compression_type;
 
@@ -659,7 +687,10 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
     assert(compression_type & ctx->config_flags);
 
     // check that no compression is passed to local device
-    assert((0 == config.device_type) ? (NO_COMPRESSION == compression_type) : 1);
+    assert((LOCAL_DEVICE == config.device_type) ? (NO_COMPRESSION == compression_type) : 1);
+
+    // make sure we are not enqueuing a remote device when for some reason the remote device is gone
+    assert((REMOTE_DEVICE == config.device_type) ? (ctx->local_only != 1) : 1);
 
     // this is done at the beginning so that the quality algorithm has
     // had the option to use the events
@@ -691,9 +722,10 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
         // normal execution
         inp_format = YUV_SEMI_PLANAR;
 
-        write_buffer_dnn(ctx->dnn_context, config.device_type, ctx->host_inp_buf,
-                         ctx->host_inp_buf_size,
-                         ctx->inp_yuv_mem, NULL, ctx->event_array, &dnn_wait_event);
+        status = write_buffer_dnn(ctx->dnn_context, config.device_type, ctx->host_inp_buf,
+                                  ctx->host_inp_buf_size,
+                                  ctx->inp_yuv_mem, NULL, ctx->event_array, &dnn_wait_event);
+        CHECK_AND_CATCH(status, "could not write raw image to dnn buffer", new_state)
         // no compression is an edge case since it uses the uncompressed
         // yuv buffer as input for the dnn stage
         dnn_input_buf = ctx->inp_yuv_mem;
@@ -708,7 +740,7 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
         status = enqueue_yuv_compression(ctx->yuv_context, wait_on_yuv_event,
                                          ctx->inp_yuv_mem, ctx->comp_to_dnn_buf,
                                          ctx->event_array, &dnn_wait_event);
-        CHECK_AND_RETURN(status, "could not enqueue yuv compression work");
+        CHECK_AND_CATCH(status, "could not enqueue yuv compression work", new_state)
         dnn_input_buf = ctx->comp_to_dnn_buf;
     }
 #ifndef DISABLE_JPEG
@@ -722,7 +754,7 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
                           ctx->inp_yuv_mem, ctx->event_array, &wait_on_write_event);
         status = enqueue_jpeg_compression(ctx->jpeg_context, wait_on_write_event, ctx->inp_yuv_mem,
                                           ctx->comp_to_dnn_buf, ctx->event_array, &dnn_wait_event);
-        CHECK_AND_RETURN(status, "could not enqueue jpeg compression");
+        CHECK_AND_CATCH(status, "could not enqueue jpeg compression", new_state)
         dnn_input_buf = ctx->comp_to_dnn_buf;
     }
 #endif // DISABLE_JPEG
@@ -740,8 +772,7 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
         status = enqueue_hevc_compression(ctx->hevc_context, &wait_on_hevc_write_event,
                                           ctx->inp_yuv_mem, ctx->comp_to_dnn_buf, ctx->event_array,
                                           &dnn_wait_event);
-
-        CHECK_AND_RETURN(status, "could not enqueue hevc compression");
+        CHECK_AND_CATCH(status, "could not enqueue hevc compression", new_state)
         dnn_input_buf = ctx->comp_to_dnn_buf;
 
     } else if (SOFTWARE_HEVC_COMPRESSION == compression_type) {
@@ -758,8 +789,7 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
                                           &wait_on_soft_hevc_write_event,
                                           ctx->inp_yuv_mem, ctx->comp_to_dnn_buf, ctx->event_array,
                                           &dnn_wait_event);
-
-        CHECK_AND_RETURN(status, "could not enqueue hevc compression");
+        CHECK_AND_CATCH(status, "could not enqueue hevc compression", new_state)
         dnn_input_buf = ctx->comp_to_dnn_buf;
 
     }
@@ -776,11 +806,15 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
                          dnn_input_buf,
 //                         output->detection_array, output->segmentation_array,
                          ctx->event_array, &(output->event_list[0]));
-    CHECK_AND_RETURN(status, "could not enqueue dnn stage");
+    CHECK_AND_CATCH(status, "could not enqueue dnn stage", new_state)
 
     // TODO: create goto statement putting the state to an error
+    FINISH:
+    if (new_state != LANE_BUSY) {
+        SET_CTX_STATE(ctx, LANE_ERROR, new_state)
+    }
 
-    return CL_SUCCESS;
+    return status;
 }
 
 /**
@@ -810,18 +844,25 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config, ima
     frame_metadata_t *image_metadata = &(ctx->metadata_array[index]);
     dnn_results *collected_result = &(ctx->collected_results[index]);
 
+    // a catch to make sure we are falling back to local when it goes into localonly mode
+    if (1 == ctx->pipeline_array[index].local_only && REMOTE_DEVICE == codec_config.device_type) {
+        LOGW("pipeline is in local only mode, but codec requests remote device, falling back to local\n");
+        codec_config.device_type = LOCAL_DEVICE;
+        codec_config.compression_type = NO_COMPRESSION;
+    }
+
     if (HEVC_COMPRESSION == codec_config.compression_type ||
         SOFTWARE_HEVC_COMPRESSION == codec_config.compression_type) {
 
         assert(codec_config.compression_type & ctx->pipeline_array[index].config_flags);
         status = check_and_configure_global_hevc(ctx, codec_config, &(ctx->pipeline_array[index]));
-        CHECK_AND_RETURN(status, "could not configure hevc codec");
+        CHECK_AND_CATCH_NO_STATE(status, "could not configure hevc codec");
     }
 
     status = submit_image_to_pipeline(&(ctx->pipeline_array[index]), codec_config, image_data,
                                       image_metadata, ctx->file_descriptor,
                                       collected_result);
-    CHECK_AND_RETURN(status, "could not submit image to pipeline");
+    CHECK_AND_CATCH_NO_STATE(status, "could not submit image to pipeline");
 
     image_metadata->is_eval_frame = 0;
 
@@ -834,7 +875,7 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config, ima
                                       codec_config.rotation, codec_config.do_segment, NULL};
         status = submit_image_to_pipeline((ctx->eval_ctx.eval_pipeline), eval_config, image_data,
                                           NULL, ctx->file_descriptor, ctx->eval_ctx.eval_results);
-        CHECK_AND_RETURN(status, "could not submit eval image");
+        CHECK_AND_CATCH_NO_STATE(status, "could not submit eval image");
 
         cl_event wait_list[] = {collected_result->event_list[0],
                                 ctx->eval_ctx.eval_results->event_list[0]};
@@ -844,7 +885,7 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config, ima
                                   ctx->eval_ctx.eval_pipeline->event_array,
                                   &(ctx->eval_ctx.eval_results->event_list[1]));
         ctx->eval_ctx.eval_results->event_list_size = 2;
-        CHECK_AND_RETURN(status, "could not enqueue eval kernel");
+        CHECK_AND_CATCH_NO_STATE(status, "could not enqueue eval kernel");
 
         image_metadata->is_eval_frame = 1;
 
@@ -855,11 +896,13 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config, ima
     }
 
     // run the ping buffer (needs to run also on local device to check if network improved)
-    if (ctx->devices_found > 1) {
+    if (ctx->devices_found > 2) {
         // todo: see if this should be run on every device
         image_metadata->host_ts_ns.before_fill = get_timestamp_ns();
-        ping_fillbuffer_run(ctx->ping_context, ctx->remote_queue,
-                            ctx->pipeline_array[index].event_array);
+        cl_event fill_event;
+        status = ping_fillbuffer_run(ctx->ping_context, ctx->remote_queue,
+                                     ctx->pipeline_array[index].event_array);
+        CHECK_AND_CATCH_NO_STATE(status, "could not ping remote");
     }
 
     collected_result->event_list[1] = NULL;
@@ -880,6 +923,8 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config, ima
                 is_eval_frame);
         log_codec_config(ctx->file_descriptor, image_metadata->frame_index, codec_config);
     }
+
+    FINISH:
 
     // FIXME release all but one
 
@@ -969,6 +1014,10 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
               frame_metadata_t *return_metadata, int *const segmentation) {
     ZoneScoped;
 
+    // variables used later, but need to be declared now for goto statement
+    int i;
+    char *markId = new char[16];
+
     int index = ctx->frame_index_tail % ctx->lane_count;
     ctx->frame_index_tail += 1;
     LOGI("receive_image index: %d\n", index);
@@ -978,6 +1027,10 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
 
     pipeline_context *pipeline = &(ctx->pipeline_array[index]);
 
+    if (1 == pipeline->local_only) {
+        return CL_DEVICE_NOT_AVAILABLE;
+    }
+
     int config_flags = pipeline->config_flags;
 
     // used to send segmentation back to java
@@ -986,55 +1039,54 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
     image_metadata.host_ts_ns.before_wait = get_timestamp_ns();
 
     int status;
+    lane_state_t new_state = LANE_READY;
 
     // TODO: wrap with pipeline function
     status = enqueue_read_results_dnn(pipeline->dnn_context,
                                       &image_metadata.codec, detection_array, segmentation_array,
                                       image_metadata.event_array, results.event_list_size,
                                       results.event_list);
-    CHECK_AND_RETURN(status, "could not read results back");
-
+//    CHECK_AND_RETURN(status, "could not read results back");
+    CHECK_AND_CATCH(status, "could not read results back", new_state)
 
     if (image_metadata.is_eval_frame) {
         ZoneScopedN("wait_eval");
         status = clWaitForEvents(ctx->eval_ctx.eval_results->event_list_size,
                                  ctx->eval_ctx.eval_results->event_list);
-        CHECK_AND_RETURN(status, "could not wait on eval event");
+        CHECK_AND_CATCH(status, "could not wait on eval event", new_state);
     }
 
     if (NULL != ctx->tracy_ctxs) {
-        for (int i = 0; i < ctx->devices_found; i++) {
+        for (i = 0; i < ctx->devices_found; i++) {
             TracyCLCollect(ctx->tracy_ctxs[i]);
         }
     }
 
     image_metadata.host_ts_ns.after_wait = get_timestamp_ns();
 
-    if (ctx->devices_found <= 1) {
+    if (ctx->devices_found <= 2) {
         // Don't track networking latency if the only available device is local
         image_metadata.host_ts_ns.fill_ping_duration = 0;
     } else {
         cl_int fill_status;
-        status = clGetEventInfo(ctx->ping_context->event, CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int),
+        status = clGetEventInfo(ctx->ping_context->event, CL_EVENT_COMMAND_EXECUTION_STATUS,
+                                sizeof(cl_int),
                                 &fill_status, NULL);
-        CHECK_AND_RETURN(status, "could not get fill event info");
+        CHECK_AND_CATCH(status, "could not get fill event info", new_state);
 
         if (fill_status == CL_COMPLETE) {
             // Fill ping completed sooner than the rest of the loop
             cl_ulong start_time_ns, end_time_ns;
             status = clGetEventProfilingInfo(ctx->ping_context->event, CL_PROFILING_COMMAND_START,
                                              sizeof(cl_ulong), &start_time_ns, NULL);
-            if (status != CL_SUCCESS) {
-                LOGE("ERROR: Could not get fill event start\n");
-                return status;
-            }
 
-            status = clGetEventProfilingInfo(ctx->ping_context->event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong),
+            CHECK_AND_CATCH(status, "could not get fill event start\n", new_state);
+
+            status = clGetEventProfilingInfo(ctx->ping_context->event, CL_PROFILING_COMMAND_END,
+                                             sizeof(cl_ulong),
                                              &end_time_ns, NULL);
-            if (status != CL_SUCCESS) {
-                LOGE("ERROR: Could not get fill event end\n");
-                return status;
-            }
+
+            CHECK_AND_CATCH(status, "could not get fill event end \n", new_state);
 
             image_metadata.host_ts_ns.fill_ping_duration = end_time_ns - start_time_ns;
         } else {
@@ -1048,12 +1100,12 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
     if (ENABLE_PROFILING & config_flags) {
         status = print_events(ctx->file_descriptor, image_metadata.frame_index,
                               image_metadata.event_array);
-        CHECK_AND_RETURN(status, "failed to print events");
+        CHECK_AND_CATCH(status, "failed to print events", new_state);
 
         if (1 == image_metadata.is_eval_frame) {
             status = print_events(ctx->file_descriptor, image_metadata.frame_index,
                                   ctx->eval_ctx.eval_pipeline->event_array);
-            CHECK_AND_RETURN(status, "failed to print events");
+            CHECK_AND_CATCH(status, "failed to print events", new_state);
         }
 
         uint64_t compressed_size = get_compression_size(*pipeline,
@@ -1073,16 +1125,17 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
         memcpy(return_metadata, &image_metadata, sizeof(frame_metadata_t));
     }
 
-    char *markId = new char[16];
     snprintf(markId, 16, "frame end: %i", ctx->frame_index_tail - 1);
     TracyMessage(markId, strlen(markId));
     TracyCFrameMarkEnd(pipeline->lane_name);
 
-    SET_CTX_STATE(pipeline, LANE_BUSY, LANE_READY)
 
+    FINISH:
+
+SET_CTX_STATE(pipeline, LANE_ERROR, new_state)
 
     if (image_metadata.is_eval_frame) {
-        SET_CTX_STATE(ctx->eval_ctx.eval_pipeline, LANE_BUSY, LANE_READY)
+        SET_CTX_STATE(ctx->eval_ctx.eval_pipeline, LANE_BUSY, new_state)
     }
 
 #ifdef DEBUG_SEMAPHORES
@@ -1107,7 +1160,7 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
         sem_post(&(ctx->local_sem));
     }
 
-    return CL_SUCCESS;
+    return status;
 }
 
 /**
