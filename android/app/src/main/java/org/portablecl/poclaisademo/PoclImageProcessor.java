@@ -85,8 +85,6 @@ public class PoclImageProcessor {
 
     private boolean doSegment;
 
-    private boolean doCompression;
-
     private int compressionType;
 
     public int inferencingDevice;
@@ -118,18 +116,17 @@ public class PoclImageProcessor {
      * @param fpsCounter
      * @param inferencingDevice
      * @param doSegment
-     * @param doCompression
      */
     public PoclImageProcessor(Context context, Size captureSize, ImageReader imageReader,
                               int imageFormat, Semaphore imageAvailableLock,
                               int configFlags,
                               FPSCounter fpsCounter,
-                              int inferencingDevice, boolean doSegment, boolean doCompression,
+                              int inferencingDevice, boolean doSegment,
                               Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm,
                               int targetFPS, int pipelineLanes) {
         this(null, context, captureSize, imageReader, imageFormat, imageAvailableLock,
                 configFlags,
-                fpsCounter, inferencingDevice, doSegment, doCompression, uri, statLogger,
+                fpsCounter, inferencingDevice, doSegment, uri, statLogger,
                 enableQualityAlgorithm, targetFPS, pipelineLanes);
     }
 
@@ -144,18 +141,17 @@ public class PoclImageProcessor {
      * @param fpsCounter
      * @param inferencingDevice
      * @param doSegment
-     * @param doCompression
      */
     public PoclImageProcessor(MainActivity activity, Size captureSize, ImageReader imageReader,
                               int imageFormat,
                               Semaphore imageAvailableLock, int configFlags,
                               FPSCounter fpsCounter,
-                              int inferencingDevice, boolean doSegment, boolean doCompression,
+                              int inferencingDevice, boolean doSegment,
                               Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm,
                               int targetFPS, int pipelineLanes) {
         this(activity, activity, captureSize, imageReader, imageFormat, imageAvailableLock,
                 configFlags,
-                fpsCounter, inferencingDevice, doSegment, doCompression, uri, statLogger,
+                fpsCounter, inferencingDevice, doSegment, uri, statLogger,
                 enableQualityAlgorithm, targetFPS, pipelineLanes);
     }
 
@@ -171,13 +167,12 @@ public class PoclImageProcessor {
      * @param fpsCounter
      * @param inferencingDevice
      * @param doSegment
-     * @param doCompression
      */
     private PoclImageProcessor(MainActivity activity, Context context, Size captureSize,
                                ImageReader imageReader, int imageFormat,
                                Semaphore imageAvailableLock, int configFlags,
                                FPSCounter fpsCounter,
-                               int inferencingDevice, boolean doSegment, boolean doCompression,
+                               int inferencingDevice, boolean doSegment,
                                Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm,
                                int targetFPS, int pipelineLanes) {
         this.activity = activity;
@@ -192,7 +187,6 @@ public class PoclImageProcessor {
         counter = fpsCounter;
         this.inferencingDevice = inferencingDevice;
         this.doSegment = doSegment;
-        this.doCompression = doCompression;
         this.orientationsSwapped = false;
         this.uri = uri;
 
@@ -237,15 +231,6 @@ public class PoclImageProcessor {
      */
     public void setDoSegment(boolean doSegment) {
         this.doSegment = doSegment;
-    }
-
-    /**
-     * Enable compression
-     *
-     * @param doCompression
-     */
-    public void setDoCompression(boolean doCompression) {
-        this.doCompression = doCompression;
     }
 
     public void setCompressionType(int compressionType) {
@@ -348,7 +333,7 @@ public class PoclImageProcessor {
         int YPixelStride, YRowStride;
         int UVPixelStride, UVRowStride;
         int VPixelStride, VRowStride;
-        int rotation, do_segment, compressionParam, do_algorithm;
+        int rotation, do_segment, do_algorithm;
         long currentTime, doneTime, poclTime, imageAcquireTime;
         int size;
         float energy;
@@ -468,7 +453,6 @@ public class PoclImageProcessor {
 
                     rotation = orientationsSwapped ? 90 : 0;
                     do_segment = this.doSegment ? 1 : 0;
-                    compressionParam = doCompression ? compressionType : NO_COMPRESSION;
                     do_algorithm = enableQualityAlgorithm ? 1 : 0;
 
                     Image.Plane[] planes = image.getPlanes();
@@ -515,7 +499,7 @@ public class PoclImageProcessor {
                     currentTime = System.currentTimeMillis();
 
                     status = poclSubmitYUVImage(
-                            currentInferencingDevice, do_segment, compressionParam, quality,
+                            currentInferencingDevice, do_segment, compressionType, quality,
                             rotation, do_algorithm,
                             Y, YRowStride, YPixelStride,
                             U, UVRowStride, UVPixelStride,
@@ -657,9 +641,6 @@ public class PoclImageProcessor {
                     // Fetch the compression type, device, etc., from the JNI and flip the buttons accordingly
                     CodecConfig config = getCodecConfig();
                     activity.setButtonsFromJNI(config);
-                    setInferencingDevice(config.deviceIndex);
-                    setCompressionType(config.compressionType);
-                    setDoCompression(NO_COMPRESSION != config.compressionType);
                 }
             }
 

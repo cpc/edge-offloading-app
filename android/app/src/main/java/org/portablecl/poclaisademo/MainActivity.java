@@ -8,15 +8,11 @@ import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
 import static org.portablecl.poclaisademo.BundleKeys.TOTALLOGS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.HEVC_COMPRESSION;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_DEVICE;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.REMOTE_DEVICE;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SOFTWARE_HEVC_COMPRESSION;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getStats;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.allCompressionOptions;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getCompressionString;
 import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 
 import android.Manifest;
@@ -55,6 +51,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
@@ -72,8 +69,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -241,8 +240,6 @@ public class MainActivity extends AppCompatActivity {
 
     private static PoclImageProcessor poclImageProcessor;
 
-    private static Switch compressionSwitch;
-
     /**
      * used to schedule a thread to periodically update stats
      */
@@ -272,22 +269,22 @@ public class MainActivity extends AppCompatActivity {
 
     private ActivityMainBinding binding;
 
-    private Switch YUVSwitch;
-
-    private Switch JPEGSwitch;
-
-    private Switch HEVCSwitch;
-
-    private Switch CamSwitch;
-
     private Switch modeSwitch;
 
     private DropEditText qualityText;
 
-    private Switch softwareHEVCSwitch;
-
     private StatLogger statLogger;
     private DiscoverySelect DSSelect;
+
+    /**
+     * a dropdown item that can be used to set the compression to be used
+     */
+    private Spinner compressionSpinner;
+
+    /**
+     * the list of items in the compresssionSpinner
+     */
+    private ArrayAdapter<String> compressionEntries;
 
     /**
      * see https://developer.android.com/guide/components/activities/activity-lifecycle
@@ -374,40 +371,15 @@ public class MainActivity extends AppCompatActivity {
         Switch segmentationSwitch = binding.segmentSwitch;
         segmentationSwitch.setOnClickListener(segmentListener);
 
-        compressionSwitch = binding.CompressSwitch;
-        compressionSwitch.setOnClickListener(compressListener);
-
-        // set up compression switches
-        YUVSwitch = binding.YUVSwitch;
-        YUVSwitch.setOnClickListener(SetCompressListener);
-        // disable switch if compression is not available
-        if (0 == (YUV_COMPRESSION & configFlags)) {
-            YUVSwitch.setClickable(false);
-        }
-
-        JPEGSwitch = binding.JPEGSwitch;
-        JPEGSwitch.setOnClickListener(SetCompressListener);
-        if (0 == (JPEG_COMPRESSION & configFlags)) {
-            JPEGSwitch.setClickable(false);
-        }
-
-        HEVCSwitch = binding.HEVCSwitch;
-        HEVCSwitch.setOnClickListener(SetCompressListener);
-        if (0 == (HEVC_COMPRESSION & configFlags)) {
-            HEVCSwitch.setClickable(false);
-        }
-
-        CamSwitch = binding.CamSwitch;
-        CamSwitch.setOnClickListener(SetCompressListener);
-        if (0 == (JPEG_IMAGE & configFlags)) {
-            CamSwitch.setClickable(false);
-        }
-
-        softwareHEVCSwitch = binding.softHevcSwitch;
-        softwareHEVCSwitch.setOnClickListener(SetCompressListener);
-        if (0 == (SOFTWARE_HEVC_COMPRESSION & configFlags)) {
-            softwareHEVCSwitch.setClickable(false);
-        }
+        compressionSpinner = binding.compressionSpinner;
+        ArrayList<String> spinnerentries = populateSpinnerEntries(allCompressionOptions,
+                configFlags);
+        compressionEntries = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item, spinnerentries);
+        compressionSpinner.setAdapter(compressionEntries);
+        // default to no compression
+        compressionSpinner.setSelection(compressionEntries.getPosition("no compression"));
+        compressionSpinner.setOnItemSelectedListener(compressionSpinnerListener);
 
         // setup overlay
         overlayVisualizer = new OverlayVisualizer();
@@ -512,7 +484,7 @@ public class MainActivity extends AppCompatActivity {
         int pipelineLanes = configStore.getPipelineLanes();
         poclImageProcessor = new PoclImageProcessor(this, captureSize, null, captureFormat,
                 imageAvailableLock, configFlags, counter, LOCAL_DEVICE,
-                segmentationSwitch.isChecked(), compressionSwitch.isChecked(), uris[0],
+                segmentationSwitch.isChecked(), uris[0],
                 statLogger, enableQualityAlgorithm, targetFPS, pipelineLanes);
 
         // code to handle the quality input
@@ -527,24 +499,19 @@ public class MainActivity extends AppCompatActivity {
         if ((JPEG_IMAGE & configFlags) > 0) {
             modeSwitch.performClick();
             modeSwitch.setClickable(false);
-            compressionSwitch.performClick();
-            compressionSwitch.setClickable(false);
             qualityText.setClickable(false);
             qualityText.setFocusable(false);
         }
 
+        // uncomment this if you always want to start with remote on
 //        modeSwitch.performClick();
 
         // if the quality algorithm is on, the user has no say
         // so disable all the buttons
         if (enableQualityAlgorithm) {
-            compressionSwitch.setClickable(false);
-            HEVCSwitch.setClickable(false);
-            YUVSwitch.setClickable(false);
-            JPEGSwitch.setClickable(false);
-            CamSwitch.setClickable(false);
-            softwareHEVCSwitch.setClickable(false);
-            compressionSwitch.setClickable(false);
+            compressionSpinner.setClickable(false);
+            compressionSpinner.setFocusable(false);
+            compressionSpinner.setAllowClickWhenDisabled(false);
             modeSwitch.setClickable(false);
             qualityText.setClickable(false);
         }
@@ -560,6 +527,64 @@ public class MainActivity extends AppCompatActivity {
         td.start();
 
     }
+
+    /**
+     * a function that parses the configflags and returns a list of compression options
+     *
+     * @param allOptions  list of all available compression options
+     * @param configFlags the config flags
+     * @return list of compression options
+     */
+    private ArrayList<String> populateSpinnerEntries(HashMap<String, Integer> allOptions,
+                                                     int configFlags) {
+        ArrayList<String> returnList = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : allOptions.entrySet()) {
+            if ((entry.getValue() & configFlags) > 0) {
+                returnList.add(entry.getKey());
+            }
+        }
+
+        return returnList;
+    }
+
+    /**
+     * callback function that handles users changing the compression options
+     */
+    private final AdapterView.OnItemSelectedListener compressionSpinnerListener =
+            new AdapterView.OnItemSelectedListener() {
+
+                @Override
+                public void onItemSelected(AdapterView<?> parent, View view, int position,
+                                           long id) {
+
+                    if (DEBUGEXECUTION) {
+                        Log.println(Log.INFO, "EXECUTIONFLOW", "started " +
+                                "compressionSpinnerListener " +
+                                "onItemSelected");
+                    }
+
+                    // if we are doing things locally only, and the user tries to change things,
+                    // set the position back to no compression
+                    int noCompIndex = compressionEntries.getPosition("no compression");
+                    if (!modeSwitch.isChecked() && position != noCompIndex) {
+
+                        compressionSpinner.setSelection(noCompIndex);
+                        return;
+                    }
+
+                    String entry = (String) parent.getItemAtPosition(position);
+                    int compressionType = allCompressionOptions.get(entry);
+                    poclImageProcessor.setCompressionType(compressionType);
+
+                }
+
+                @Override
+                public void onNothingSelected(AdapterView<?> parent) {
+                    Log.println(Log.ERROR, "compressionSpinnerListener", "onnothingselected " +
+                            "callback " +
+                            "called");
+                }
+            };
 
     /**
      * A callback that handles the quality edittext on screen when it loses focus.
@@ -692,11 +717,6 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 Toast.makeText(MainActivity.this, "Switching to local device, please wait",
                         Toast.LENGTH_SHORT).show();
-                // local compression is not an option,
-                // so make sure to turn it off
-                if (compressionSwitch.isChecked()) {
-                    compressionSwitch.performClick();
-                }
                 poclImageProcessor.setInferencingDevice(LOCAL_DEVICE);
             }
 
@@ -719,80 +739,6 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(MainActivity.this, "disabling segmentation, please wait",
                         Toast.LENGTH_SHORT).show();
                 poclImageProcessor.setDoSegment(false);
-            }
-
-            resetMonitors();
-        }
-    };
-
-    /**
-     * callback function that sets the compression type in the java imageprocessor
-     * and unchecks all other switched
-     */
-    private final View.OnClickListener SetCompressListener = new View.OnClickListener() {
-        @Override
-        public void onClick(View v) {
-
-            if (HEVCSwitch == v) {
-                poclImageProcessor.setCompressionType(HEVC_COMPRESSION);
-            } else {
-                HEVCSwitch.setChecked(false);
-            }
-
-            if (JPEGSwitch == v) {
-                poclImageProcessor.setCompressionType(JPEG_COMPRESSION);
-            } else {
-                JPEGSwitch.setChecked(false);
-            }
-
-            if (YUVSwitch == v) {
-                poclImageProcessor.setCompressionType(YUV_COMPRESSION);
-            } else {
-                YUVSwitch.setChecked(false);
-            }
-
-            if (CamSwitch == v) {
-                poclImageProcessor.setCompressionType(JPEG_IMAGE);
-            } else {
-                CamSwitch.setChecked(false);
-            }
-
-            if (softwareHEVCSwitch == v) {
-                poclImageProcessor.setCompressionType(SOFTWARE_HEVC_COMPRESSION);
-            } else {
-                softwareHEVCSwitch.setChecked(false);
-            }
-
-            if (compressionSwitch.isChecked()) {
-                resetMonitors();
-            }
-        }
-
-    };
-
-    /**
-     * A listener to receive user input related to setting compression.
-     * Also resets monitors.
-     */
-    private final View.OnClickListener compressListener = new View.OnClickListener() {
-        @Override
-        public void onClick(View v) {
-
-            // if the device is local it does not make sense to compress
-            if (LOCAL_DEVICE == poclImageProcessor.inferencingDevice) {
-                poclImageProcessor.setDoCompression(false);
-                ((Switch) v).setChecked(false);
-                return;
-            }
-
-            if (((Switch) v).isChecked()) {
-                Toast.makeText(MainActivity.this, "enabling compression, please wait",
-                        Toast.LENGTH_SHORT).show();
-                poclImageProcessor.setDoCompression(true);
-            } else {
-                Toast.makeText(MainActivity.this, "disabling compression, please wait",
-                        Toast.LENGTH_SHORT).show();
-                poclImageProcessor.setDoCompression(false);
             }
 
             resetMonitors();
@@ -986,30 +932,22 @@ public class MainActivity extends AppCompatActivity {
     public void setButtonsFromJNI(CodecConfig config) {
 
         runOnUiThread(() -> {
-            // flip the right compression type switch
-            HEVCSwitch.setChecked(HEVC_COMPRESSION == config.compressionType);
-            JPEGSwitch.setChecked(JPEG_COMPRESSION == config.compressionType);
-            YUVSwitch.setChecked(YUV_COMPRESSION == config.compressionType);
-            CamSwitch.setChecked(JPEG_IMAGE == config.compressionType);
-            softwareHEVCSwitch.setChecked(SOFTWARE_HEVC_COMPRESSION == config.compressionType);
-
-            // flip the compression switch
-            if (NO_COMPRESSION == config.compressionType) {
-                compressionSwitch.setChecked(false);
-                HEVCSwitch.setChecked(false);
-                YUVSwitch.setChecked(false);
-                JPEGSwitch.setChecked(false);
-                CamSwitch.setChecked(false);
-                softwareHEVCSwitch.setChecked(false);
-            } else {
-                compressionSwitch.setChecked(true);
-            }
 
             // show if we are using remote or not
-            modeSwitch.setChecked(REMOTE_DEVICE == config.deviceIndex);
+            if (modeSwitch.isChecked() != (REMOTE_DEVICE == config.deviceIndex)) {
+                modeSwitch.performClick();
+            }
 
             // set the quality text that corresponds to a algorithm config
             qualityText.setText(Integer.toString(config.configIndex));
+
+            // set the spinner to the right position if it isn't already the same
+            int position =
+                    compressionEntries.getPosition(getCompressionString(config.compressionType));
+            if (compressionSpinner.getSelectedItemPosition() != position) {
+                Log.println(Log.ERROR, "test", "position being changed by algo");
+                compressionSpinner.setSelection(position);
+            }
         });
 
     }
@@ -1037,9 +975,12 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(() -> {
             modeSwitch.setClickable(value);
 
-            if (!value) {
-                modeSwitch.setChecked(false);
+            // if we disable it and the switch is checked,
+            // turn off remote
+            if (!value && modeSwitch.isChecked()) {
+                modeSwitch.performClick();
             }
+
         });
     }
 

@@ -5,8 +5,10 @@
 package org.portablecl.poclaisademo;
 
 import android.content.res.AssetManager;
+import android.util.Log;
 
 import java.nio.ByteBuffer;
+import java.util.HashMap;
 
 public class JNIPoclImageProcessor {
     // The below constants must match those in poclImageProcessorTypes.h:
@@ -17,6 +19,66 @@ public class JNIPoclImageProcessor {
     public final static int JPEG_IMAGE = (1 << 3);
     public final static int HEVC_COMPRESSION = (1 << 4);
     public final static int SOFTWARE_HEVC_COMPRESSION = (1 << 5);
+
+    /**
+     * function that maps a compression option to its string representation
+     *
+     * @param compressionType to be mapped
+     * @return string representation of compression option
+     */
+    public static String getCompressionString(int compressionType) {
+
+        String returnValue;
+        switch (compressionType) {
+            case NO_COMPRESSION:
+                returnValue = "no compression";
+                break;
+            case YUV_COMPRESSION:
+                returnValue = "YUV";
+                break;
+            case JPEG_COMPRESSION:
+                returnValue = "JPEG";
+                break;
+            case JPEG_IMAGE:
+                returnValue = "JPEG IMAGE";
+                break;
+            case HEVC_COMPRESSION:
+                returnValue = "HEVC";
+                break;
+            case SOFTWARE_HEVC_COMPRESSION:
+                returnValue = "SOFT HEVC";
+                break;
+            default:
+                Log.println(Log.ERROR, "getCompressionString",
+                        "unknown compression type: " + compressionType);
+                returnValue = "no compression";
+                break;
+        }
+        return returnValue;
+    }
+
+    /**
+     * function that creates a hashmap of all compression options.
+     *
+     * @return
+     */
+    private static HashMap<String, Integer> populateCompressionOptions() {
+        HashMap<String, Integer> returnMap = new HashMap<String, Integer>();
+        returnMap.put("no compression", NO_COMPRESSION);
+        returnMap.put("YUV", YUV_COMPRESSION);
+        returnMap.put("JPEG", JPEG_COMPRESSION);
+        returnMap.put("JPEG IMAGE", JPEG_IMAGE);
+        returnMap.put("HEVC", HEVC_COMPRESSION);
+        returnMap.put("SOFT HEVC", SOFTWARE_HEVC_COMPRESSION);
+        return returnMap;
+    }
+
+    /**
+     * hashmap that maps string representations of compressionoptions to the number
+     */
+    public final static HashMap<String, Integer> allCompressionOptions =
+            populateCompressionOptions();
+
     public final static int ENABLE_PROFILING = (1 << 8);
 
     public final static int LOCAL_DEVICE = 0;
