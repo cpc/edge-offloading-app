@@ -395,6 +395,8 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         return -1;
     }
 
+    int final_status = CL_SUCCESS;
+
     pocl_image_processor_context *ctx = (pocl_image_processor_context *) calloc(1,
                                                                                 sizeof(pocl_image_processor_context));
 
@@ -427,6 +429,11 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
 
     if (service_name != NULL) {
         status = pick_device(platform, devices, &devices_found, service_name);
+        // we requested more devices, but we only found local devices,
+        // so communicate this higher up
+        if (CL_SUCCESS == status && devices_found < 3) {
+            final_status = -100;
+        }
     } else {
         status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, MAX_NUM_CL_DEVICES, devices,
                                 &devices_found);
@@ -525,7 +532,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     // FIXME init global hevc codecs
 
     *ret_ctx = ctx;
-    return CL_SUCCESS;
+    return final_status;
 }
 
 /**

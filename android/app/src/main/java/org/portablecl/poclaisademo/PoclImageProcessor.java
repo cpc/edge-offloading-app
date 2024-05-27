@@ -91,7 +91,7 @@ public class PoclImageProcessor {
 
     private int quality;
 
-    private int configFlags;
+    private final int configFlags;
 
     private int imageFormat;
 
@@ -340,6 +340,8 @@ public class PoclImageProcessor {
         int currentInferencingDevice; // inference device is needed both for
         // dequeue_spot and submit image, so copy value over to prevent the value changing
         int status = 0;
+        // configflags that can change due to having to fallback
+        int runtimeConfigFlags = this.configFlags;
 
         Image image = null;
 
@@ -363,7 +365,7 @@ public class PoclImageProcessor {
             }
 
             int nativeFd = -1;
-            if ((ENABLE_PROFILING & configFlags) > 0) {
+            if ((ENABLE_PROFILING & runtimeConfigFlags) > 0) {
                 try {
                     parcelFileDescriptor = context.getContentResolver().openFileDescriptor(uri,
                             "wa");
@@ -378,11 +380,22 @@ public class PoclImageProcessor {
             try {
 
                 AssetManager assetManager = context.getAssets();
-                status = initPoclImageProcessorV2(configFlags, assetManager,
+                status = initPoclImageProcessorV2(runtimeConfigFlags, assetManager,
                         captureSize.getWidth(),
                         captureSize.getHeight(), nativeFd, this.pipelineLanes, serviceName);
+                if (-100 == status) {
+                    runtimeConfigFlags = fallbackToLocal();
 
-                if (-33 == status) {
+                    if (null != parcelFileDescriptor) {
+                        try {
+                            parcelFileDescriptor.close();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    // restart the whole process
+                    continue;
+                } else if (-33 == status) {
                     if (null != activity) {
                         activity.runOnUiThread(() -> Toast.makeText(context,
                                 "could not connect to server, please check connection",
@@ -564,24 +577,32 @@ public class PoclImageProcessor {
 
             // if fallback is enabled, start the loop again
             if (ENABLEFALLBACK && !interrupted) {
-                this.setInferencingDevice(LOCAL_DEVICE);
-
-                // TODO: restore old config flags when remote is back
-                boolean doProfiling = (configFlags & ENABLE_PROFILING) > 1;
-                this.configFlags = NO_COMPRESSION | (doProfiling ? ENABLE_PROFILING : 0);
-
-                if (null != activity) {
-                    activity.runOnUiThread(() -> Toast.makeText(context,
-                            "lost connect, falling back to local",
-                            Toast.LENGTH_SHORT).show());
-                    activity.enableRemote(false);
-                }
+                runtimeConfigFlags = fallbackToLocal();
             } else {
                 break;
             }
 
         }
 
+    }
+
+    /**
+     * Handle a device being lost.
+     *
+     * @return new configflags to use during execution
+     */
+    private int fallbackToLocal() {
+        this.setInferencingDevice(LOCAL_DEVICE);
+
+        if (null != activity) {
+            activity.runOnUiThread(() -> Toast.makeText(context,
+                    "lost connect, falling back to local",
+                    Toast.LENGTH_SHORT).show());
+            activity.enableRemote(false);
+        }
+
+        boolean doProfiling = (configFlags & ENABLE_PROFILING) > 1;
+        return NO_COMPRESSION | (doProfiling ? ENABLE_PROFILING : 0);
     }
 
     private void receiveResultLoop() {
