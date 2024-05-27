@@ -596,7 +596,7 @@ public class PoclImageProcessor {
 
         if (null != activity) {
             activity.runOnUiThread(() -> Toast.makeText(context,
-                    "lost connect, falling back to local",
+                    "lost connect to remote, local execution only",
                     Toast.LENGTH_SHORT).show());
             activity.enableRemote(false);
         }

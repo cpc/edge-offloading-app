@@ -16,7 +16,6 @@ public class Discovery {
     private static NsdManager.DiscoveryListener sDiscoveryListener;
     public static final String SERVICE_TYPE = "_pocl._tcp";
     public static final String TAG = "DISC";
-    private WifiManager.MulticastLock multicastLock;
 
     /*
      * This instance of DiscoverySelect and the native function addDevice are the only
@@ -32,9 +31,6 @@ public class Discovery {
                 (NsdManager) activity.getApplicationContext().getSystemService(Context.NSD_SERVICE);
         DS = ds;
         WifiManager wifiManager = (WifiManager) activity.getSystemService(Context.WIFI_SERVICE);
-        multicastLock = wifiManager.createMulticastLock(TAG);
-        multicastLock.setReferenceCounted(true);
-        multicastLock.acquire();
 
         stopDiscovery();
         initializeDiscoveryListener();
@@ -46,7 +42,6 @@ public class Discovery {
             try {
                 sNsdManager.stopServiceDiscovery(sDiscoveryListener);
                 sDiscoveryListener = null;
-                multicastLock.release();
             } catch (Exception e) {
                 e.printStackTrace();
             }

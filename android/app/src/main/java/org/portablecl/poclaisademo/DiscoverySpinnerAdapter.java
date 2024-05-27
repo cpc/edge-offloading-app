@@ -40,6 +40,12 @@ public class DiscoverySpinnerAdapter extends ArrayAdapter<DiscoverySelect.spinne
     @Override
     public View getDropDownView(int position, View convertView, ViewGroup parent) {
         TextView label = (TextView) super.getDropDownView(position, convertView, parent);
+        for (DiscoverySelect.spinnerObject s : objects) {
+            if(s.address.equals(DiscoverySelect.DEFAULT_SPINNER_VAL)) {
+                continue;
+            }
+            s.pingMonitor.tick();
+        }
         if (position == 0) {
             label.setText(objects.get(position).getAddress());
             return label;
