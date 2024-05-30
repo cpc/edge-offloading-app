@@ -546,6 +546,8 @@ public class PoclImageProcessor {
                 Log.println(Log.INFO, "MainActivity.java:imageProcessLoop", "received " +
                         "interrupt, closing down");
 
+                interrupted = true;
+
             } catch (Exception e) {
 
                 if (image != null) {
