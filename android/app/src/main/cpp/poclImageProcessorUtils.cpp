@@ -67,13 +67,8 @@ copy_yuv_to_arrayV2(const int width, const int height, const image_data_t image,
     // interleave u and v regardless of if planar or semiplanar
     // divided by 4 since u and v are subsampled by 2
     for (int i = 0; i < (height * width) / 4; i++) {
-        if (HEVC_COMPRESSION == compression_type) {
-            dest_buf[uv_start_index + 1 + 2 * i] = v_ptr[i * vpixel_stride];
-            dest_buf[uv_start_index + 2 * i] = u_ptr[i * upixel_stride];
-        } else {
-            dest_buf[uv_start_index + 2 * i] = v_ptr[i * vpixel_stride];
-            dest_buf[uv_start_index + 1 + 2 * i] = u_ptr[i * upixel_stride];
-        }
+        dest_buf[uv_start_index + 1 + 2 * i] = v_ptr[i * vpixel_stride];
+        dest_buf[uv_start_index + 2 * i] = u_ptr[i * upixel_stride];
     }
 
 }
