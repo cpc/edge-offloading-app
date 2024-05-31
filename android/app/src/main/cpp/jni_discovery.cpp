@@ -19,10 +19,6 @@
         }                                                           \
     }while(0)
 
-
-cl_int (*func)(char *const, cl_uint, void *);
-
-
 cl_int add_device(char *parameter, cl_uint mode) {
 
     // mode => 0:add - 1:reconnect
@@ -32,8 +28,9 @@ cl_int add_device(char *parameter, cl_uint mode) {
     // Adding or reconnecting to a device is only supported by remote driver as of now
     char device_driver_name[] = "remote";
     cl_platform_id platform;
-    CHECK(clGetPlatformIDs(1, &platform, NULL));
+    cl_int (*func)(char *const, cl_uint, void *);
 
+    CHECK(clGetPlatformIDs(1, &platform, NULL));
     func = (cl_int (*)(char *const, cl_uint, void *)) clGetExtensionFunctionAddressForPlatform(
             platform, funcName);
     CHECK(func(parameter, mode, device_driver_name));

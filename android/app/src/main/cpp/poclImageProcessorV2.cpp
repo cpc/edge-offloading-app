@@ -678,6 +678,9 @@ submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
 
     TracyCFrameMarkStart(ctx->lane_name);
 
+    /* When a remote device is lost, pocl may try to use the remote device. We prevent from that to
+       happen and return with an error to start fresh.
+     */
     if (1 == ctx->local_only) {
         return CL_DEVICE_NOT_AVAILABLE;
     }
@@ -912,7 +915,6 @@ submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config, ima
     if (ctx->devices_found > 2) {
         // todo: see if this should be run on every device
         image_metadata->host_ts_ns.before_fill = get_timestamp_ns();
-        cl_event fill_event;
         status = ping_fillbuffer_run(ctx->ping_context, ctx->remote_queue,
                                      ctx->pipeline_array[index].event_array);
         CHECK_AND_CATCH_NO_STATE(status, "could not ping remote");
@@ -1059,7 +1061,7 @@ receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
                                       &image_metadata.codec, detection_array, segmentation_array,
                                       image_metadata.event_array, results.event_list_size,
                                       results.event_list);
-//    CHECK_AND_RETURN(status, "could not read results back");
+
     CHECK_AND_CATCH(status, "could not read results back", new_state)
 
     if (image_metadata.is_eval_frame) {

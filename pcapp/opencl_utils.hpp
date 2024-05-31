@@ -198,7 +198,7 @@ static const char *opencl_error_string(cl_int error) {
 }
 
 // Various checking helpers
-static void throw_if_cl_err(cl_int status, const char *msg) {
+static void log_if_cl_err(cl_int status, const char *msg) {
     if (status == CL_SUCCESS) {
         return;
     }
@@ -212,7 +212,6 @@ static void throw_if_cl_err(cl_int status, const char *msg) {
     err_msg.append("'");
 
     printf("%s\n", err_msg.c_str());
-//    exit(1);
 }
 
 static void throw_if_nullptr(void *ptr, const char *msg) {

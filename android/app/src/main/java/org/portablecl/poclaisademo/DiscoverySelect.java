@@ -79,6 +79,7 @@ public class DiscoverySelect {
     public DiscoverySelect(Activity activity, Spinner discoverySpinner,
                            AdapterView.OnItemSelectedListener listener) {
         this.activity = activity;
+        destroyServiceMap();
         NSDiscovery = new Discovery();
         spinnerList = new ArrayList<>();
         spinnerList.add(new spinnerObject());
@@ -89,7 +90,6 @@ public class DiscoverySelect {
         initServiceMap();
         initVerneServer();
         NSDiscovery.initDiscovery(this, activity);
-
     }
 
     public void stopDiscovery() {
@@ -111,6 +111,7 @@ public class DiscoverySelect {
 
     // The verne server details are dynamically added to the spinner as and when the network
     // status is changed from wifi to cellular
+    // TODO: Hardcoded parts to be modified when WAN discovery is implemented
     private void initVerneServer() {
         serviceInfo verne = new serviceInfo();
         verne.name = "cpu-icelake-server-Intel(R) Xeon";

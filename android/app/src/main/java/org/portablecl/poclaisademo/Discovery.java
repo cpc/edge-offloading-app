@@ -12,11 +12,10 @@ import android.util.Log;
  * mDNS & DNS-SD.
  */
 public class Discovery {
-    private static NsdManager sNsdManager;
-    private static NsdManager.DiscoveryListener sDiscoveryListener;
+    private NsdManager sNsdManager;
+    private NsdManager.DiscoveryListener sDiscoveryListener;
     public static final String SERVICE_TYPE = "_pocl._tcp";
     public static final String TAG = "DISC";
-
     /*
      * This instance of DiscoverySelect and the native function addDevice are the only
      * non-generic addition to this class. If this class is required to be used for other purpose
@@ -25,6 +24,7 @@ public class Discovery {
     DiscoverySelect DS;
 
     public static native void addDevice(String key, int mode);
+
 
     public void initDiscovery(DiscoverySelect ds, Activity activity) {
         sNsdManager =
@@ -42,6 +42,8 @@ public class Discovery {
             try {
                 sNsdManager.stopServiceDiscovery(sDiscoveryListener);
                 sDiscoveryListener = null;
+                sNsdManager = null;
+                DS = null;
             } catch (Exception e) {
                 e.printStackTrace();
             }

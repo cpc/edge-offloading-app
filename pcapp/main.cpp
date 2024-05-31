@@ -47,25 +47,25 @@ cl_int test_pthread_bik() {
     /* Find platforms */
     cl_uint nplatforms = 0;
     cl_int status = clGetPlatformIDs(0, NULL, &nplatforms);
-    throw_if_cl_err(status, "clGetPlatformIDs query");
+    log_if_cl_err(status, "clGetPlatformIDs query");
     throw_if_zero(nplatforms, "No platforms found");
 
     /* Fill in platforms */
     std::vector<cl_platform_id> platforms;
     platforms.resize(nplatforms);
     status = clGetPlatformIDs(platforms.size(), platforms.data(), NULL);
-    throw_if_cl_err(status, "clGetPlatformIDs fill in");
+    log_if_cl_err(status, "clGetPlatformIDs fill in");
 
     /* Print out some basic information about each platform */
     status = print_platforms_info(platforms.data(), platforms.size());
-    throw_if_cl_err(status, "Getting platform info");
+    log_if_cl_err(status, "Getting platform info");
 
     /* Find devices */
     cl_uint ndevices = 0;
     cl_device_type device_types = CL_DEVICE_TYPE_GPU | CL_DEVICE_TYPE_CPU;
     status = clGetDeviceIDs(platforms[platform_id], device_types, 0, NULL,
                             &ndevices);
-    throw_if_cl_err(status, "clGetDeviceIDs query");
+    log_if_cl_err(status, "clGetDeviceIDs query");
     throw_if_zero(ndevices, "No devices found");
 
     /* Fill in devices */
@@ -73,11 +73,11 @@ cl_int test_pthread_bik() {
     devices.resize(ndevices);
     status = clGetDeviceIDs(platforms[platform_id], device_types,
                             devices.size(), devices.data(), NULL);
-    throw_if_cl_err(status, "clGetDeviceIDs fill query");
+    log_if_cl_err(status, "clGetDeviceIDs fill query");
 
     /* Print out some basic information about each device */
     status = print_devices_info(devices.data(), devices.size());
-    throw_if_cl_err(status, "Getting device info");
+    log_if_cl_err(status, "Getting device info");
 
     const cl_context_properties cps[] = {
         CL_CONTEXT_PLATFORM, (cl_context_properties)(platforms[platform_id]),
@@ -209,7 +209,7 @@ void read_function(pocl_image_processor_context *ctx) {
                                &eval_metadata, &segmentation);
         read_frame_count += 1;
 
-        throw_if_cl_err(status, "main.c could not enqueue image");
+        log_if_cl_err(status, "main.c could not enqueue image");
         printf("==== Frame %d, no. detections: %d ====\n", read_frame_count,
                detections[0]);
 
@@ -240,25 +240,25 @@ int main() {
     /* Find platforms */
     cl_uint nplatforms = 0;
     status = clGetPlatformIDs(0, NULL, &nplatforms);
-    throw_if_cl_err(status, "clGetPlatformIDs query");
+    log_if_cl_err(status, "clGetPlatformIDs query");
     throw_if_zero(nplatforms, "No platforms found");
 
     /* Fill in platforms */
     std::vector<cl_platform_id> platforms;
     platforms.resize(nplatforms);
     status = clGetPlatformIDs(platforms.size(), platforms.data(), NULL);
-    throw_if_cl_err(status, "clGetPlatformIDs fill in");
+    log_if_cl_err(status, "clGetPlatformIDs fill in");
 
     /* Print out some basic information about each platform */
     status = print_platforms_info(platforms.data(), platforms.size());
-    throw_if_cl_err(status, "Getting platform info");
+    log_if_cl_err(status, "Getting platform info");
 
     /* Find devices */
     cl_uint ndevices = 0;
     cl_device_type device_types = CL_DEVICE_TYPE_GPU | CL_DEVICE_TYPE_CPU;
     status = clGetDeviceIDs(platforms[platform_id], device_types, 0, NULL,
                             &ndevices);
-    throw_if_cl_err(status, "clGetDeviceIDs query");
+    log_if_cl_err(status, "clGetDeviceIDs query");
     throw_if_zero(ndevices, "No devices found");
 
     /* Fill in devices */
@@ -266,11 +266,11 @@ int main() {
     devices.resize(ndevices);
     status = clGetDeviceIDs(platforms[platform_id], device_types,
                             devices.size(), devices.data(), NULL);
-    throw_if_cl_err(status, "clGetDeviceIDs fill query");
+    log_if_cl_err(status, "clGetDeviceIDs fill query");
 
     /* Print out some basic information about each device */
     status = print_devices_info(devices.data(), devices.size());
-    throw_if_cl_err(status, "Getting device info");
+    log_if_cl_err(status, "Getting device info");
 
     /* Settings */
     //    constexpr compression_t compression_type = YUV_COMPRESSION;
@@ -403,7 +403,7 @@ RETRY:
         printf("submitted image : %d\n", frame_index);
 
         //        assert(status == CL_SUCCESS);
-        throw_if_cl_err(status, "main.c could not submit image");
+        log_if_cl_err(status, "main.c could not submit image");
         if (CL_SUCCESS != status) {
             break;
         }

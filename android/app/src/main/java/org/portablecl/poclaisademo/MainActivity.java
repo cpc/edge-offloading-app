@@ -406,16 +406,14 @@ public class MainActivity extends AppCompatActivity {
             // disable this switch when remote is disabled
             modeSwitch.setClickable(false);
             setNativeEnv("POCL_DEVICES", "pthread");
+        } else if (IPAddress == null || IPAddress.isEmpty()) {
+            setNativeEnv("POCL_DEVICES", "pthread proxy");
+            modeSwitch.setClickable(false);
         } else {
-            if (IPAddress == null || IPAddress.isEmpty()) {
-                setNativeEnv("POCL_DEVICES", "pthread proxy");
-                modeSwitch.setClickable(false);
-            } else {
-                modeSwitch.setClickable(true);
-                setNativeEnv("POCL_DEVICES", "pthread proxy remote remote");
-                setNativeEnv("POCL_REMOTE0_PARAMETERS", IPAddress + "/0");
-                setNativeEnv("POCL_REMOTE1_PARAMETERS", IPAddress + "/1");
-            }
+            modeSwitch.setClickable(true);
+            setNativeEnv("POCL_DEVICES", "pthread proxy remote remote");
+            setNativeEnv("POCL_REMOTE0_PARAMETERS", IPAddress + "/0");
+            setNativeEnv("POCL_REMOTE1_PARAMETERS", IPAddress + "/1");
         }
 
         String nativeLibraryPath = this.getApplicationInfo().nativeLibraryDir;
@@ -508,52 +506,45 @@ public class MainActivity extends AppCompatActivity {
      * Also responsible for handling the behaviour of modeswitch in case of no remote servers.
      */
     private final AdapterView.OnItemSelectedListener discoverySpinnerListener =
-    new AdapterView.OnItemSelectedListener() {
-        @Override
-        public void onItemSelected(AdapterView<?> parent, View view, int position,
-        long id) {
-            String selectedServer = DSSelect.spinnerList.get(position).getAddress();
-            if (DSSelect.serviceMap.containsKey(IPAddress) && discoveryReconnectCheck[0]) {
-                DSSelect.serviceMap.get(IPAddress).reconnect = true;
+            new AdapterView.OnItemSelectedListener() {
+                @Override
+                public void onItemSelected(AdapterView<?> parent, View view, int position,
+                                           long id) {
+                    String selectedServer = DSSelect.spinnerList.get(position).getAddress();
+                    if (DSSelect.serviceMap.containsKey(IPAddress) && discoveryReconnectCheck[0]) {
+                        DSSelect.serviceMap.get(IPAddress).reconnect = true;
 
-                for (DiscoverySelect.spinnerObject value : DSSelect.spinnerList) {
-                    if (value.address.equals(IPAddress)) {
-                        pingMonitor = value.pingMonitor;
+                        for (DiscoverySelect.spinnerObject value : DSSelect.spinnerList) {
+                            if (value.address.equals(IPAddress)) {
+                                pingMonitor = value.pingMonitor;
+                            }
+                        }
+                        discoveryReconnectCheck[0] = false;
+                    }
+                    if (!selectedServer.equals(DiscoverySelect.DEFAULT_SPINNER_VAL)) {
+                        modeSwitch.setClickable(true);
+                        Log.d("DISC", "Spinner position selected: " + position + " : server " +
+                                "selected " +
+                                ": " + selectedServer);
+                        DiscoverySelect.serviceInfo temp =
+                                DSSelect.serviceMap.get(selectedServer);
+                        Log.d("DISC", "Reconnect status: " + temp.reconnect);
+                        poclImageProcessor.stop();
+                        Discovery.addDevice(selectedServer + "/0", (temp.reconnect ? 1 : 0));
+                        Discovery.addDevice(selectedServer + "/1", (temp.reconnect ? 1 : 0));
+                        temp.reconnect = true;
+                        poclImageProcessor.start(temp.name);
+                        pingMonitor = DSSelect.spinnerList.get(position).pingMonitor;
+                    } else if (modeSwitch.isChecked()) {
+                        modeSwitch.performClick();
                     }
                 }
-                discoveryReconnectCheck[0] = false;
-            }
-            if (!selectedServer.equals(DiscoverySelect.DEFAULT_SPINNER_VAL)) {
-                modeSwitch.setClickable(true);
-                Log.d("DISC", "Spinner position selected: " + position + " : server " +
-                        "selected " +
-                        ": " + selectedServer);
-                DiscoverySelect.serviceInfo temp =
-                        DSSelect.serviceMap.get(selectedServer);
-                Log.d("DISC", "Reconnect status: " + temp.reconnect);
-                poclImageProcessor.stop();
-                Discovery.addDevice(selectedServer + "/0", (temp.reconnect ? 1 : 0));
-                Discovery.addDevice(selectedServer + "/1", (temp.reconnect ? 1 : 0));
-                temp.reconnect = true;
-                poclImageProcessor.start(temp.name);
-                pingMonitor = DSSelect.spinnerList.get(position).pingMonitor;
-            } else {
-                if (modeSwitch.isChecked()) {
-                    modeSwitch.performClick();
+
+                @Override
+                public void onNothingSelected(AdapterView<?> parent) {
+                    modeSwitch.setClickable(IPAddress != null);
                 }
-            }
-        }
-
-        @Override
-        public void onNothingSelected(AdapterView<?> parent) {
-            if (IPAddress != null) {
-                modeSwitch.setClickable(true);
-            } else {
-                modeSwitch.setClickable(false);
-            }
-
-        }
-    };
+            };
 
     /**
      * callback function that handles users changing the compression options
@@ -859,7 +850,9 @@ public class MainActivity extends AppCompatActivity {
 
                 energyMonitor.tick();
                 trafficMonitor.tick();
-                pingMonitor.tick();
+                if (pingMonitor != null) {
+                    pingMonitor.tick();
+                }
                 String formatString = "FPS: %3.1f (%4.0fms) AVG: %3.1f (%4.0fms)\n" +
                         "pow: %02.2f (%02.2f) W | EPF: %02.2f (%02.2f) J\n" +
                         new String(Character.toChars(0x1F50B)) + "time left:%3dm:%2ds |avg " +
@@ -885,7 +878,8 @@ public class MainActivity extends AppCompatActivity {
                 float iou = poclImageProcessor.getLastIou();
                 float emaLatency = counter.getEmaLatency() / 1000;
 
-                // pingMonitor can be null because the pingreader is started when the mode switch is pressed
+                // pingMonitor can be null because the pingreader is started when the mode switch
+                // is pressed
                 float ping = 0.0f;
                 float ping_avg = 0.0f;
                 if (pingMonitor != null && !pingMonitor.isReaderNull()) {

@@ -727,6 +727,11 @@ public class StartupActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        DSSelect.stopDiscovery();
+    }
+    @Override
     protected void onDestroy() {
         DSSelect.stopDiscovery();
         if (DEBUGEXECUTION) {
