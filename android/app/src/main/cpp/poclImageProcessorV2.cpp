@@ -110,6 +110,13 @@ supports_config_flags(const int config_flags) {
             goto FINISH;                                                              \
         }
 
+#define CATCH_AND_SET_STATUS(ret, msg)                                          \
+        if(CL_SUCCESS != ret) {                                                     \
+            LOGE(msg);                                                                    \
+            final_status = ret;\
+            goto FINISH;                                                              \
+        }
+
 /**
  * create a pipeline context that has the requested codecs initialized
  * @param ctx address to the pipeline ctx
@@ -273,16 +280,16 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
 cl_int
 destroy_pipeline_context(pipeline_context ctx) {
 
-    destroy_dnn_context(&ctx.dnn_context);
+    destroy_dnn_context(&(ctx.dnn_context));
 
 #ifndef DISABLE_HEVC
-    destroy_hevc_context(&ctx.hevc_context);
-    destroy_hevc_context(&ctx.software_hevc_context);
+    destroy_hevc_context(&(ctx.hevc_context));
+    destroy_hevc_context(&(ctx.software_hevc_context));
 #endif
 #ifndef DISABLE_JPEG
-    destroy_jpeg_context(&ctx.jpeg_context);
+    destroy_jpeg_context(&(ctx.jpeg_context));
 #endif
-    destroy_yuv_context(&ctx.yuv_context);
+    destroy_yuv_context(&(ctx.yuv_context));
 
     COND_REL_MEM(ctx.inp_yuv_mem);
     COND_REL_MEM(ctx.comp_to_dnn_buf);
@@ -290,7 +297,7 @@ destroy_pipeline_context(pipeline_context ctx) {
     for (int i = 0; i < ctx.queue_count; i++) {
         COND_REL_QUEUE(ctx.enq_queues[i]);
     }
-    free_event_array_pointer(&ctx.event_array);
+    free_event_array_pointer(&(ctx.event_array));
     pthread_mutex_destroy(&(ctx.state_mut));
 
     return CL_SUCCESS;
@@ -395,7 +402,19 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         return -1;
     }
 
+    int i;
     int final_status = CL_SUCCESS;
+    cl_platform_id platform;
+    cl_context context;
+    cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
+    cl_uint devices_found;
+    cl_int status;
+
+    cl_command_queue_properties cq_properties = CL_QUEUE_PROFILING_ENABLE;
+    cl_context_properties cps[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
+                                   0};
+
+    TracyCLCtx *tracy_ctx;
 
     pocl_image_processor_context *ctx = (pocl_image_processor_context *) calloc(1,
                                                                                 sizeof(pocl_image_processor_context));
@@ -406,23 +425,14 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     ctx->lane_count = max_lanes;
     ctx->metadata_array = (frame_metadata_t *) calloc(max_lanes, sizeof(frame_metadata_t));
     if (sem_init(&ctx->pipe_sem, 0, max_lanes) == -1) {
-        LOGE("could not init semaphore\n");
-        return -1;
+        CATCH_AND_SET_STATUS(POCL_IMAGE_PROCESSOR_UNRECOVERABLE_ERROR, "could not init pipe sem");
     }
     if (sem_init(&ctx->local_sem, 0, 1) == -1) {
-        LOGE("could not init semaphore\n");
-        return -1;
+        CATCH_AND_SET_STATUS(POCL_IMAGE_PROCESSOR_UNRECOVERABLE_ERROR, "could not init local sem");
     }
     if (sem_init(&ctx->image_sem, 0, 0) == -1) {
-        LOGE("could not init semaphore\n");
-        return -1;
+        CATCH_AND_SET_STATUS(POCL_IMAGE_PROCESSOR_UNRECOVERABLE_ERROR, "could not init image sem");
     }
-
-    cl_platform_id platform;
-    cl_context context;
-    cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
-    cl_uint devices_found;
-    cl_int status;
 
     status = clGetPlatformIDs(1, &platform, NULL);
     CHECK_AND_RETURN(status, "getting platform id failed");
@@ -432,21 +442,21 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         // we requested more devices, but we only found local devices,
         // so communicate this higher up
         if (CL_SUCCESS == status && devices_found < 3) {
-            final_status = -100;
+            final_status = POCL_IMAGE_PROCESSOR_ERROR;
         }
     } else {
         status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, MAX_NUM_CL_DEVICES, devices,
                                 &devices_found);
     }
 
-    CHECK_AND_RETURN(status, "getting device id failed");
+    CATCH_AND_SET_STATUS(status, "getting device id failed");
     LOGI("Platform has %d devices\n", devices_found);
     assert(devices_found > 0);
     ctx->devices_found = devices_found;
 
     // some info
     char result_array[1024];
-    for (unsigned i = 0; i < devices_found; ++i) {
+    for (i = 0; i < devices_found; ++i) {
         clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 1024 * sizeof(char), result_array, NULL);
         LOGI("device %d: CL_DEVICE_NAME:    %s\n", i, result_array);
         clGetDeviceInfo(devices[i], CL_DEVICE_VERSION, 1024 * sizeof(char), result_array, NULL);
@@ -458,15 +468,12 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         LOGI("device %d: CL_DRIVER_BUILT_IN_KERNELS: %s\n", i, result_array);
     }
 
-    cl_context_properties cps[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
-                                   0};
-
     context = clCreateContext(cps, devices_found, devices, NULL, NULL, &status);
-    CHECK_AND_RETURN(status, "creating context failed");
+    CATCH_AND_SET_STATUS(status, "creating context failed");
 
 #ifdef TRACY_ENABLE
     ctx->tracy_ctxs = (TracyCLCtx *) calloc(devices_found, sizeof(TracyCLCtx));
-    for (int i = 0; i< devices_found; i++) {
+    for (i = 0; i< devices_found; i++) {
         ctx->tracy_ctxs[i] = TracyCLContext(context, devices[i]);
     }
 #else
@@ -481,7 +488,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         status = setup_pipeline_context(&(ctx->pipeline_array[i]), width, height, config_flags,
                                         codec_sources, src_size, context, devices,
                                         devices_found, ctx->tracy_ctxs, 0);
-        CHECK_AND_RETURN(status, "could not create pipeline context ");
+        CATCH_AND_SET_STATUS(status, "could not create pipeline context ");
 
         snprintf(ctx->pipeline_array[i].lane_name, 16, "lane: %d", i);
     }
@@ -491,20 +498,20 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
 
     // create a queue used to receive images
     assert(1 <= devices_found && "expected at least 1 device, but not the case");
-    cl_command_queue_properties cq_properties = CL_QUEUE_PROFILING_ENABLE;
+
     ctx->read_queue = clCreateCommandQueue(context, devices[LOCAL_DEVICE], cq_properties, &status);
-    CHECK_AND_RETURN(status, "creating read queue failed");
+    CATCH_AND_SET_STATUS(status, "creating read queue failed");
 
     if (devices_found > 2) {
         ping_fillbuffer_init(&(ctx->ping_context), context);
         ctx->remote_queue = clCreateCommandQueue(context, devices[REMOTE_DEVICE], cq_properties,
                                                  &status);
-        CHECK_AND_RETURN(status, "creating remote queue failed");
+        CATCH_AND_SET_STATUS(status, "creating remote queue failed");
 
 #ifdef TRACY_ENABLE
-        TracyCLCtx * tracy_ctx = &(ctx->tracy_ctxs[REMOTE_DEVICE]);
+        tracy_ctx = &(ctx->tracy_ctxs[REMOTE_DEVICE]);
 #else
-        TracyCLCtx *tracy_ctx = NULL;
+        tracy_ctx = NULL;
 #endif
         init_eval_ctx(&(ctx->eval_ctx), width, height, context, &(devices[REMOTE_DEVICE]),
                       tracy_ctx);
@@ -512,7 +519,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         // for now read eval data when reading results
     }
 
-    for (unsigned i = 0; i < MAX_NUM_CL_DEVICES; ++i) {
+    for (i = 0; i < MAX_NUM_CL_DEVICES; ++i) {
         if (nullptr != devices[i]) {
             clReleaseDevice(devices[i]);
         }
@@ -523,15 +530,21 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     // setup profiling
     if (ENABLE_PROFILING & config_flags) {
         status = dprintf(fd, CSV_HEADER);
-        CHECK_AND_RETURN((status < 0), "could not write csv header");
+        CATCH_AND_SET_STATUS((status < 0), "could not write csv header");
         std::time_t t = std::time(nullptr);
         status = dprintf(fd, "-1,unix_timestamp,time_s,%ld\n", t);
-        CHECK_AND_RETURN((status < 0), "could not write timestamp");
+        CATCH_AND_SET_STATUS((status < 0), "could not write timestamp");
     }
 
     // FIXME init global hevc codecs
 
     *ret_ctx = ctx;
+    return final_status;
+
+    // only get here if something went wrong
+    FINISH:
+    *ret_ctx = NULL;
+    destroy_pocl_image_processor_context(&ctx);
     return final_status;
 }
 
@@ -574,14 +587,15 @@ destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr) {
         return CL_SUCCESS;
     }
 
-    for (int i = 0; i < ctx->lane_count; i++) {
-        destroy_pipeline_context(ctx->pipeline_array[i]);
+    if (NULL != ctx->pipeline_array) {
+        for (int i = 0; i < ctx->lane_count; i++) {
+            destroy_pipeline_context((ctx->pipeline_array[i]));
+        }
+        free(ctx->pipeline_array);
     }
-
     ping_fillbuffer_destroy(&(ctx->ping_context));
 
     free(ctx->collected_results);
-    free(ctx->pipeline_array);
 
     free(ctx->metadata_array);
     sem_destroy(&(ctx->pipe_sem));

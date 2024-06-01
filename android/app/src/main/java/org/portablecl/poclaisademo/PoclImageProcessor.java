@@ -383,29 +383,43 @@ public class PoclImageProcessor {
                 status = initPoclImageProcessorV2(runtimeConfigFlags, assetManager,
                         captureSize.getWidth(),
                         captureSize.getHeight(), nativeFd, this.pipelineLanes, serviceName);
-                if (-100 == status) {
-                    runtimeConfigFlags = fallbackToLocal();
+                switch (status) {
+                    case -100: {
+                        runtimeConfigFlags = fallbackToLocal();
 
-                    if (null != parcelFileDescriptor) {
-                        try {
-                            parcelFileDescriptor.close();
-                        } catch (IOException e) {
-                            e.printStackTrace();
+                        if (null != parcelFileDescriptor) {
+                            try {
+                                parcelFileDescriptor.close();
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
                         }
+                        // restart the whole process
+                        continue;
                     }
-                    // restart the whole process
-                    continue;
-                } else if (-33 == status) {
-                    if (null != activity) {
-                        activity.runOnUiThread(() -> Toast.makeText(context,
-                                "could not connect to server, please check connection",
-                                Toast.LENGTH_SHORT).show());
-                    } else {
-                        Log.println(Log.WARN, "PoclImageProcessor.java:imageProcessLoop", "could " +
-                                "not connect to server, please check connection");
+                    case -33: {
+                        if (null != activity) {
+                            activity.runOnUiThread(() -> Toast.makeText(context,
+                                    "could not connect to server, please check connection",
+                                    Toast.LENGTH_SHORT).show());
+                        } else {
+                            Log.println(Log.WARN, "PoclImageProcessor.java:imageProcessLoop",
+                                    "could " +
+                                    "not connect to server, please check connection");
+                        }
+
+                        return;
+                    }
+                    case 0: {
+                        // everything is fine
+                        break;
+                    }
+                    default: {
+                        Log.println(Log.ERROR, "PoclImageProcessor.java:imageProcessLoop",
+                                "initPoclImageProcessorV2 returned an error");
+                        return;
                     }
 
-                    return;
                 }
 
                 // start the thread to read images

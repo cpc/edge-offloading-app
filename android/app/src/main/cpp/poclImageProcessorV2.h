@@ -21,6 +21,9 @@
 extern "C" {
 #endif
 
+#define POCL_IMAGE_PROCESSOR_ERROR -100
+#define POCL_IMAGE_PROCESSOR_UNRECOVERABLE_ERROR -101
+
 typedef enum {
     LANE_REMOTE_LOST = -3,
     LANE_SHUTDOWN = -2,
