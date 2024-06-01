@@ -71,6 +71,7 @@ void destroy_codec_select(codec_select_state_t **state) {
 }
 
 void update_stats(const frame_metadata_t *frame_metadata, codec_select_state_t *state) {
+    assert(NULL != state);
     const float latency_ms =
             (float) (frame_metadata->host_ts_ns.stop - frame_metadata->host_ts_ns.start) / 1e6f;
 

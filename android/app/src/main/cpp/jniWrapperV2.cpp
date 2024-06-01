@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include "jni_utils.h"
+#include "platform.h"
 
 //
 // Created by rabijl on 5.3.2024.
@@ -29,6 +30,7 @@ codec_select_state_t *state = NULL;
  * Set codec config from the codec selection state and input parameters from the UI (rotation, do_segment)
  */
 static void set_codec_config(int rotation, int do_segment, codec_config_t *codec_config) {
+    assert(NULL != state);
     const codec_params_t params = get_codec_params(state);
     const int codec_id = get_codec_id(state);
     codec_config->compression_type = params.compression_type;
@@ -90,12 +92,18 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
 JNIEXPORT jfloat JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclGetLastIouV2(JNIEnv *env, jclass clazz) {
 
+    if(NULL == ctx) {
+        LOGW("last iou was called on ctx that was not initialized");
+        return -1.0f;
+    }
     return get_last_iou(ctx);
 }
 
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSelectCodecAuto(JNIEnv *env,
                                                                            jclass clazz) {
+
+    assert(NULL != state);
     select_codec_auto(state);
     return 0;
 }
@@ -119,6 +127,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
                                                                           jint pixel_stride2,
                                                                           jlong image_timestamp) {
 
+    assert(NULL != ctx);
     image_data_t image_data;
     image_data.type = YUV_DATA_T;
     image_data.data.yuv.planes[0] = (uint8_t *) env->GetDirectBufferAddress(plane0);
@@ -156,13 +165,14 @@ JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_dequeue_1spot(JNIEnv *env, jclass clazz,
                                                                      jint timeout,
                                                                      jint dev_type) {
-
+    assert(NULL != ctx);
     return dequeue_spot(ctx, timeout, (device_type_enum) dev_type);
 }
 
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_waitImageAvailable(JNIEnv *env, jclass clazz,
                                                                           jint timeout) {
+    assert(NULL != ctx);
     return wait_image_available(ctx, timeout);
 }
 
@@ -172,6 +182,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_receiveImage(JNIEnv *env,
                                                                     jbyteArray segmentation_result,
                                                                     jlongArray metadataExchange,
                                                                     jfloat energy) {
+
+    assert(NULL != ctx);
 
     // todo: look into if iscopy=true works on android
     int32_t *detection_array = env->GetIntArrayElements(detection_result, JNI_FALSE);
@@ -212,6 +224,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_receiveImage(JNIEnv *env,
  */
 JNIEXPORT jobject JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getCodecConfig(JNIEnv *env, jclass clazz) {
+
+    assert(NULL != state);
+
     jclass button_config_class = env->FindClass(
             "org/portablecl/poclaisademo/CodecConfig");
     assert(nullptr != button_config_class);
@@ -229,6 +244,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getCodecConfig(JNIEnv *en
 
 JNIEXPORT jobject JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getStats(JNIEnv *env, jclass clazz) {
+
+    assert(NULL != state);
+
     jclass stats_class = env->FindClass("org/portablecl/poclaisademo/MainActivity$Stats");
     assert(nullptr != stats_class);
 
