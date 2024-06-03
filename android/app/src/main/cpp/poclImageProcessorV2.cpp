@@ -144,7 +144,7 @@ setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
     if ((config_flags &
          (YUV_COMPRESSION | HEVC_COMPRESSION | SOFTWARE_HEVC_COMPRESSION | JPEG_COMPRESSION)) &&
         no_devs <= 2) {
-        CHECK_AND_RETURN(-1, "compression is not supported with one device");
+        CHECK_AND_RETURN(-100, "compression is not supported with one device");
     }
 
     cl_int status;
@@ -411,8 +411,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     cl_int status;
 
     cl_command_queue_properties cq_properties = CL_QUEUE_PROFILING_ENABLE;
-    cl_context_properties cps[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
-                                   0};
+    cl_context_properties cps[3];
 
     TracyCLCtx *tracy_ctx;
 
@@ -442,6 +441,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         // we requested more devices, but we only found local devices,
         // so communicate this higher up
         if (CL_SUCCESS == status && devices_found < 3) {
+            LOGE(" not the number of devices expected");
             final_status = POCL_IMAGE_PROCESSOR_ERROR;
         }
     } else {
@@ -467,6 +467,10 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
                         NULL);
         LOGI("device %d: CL_DRIVER_BUILT_IN_KERNELS: %s\n", i, result_array);
     }
+
+    cps[0] = CL_CONTEXT_PLATFORM;
+    cps[1] = (cl_context_properties) platform;
+    cps[2] = 0;
 
     context = clCreateContext(cps, devices_found, devices, NULL, NULL, &status);
     CATCH_AND_SET_STATUS(status, "creating context failed");

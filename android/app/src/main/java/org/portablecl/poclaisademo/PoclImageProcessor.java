@@ -416,7 +416,7 @@ public class PoclImageProcessor {
                     }
                     default: {
                         Log.println(Log.ERROR, "PoclImageProcessor.java:imageProcessLoop",
-                                "initPoclImageProcessorV2 returned an error");
+                                "initPoclImageProcessorV2 returned an error" + status);
                         return;
                     }
 
