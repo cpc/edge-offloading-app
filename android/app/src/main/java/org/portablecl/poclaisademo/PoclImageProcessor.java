@@ -342,6 +342,7 @@ public class PoclImageProcessor {
         int status = 0;
         // configflags that can change due to having to fallback
         int runtimeConfigFlags = this.configFlags;
+        String runtimeServiceName = serviceName;
 
         Image image = null;
 
@@ -382,20 +383,26 @@ public class PoclImageProcessor {
                 AssetManager assetManager = context.getAssets();
                 status = initPoclImageProcessorV2(runtimeConfigFlags, assetManager,
                         captureSize.getWidth(),
-                        captureSize.getHeight(), nativeFd, this.pipelineLanes, serviceName);
+                        captureSize.getHeight(), nativeFd, this.pipelineLanes, runtimeServiceName);
+
+                Log.println(Log.WARN, "temp ", " init return status: " + status);
                 switch (status) {
                     case -100: {
-                        runtimeConfigFlags = fallbackToLocal();
 
-                        if (null != parcelFileDescriptor) {
-                            try {
-                                parcelFileDescriptor.close();
-                            } catch (IOException e) {
-                                e.printStackTrace();
+                        if (ENABLEFALLBACK & !interrupted) {
+                            runtimeConfigFlags = fallbackToLocal();
+                            runtimeServiceName = null;
+                            if (null != parcelFileDescriptor) {
+                                try {
+                                    parcelFileDescriptor.close();
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
                             }
+                            // restart the whole process
+                            continue;
                         }
-                        // restart the whole process
-                        continue;
+                        // falldown to the next case when enablefallback is not enabled
                     }
                     case -33: {
                         if (null != activity) {
@@ -594,6 +601,7 @@ public class PoclImageProcessor {
             // if fallback is enabled, start the loop again
             if (ENABLEFALLBACK && !interrupted) {
                 runtimeConfigFlags = fallbackToLocal();
+                runtimeServiceName = null;
             } else {
                 break;
             }

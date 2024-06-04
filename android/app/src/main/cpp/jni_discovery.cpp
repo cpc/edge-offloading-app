@@ -4,6 +4,7 @@
 #include <string>
 #include <android/log.h>
 #include <pthread.h>
+#include <cassert>
 
 #define str(x) #x
 
@@ -24,16 +25,19 @@ cl_int add_device(char *parameter, cl_uint mode) {
     // mode => 0:add - 1:reconnect
 
     // Function name can also be retrieved using clGetPlatformInfo for CL_PLATFORM_EXTENSIONS
-    char funcName[] = "clAddReconnectDevicePOCL";
+    const char funcName[] = "clAddReconnectDevicePOCL";
     // Adding or reconnecting to a device is only supported by remote driver as of now
-    char device_driver_name[] = "remote";
-    cl_platform_id platform;
+    const char device_driver_name[] = "remote";
+    cl_platform_id platform = NULL;
     cl_int (*func)(char *const, cl_uint, void *);
 
     CHECK(clGetPlatformIDs(1, &platform, NULL));
+    assert(NULL != platform);
+
     func = (cl_int (*)(char *const, cl_uint, void *)) clGetExtensionFunctionAddressForPlatform(
             platform, funcName);
-    CHECK(func(parameter, mode, device_driver_name));
+    assert(NULL != func);
+    CHECK(func(parameter, mode, (void *) device_driver_name));
 
     return CL_SUCCESS;
 }

@@ -522,6 +522,11 @@ public class MainActivity extends AppCompatActivity {
                         discoveryReconnectCheck[0] = false;
                     }
                     if (!selectedServer.equals(DiscoverySelect.DEFAULT_SPINNER_VAL)) {
+
+                        runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                                "connecting to: " + selectedServer,
+                                Toast.LENGTH_SHORT).show());
+
                         modeSwitch.setClickable(true);
                         Log.d("DISC", "Spinner position selected: " + position + " : server " +
                                 "selected " +

@@ -319,8 +319,11 @@ init_eval_ctx(eval_pipeline_context_t *const ctx, int width, int height, cl_cont
 
     // create eval pipeline
     ctx->eval_pipeline = (pipeline_context *) calloc(1, sizeof(pipeline_context));
-    setup_pipeline_context(ctx->eval_pipeline, width, height, ENABLE_PROFILING | NO_COMPRESSION,
-                           NULL, 0, cl_context, device, 1, tracy_ctx, 1);
+    cl_int status = setup_pipeline_context(ctx->eval_pipeline, width, height,
+                                           ENABLE_PROFILING | NO_COMPRESSION,
+                                           NULL, 0, cl_context, device, 1, tracy_ctx, 1);
+    CHECK_AND_RETURN(status, "could not init eval pipeline \n");
+
     ctx->eval_results = (dnn_results *) calloc(1, sizeof(dnn_results));
 
     clock_gettime(CLOCK_MONOTONIC, &(ctx->next_eval_ts));
@@ -348,31 +351,31 @@ pick_device(cl_platform_id platform, cl_device_id *devices, cl_uint *devices_fou
     all_devices = (cl_device_id *) malloc(device_num * sizeof(cl_device_id));
     status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, device_num, all_devices, NULL);
 
-    if (device_num == 0) {
-        *devices_found = 0;
+    if (4 > device_num) {
+        LOGE("DISCOVERY DID NOT FIND REQUIRED NUMBER OF DEVICES");
+        status = POCL_IMAGE_PROCESSOR_ERROR;
         goto END;
-    } else if (device_num <= 2) {
-        devices[0] = all_devices[0];
-        devices[1] = all_devices[1];
-        *devices_found = 2;
-        goto END;
-    } else {
-        for (uint i = 0; i < device_num; ++i) {
-            clGetDeviceInfo(all_devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
-            if (!strncmp(service_name, result_array, 32)) {
-                devices[0] = all_devices[0];
-                devices[1] = all_devices[1];
-                devices[2] = all_devices[i];
-                devices[3] = all_devices[i + 1];
-                *devices_found = 4;
-                LOGI("JNI DISCOVERY SUCCEEDED");
-                status = CL_SUCCESS;
-                goto END;
-            }
-        }
-        LOGE("JNI DISCOVERY FAILED");
-        status = CL_DEVICE_NOT_AVAILABLE;
     }
+
+    for (uint i = 0; i < device_num; ++i) {
+        clGetDeviceInfo(all_devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
+        if (!strncmp(service_name, result_array, 32)) {
+            devices[0] = all_devices[0];
+            devices[1] = all_devices[1];
+            devices[2] = all_devices[i];
+            devices[3] = all_devices[i + 1];
+            *devices_found = 4;
+            LOGI("JNI DISCOVERY SUCCEEDED");
+            status = CL_SUCCESS;
+            break;
+        }
+    }
+
+    if (4 != *devices_found) {
+        LOGE("JNI DISCOVERY FAILED");
+        status = POCL_IMAGE_PROCESSOR_ERROR;
+    }
+
     END:
     free(all_devices);
     return status;
@@ -405,7 +408,7 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
     int i;
     int final_status = CL_SUCCESS;
     cl_platform_id platform;
-    cl_context context;
+    cl_context context = NULL;
     cl_device_id devices[MAX_NUM_CL_DEVICES] = {nullptr};
     cl_uint devices_found;
     cl_int status;
@@ -438,12 +441,6 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
 
     if (service_name != NULL) {
         status = pick_device(platform, devices, &devices_found, service_name);
-        // we requested more devices, but we only found local devices,
-        // so communicate this higher up
-        if (CL_SUCCESS == status && devices_found < 3) {
-            LOGE(" not the number of devices expected");
-            final_status = POCL_IMAGE_PROCESSOR_ERROR;
-        }
     } else {
         status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, MAX_NUM_CL_DEVICES, devices,
                                 &devices_found);
@@ -517,8 +514,10 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
 #else
         tracy_ctx = NULL;
 #endif
-        init_eval_ctx(&(ctx->eval_ctx), width, height, context, &(devices[REMOTE_DEVICE]),
-                      tracy_ctx);
+        status = init_eval_ctx(&(ctx->eval_ctx), width, height, context, &(devices[REMOTE_DEVICE]),
+                               tracy_ctx);
+        CATCH_AND_SET_STATUS(status, "creating init eval ctx failed");
+
         // TODO: create a thread that waits on the eval queue
         // for now read eval data when reading results
     }
@@ -529,7 +528,8 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
         }
     }
 
-    clReleaseContext(context);
+    status = clReleaseContext(context);
+    CATCH_AND_SET_STATUS(status, "could not release context properly");
 
     // setup profiling
     if (ENABLE_PROFILING & config_flags) {
@@ -547,6 +547,17 @@ create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, cons
 
     // only get here if something went wrong
     FINISH:
+
+    for (i = 0; i < MAX_NUM_CL_DEVICES; ++i) {
+        if (nullptr != devices[i]) {
+            clReleaseDevice(devices[i]);
+        }
+    }
+
+    if (NULL != context) {
+        clReleaseContext(context);
+    }
+
     *ret_ctx = NULL;
     destroy_pocl_image_processor_context(&ctx);
     return final_status;
