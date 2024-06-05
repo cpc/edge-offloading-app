@@ -11,6 +11,7 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_ONLY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SOFTWARE_HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
@@ -701,6 +702,9 @@ public class StartupActivity extends AppCompatActivity {
         }
         if (softwareHevcCompButton.isChecked()) {
             configFlag |= SOFTWARE_HEVC_COMPRESSION;
+        }
+        if (disableRemote) {
+            configFlag |= LOCAL_ONLY;
         }
 
         return configFlag;

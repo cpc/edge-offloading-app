@@ -80,6 +80,7 @@ public class JNIPoclImageProcessor {
             populateCompressionOptions();
 
     public final static int ENABLE_PROFILING = (1 << 8);
+    public final static int LOCAL_ONLY = (1 << 9);
 
     public final static int LOCAL_DEVICE = 0;
     public final static int PASSTHRU_DEVICE = 1;

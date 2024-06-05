@@ -8,6 +8,7 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.HEVC_COMPRESSION
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_DEVICE;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_ONLY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SOFTWARE_HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
@@ -626,7 +627,7 @@ public class PoclImageProcessor {
         }
 
         boolean doProfiling = (configFlags & ENABLE_PROFILING) > 1;
-        return NO_COMPRESSION | (doProfiling ? ENABLE_PROFILING : 0);
+        return NO_COMPRESSION | LOCAL_ONLY | (doProfiling ? ENABLE_PROFILING : 0);
     }
 
     private void receiveResultLoop() {

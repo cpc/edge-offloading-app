@@ -33,7 +33,8 @@ typedef enum {
 } device_type_enum;
 
 enum {
-    ENABLE_PROFILING = (1 << 8)
+    ENABLE_PROFILING = (1 << 8),
+    LOCAL_ONLY = (1 << 9)
 };
 
 /**
