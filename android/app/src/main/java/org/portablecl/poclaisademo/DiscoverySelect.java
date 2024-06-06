@@ -46,15 +46,16 @@ public class DiscoverySelect {
             pingMonitor = new PingMonitor(address.split(":")[0]);
             pingMonitor.start();
             pingMonitor.reset();
-            this.ping = pingMonitor.getPing();
+            this.ping = pingMonitor.getAveragePing();
         }
 
         public void updatePing() {
-            this.ping = pingMonitor.getPing();
+            this.ping = pingMonitor.getAveragePing();
         }
 
         public String getDescription() {
-            return ("(" + ping + "ms) " + " | " + device_type + " | " + address);
+            float p = Math.round(ping * 10) / 10.0F;
+            return ("(" + p + "ms) " + " | " + device_type + " | " + address);
         }
 
         public String getAddress() {
