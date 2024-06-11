@@ -187,7 +187,7 @@ int read_frame_count;
 void read_function(pocl_image_processor_context *ctx) {
 
     int segmentation = 0;
-    eval_metadata_t eval_metadata;
+    frame_metadata_t eval_metadata;
     int status;
     std::vector<int32_t> detections(DETECTION_COUNT);
     std::vector<uint8_t> segmentations(SEG_POSTPROCESS_COUNT);
@@ -287,7 +287,7 @@ int main() {
     constexpr int rotation = 0;
 
     /* Read input image, assumes app is in a build dir */
-    std::string inp_name = "../../android/app/src/main/assets/bus_640x480.jpg";
+    std::string inp_name = "../android/app/src/main/assets/bus_640x480.jpg";
 
     int inp_w, inp_h, nch;
     uint8_t *inp_pixels = stbi_load(inp_name.data(), &inp_w, &inp_h, &nch, 3);
@@ -339,7 +339,7 @@ int main() {
     }
 
     std::vector<std::string> source_files = {
-        "../../android/app/src/main/assets/kernels/copy.cl"};
+        "../android/app/src/main/assets/kernels/copy.cl"};
     auto codec_sources = read_files(source_files);
     assert(codec_sources[0].length() > 0 && "could not open files");
 
@@ -369,7 +369,7 @@ RETRY:
 
     status = create_pocl_image_processor_context(
         &ctx, 2, inp_w, inp_h, config_flags, codec_sources.at(0).c_str(),
-        codec_sources.at(0).size(), fd, "b850a72c2fca810ab754b77b1e31726b");
+        codec_sources.at(0).size(), fd, NULL);
     assert(status == CL_SUCCESS);
     assert(ctx != NULL);
 

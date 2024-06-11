@@ -79,6 +79,7 @@ set(POCL_CMAKE_ARGS
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         -DVISIBILITY_HIDDEN=0
         -DENABLE_OPENCV_ONNX=ON
+        -DORT_INSTALL_DIR=${ORT_INSTALL_DIR}
         -DENABLE_TURBO_JPEG_COMPRESSION=YES
         -DENABLE_TURBO_JPEG_DECOMPRESSION=YES
         -Dlibjpeg-turbo_DIR=${libjpeg-turbo_DIR}
@@ -119,6 +120,7 @@ add_executable(
         ${APP_DIR}/event_logger.c ${APP_DIR}/event_logger.h
         ${APP_DIR}/yuv_compression.c ${APP_DIR}/yuv_compression.h
         ${APP_DIR}/jpeg_compression.c ${APP_DIR}/jpeg_compression.h
+        ${APP_DIR}/hevc_compression.c ${APP_DIR}/hevc_compression.h
         ${APP_DIR}/testapps.c ${APP_DIR}/testapps.h
         ${APP_DIR}/poclImageProcessorV2.cpp ${APP_DIR}/poclImageProcessorV2.h
         ${APP_DIR}/dnn_stage.cpp ${APP_DIR}/dnn_stage.h
