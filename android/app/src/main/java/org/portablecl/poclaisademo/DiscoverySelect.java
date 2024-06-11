@@ -75,26 +75,37 @@ public class DiscoverySelect {
     public ArrayList<spinnerObject> spinnerList;
     public static final String TAG = "DISC";
     public static final String DEFAULT_SPINNER_VAL = "Select a server";
-    public final spinnerObject verneServer = new spinnerObject("10.1.200.5:10998", "GPU");
+    private final DiscoveryDNSSD DNSSD;
+    private final ConnectivityManager connectivityManager;
+
+    private final Spinner spinner;
 
     public DiscoverySelect(Activity activity, Spinner discoverySpinner,
                            AdapterView.OnItemSelectedListener listener) {
         this.activity = activity;
+        connectivityManager = activity.getSystemService(ConnectivityManager.class);
         destroyServiceMap();
         NSDiscovery = new Discovery();
         spinnerList = new ArrayList<>();
         spinnerList.add(new spinnerObject());
         spinnerAdapter = new DiscoverySpinnerAdapter(activity,
                 android.R.layout.simple_spinner_item, spinnerList);
+        spinner = discoverySpinner;
         discoverySpinner.setAdapter(spinnerAdapter);
         discoverySpinner.setOnItemSelectedListener(listener);
         initServiceMap();
-        initVerneServer();
         NSDiscovery.initDiscovery(this, activity);
+        // The domain "yashvardhan.uk" is temporary and should be replaced with a domain that
+        // //verne provides for DNS lookup
+        //TODO: Add mechanism for automatically finding the domain name form the current 5G network
+        // once verne sets it up
+        DNSSD = new DiscoveryDNSSD("yashvardhan.uk", "pocl", this);
+        getWANservices();
     }
 
     public void stopDiscovery() {
         NSDiscovery.stopDiscovery();
+        connectivityManager.unregisterNetworkCallback(networkCallback);
         destroyServiceMap();
     }
 
@@ -110,34 +121,35 @@ public class DiscoverySelect {
         }
     }
 
-    // The verne server details are dynamically added to the spinner as and when the network
-    // status is changed from wifi to cellular
-    // TODO: Hardcoded parts to be modified when WAN discovery is implemented
-    private void initVerneServer() {
-        serviceInfo verne = new serviceInfo();
-        verne.name = "cpu-icelake-server-Intel(R) Xeon";
-        verne.deviceCount = 2;
-        verne.reconnect = false;
-        serviceMap.put("10.1.200.5:10998", verne);
-        ConnectivityManager connectivityManager =
-                activity.getSystemService(ConnectivityManager.class);
-        connectivityManager.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
-            @Override
-            public void onAvailable(@NonNull Network network) {
-            }
+     ConnectivityManager.NetworkCallback networkCallback = new ConnectivityManager.NetworkCallback() {
+        @Override
+        public void onAvailable(@NonNull Network network) {
+        }
 
-            @Override
-            public void onCapabilitiesChanged(@NonNull Network network,
-                                              @NonNull NetworkCapabilities networkCapabilities) {
-                if (networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
-                    if (!spinnerList.contains(verneServer)) {
-                        spinnerList.add(verneServer);
+        @Override
+        public void onCapabilitiesChanged(@NonNull Network network,
+                @NonNull NetworkCapabilities networkCapabilities) {
+            if (networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
+
+                DNSSD.getDNSSDService();
+
+            } else {
+                DNSSD.removeServices();
+                activity.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        spinner.setSelection(0);
                     }
-                } else {
-                    spinnerList.remove(verneServer);
-                }
+                });
             }
-        });
+        }
+    };
+    // WAN service sare found through DNS-SD
+    // These services are only added when connected to cellular and not during wifi, this
+    // behaviour can be modified later
+    private void getWANservices() {
+
+        connectivityManager.registerDefaultNetworkCallback(networkCallback);
     }
 
     public void insertService(NsdServiceInfo nsdServiceInfo) {
@@ -148,6 +160,16 @@ public class DiscoverySelect {
         // txt. These have to be accounted for when using the txt field.
         String txt = nsdServiceInfo.getAttributes().toString();
         int devices = txt.length() - 7;
+
+        addToMap(key, sName, txt, devices);
+    }
+
+    public void insertService(String sName, String key, String txt) {
+        int devices = txt.length() - 7;
+        addToMap(key, sName, txt, devices);
+    }
+
+    private void addToMap(String key, String sName, String txt, int devices) {
         String deviceType;
         // 0:CL_DEVICE_TYPE_CPU , 1:CL_DEVICE_TYPE_GPU , 2:CL_DEVICE_TYPE_ACCELERATOR ,
         // 4:CL_DEVICE_TYPE_CUSTOM
@@ -174,8 +196,8 @@ public class DiscoverySelect {
                 Log.d(TAG, "(RESOLVER) Service " + sName + " is known with same session.");
                 addSpinnerEntry(new spinnerObject(key, deviceType));
             } else {
-                Log.d(TAG, "(RESOLVER) Service " + sName + " is known but old session has expired" +
-                        ".");
+                Log.d(TAG, "(RESOLVER) Service " + sName + " is known but old session has " +
+                        "expired" + ".");
                 serviceMap.get(key).name = sName;
                 serviceMap.get(key).deviceCount = devices;
                 serviceMap.get(key).reconnect = false;
