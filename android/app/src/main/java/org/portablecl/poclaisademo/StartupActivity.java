@@ -433,8 +433,6 @@ public class StartupActivity extends AppCompatActivity {
             // if the quality algorithm button is turned on
             enableAllCompButtons(!((Switch) v).isChecked());
 
-            // TODO: check each button that is supported by the quality algorithm
-
             if (!jpegCompButton.isChecked()) {
                 jpegCompButton.setChecked(true);
             }

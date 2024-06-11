@@ -617,15 +617,23 @@ public class PoclImageProcessor {
      * @return new configflags to use during execution
      */
     private int fallbackToLocal() {
-        this.setInferencingDevice(LOCAL_DEVICE);
+        if (DEBUGEXECUTION) {
+            Log.println(Log.INFO, "EXECUTIONFLOW", "started fallback to local method");
+        }
 
         if (null != activity) {
+
+            // send it to the main activity
+            CodecConfig config = new CodecConfig(NO_COMPRESSION, LOCAL_DEVICE, this.quality);
+            activity.setButtonsFromJNI(config);
+            activity.enableRemote(false);
             activity.runOnUiThread(() -> Toast.makeText(context,
                     "lost connect to remote, local execution only",
                     Toast.LENGTH_SHORT).show());
-            activity.enableRemote(false);
         }
 
+        this.setCompressionType(NO_COMPRESSION);
+        this.setInferencingDevice(LOCAL_DEVICE);
         boolean doProfiling = (configFlags & ENABLE_PROFILING) > 1;
         return NO_COMPRESSION | LOCAL_ONLY | (doProfiling ? ENABLE_PROFILING : 0);
     }

@@ -5,8 +5,6 @@
 #ifndef POCL_AISA_DEMO_SHAREDUTILS_H
 #define POCL_AISA_DEMO_SHAREDUTILS_H
 
-// todo: provide macros for other platforms
-
 #include "platform.h"
 #include <stdint.h>
 #include <time.h>

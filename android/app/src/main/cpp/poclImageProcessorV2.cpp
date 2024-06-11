@@ -352,11 +352,12 @@ pick_device(cl_platform_id platform, cl_device_id *devices, cl_uint *devices_fou
     status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, device_num, all_devices, NULL);
 
     if (4 > device_num) {
-        LOGE("DISCOVERY DID NOT FIND REQUIRED NUMBER OF DEVICES");
+        LOGE("DISCOVERY DID NOT FIND REQUIRED NUMBER OF DEVICES (%d devs)", device_num);
         status = POCL_IMAGE_PROCESSOR_ERROR;
         goto END;
     }
 
+    *devices_found = 0;
     for (uint i = 0; i < device_num; ++i) {
         clGetDeviceInfo(all_devices[i], CL_DEVICE_NAME, 256 * sizeof(char), result_array, NULL);
         if (!strncmp(service_name, result_array, 32)) {

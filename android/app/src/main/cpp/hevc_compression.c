@@ -39,8 +39,8 @@ init_hevc_context_with_kernel_names(hevc_codec_context_t *codec_context, cl_cont
                                     const char *configure_kernel_name,
                                     const char *encode_kernel_name,
                                     const char *decode_kernel_name) {
-    // todo: set a better value
-    uint64_t out_buf_size = 2000000;
+    // this is the same value the media codec sets
+    const uint64_t out_buf_size = 1024 * 1024;
     int status;
 
     // +2 for the null char and ';' char

@@ -422,9 +422,10 @@ public class MainActivity extends AppCompatActivity {
         // disable pocl logs if verbosity is 0
         if (VERBOSITY >= 1) {
             setNativeEnv("POCL_DEBUG", "basic,pthread,proxy,error,debug,warning");
+        } else {
+            setNativeEnv("POCL_DEBUG", "error,warning");
         }
 
-        // TODO: Use this to copy the .onnx files there on startup (or try getFilesDir())
         String cache_dir = getCacheDir().getAbsolutePath();
         setNativeEnv("POCL_CACHE_DIR", cache_dir);
 
