@@ -7,6 +7,8 @@
 #include "poclImageProcessor.h"
 #include "poclImageProcessorV2.h"
 #include "codec_select.h"
+#include "eval.h"
+#include "sharedUtils.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -29,7 +31,7 @@ codec_select_state_t *state = NULL;
 /**
  * Set codec config from the codec selection state and input parameters from the UI (rotation, do_segment)
  */
-static void set_codec_config(int rotation, int do_segment, codec_config_t *codec_config) {
+static void get_codec_config(int rotation, int do_segment, codec_config_t *codec_config) {
     assert(NULL != state);
     const codec_params_t params = get_codec_params(state);
     const int codec_id = get_codec_id(state);
@@ -67,13 +69,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(
     if (service_name != NULL)
         _service_name = (char *) env->GetStringUTFChars(service_name, 0);
 
-    jint status = create_pocl_image_processor_context(&ctx, max_lanes, width,
-                                                      height, config_flags, codec_sources, src_size,
-                                                      fd, _service_name);
+    jint status = create_pocl_image_processor_context(&ctx, max_lanes, width, height, config_flags,
+                                                      codec_sources, src_size, fd, _service_name);
 
     free(codec_sources);
 
-    init_codec_select(&state);
+    init_codec_select(config_flags, &state);
 
     if (service_name != NULL)
         env->ReleaseStringUTFChars(service_name, _service_name);
@@ -92,7 +93,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
 JNIEXPORT jfloat JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclGetLastIouV2(JNIEnv *env, jclass clazz) {
 
-    if(NULL == ctx) {
+    if (NULL == ctx) {
         LOGW("last iou was called on ctx that was not initialized");
         return -1.0f;
     }
@@ -141,21 +142,31 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
     image_data.data.yuv.row_strides[2] = row_stride2;
 
     int status;
-    // TODO: set eval
     int is_eval_frame = 0;
 
+    // read the current config from the codec selection state
     codec_config_t codec_config;
+    get_codec_config(rotation, do_segment, &codec_config);
 
-    if (do_algorithm) {
-        set_codec_config(rotation, do_segment, &codec_config);
-    } else {
+    if (!do_algorithm) {
+        // override the codec config with whatever the user set in the UI
         select_codec_manual((device_type_enum) (device_index), do_segment,
-                            (compression_t) (compression_type),
-                            quality, rotation, &codec_config);
+                            (compression_t) (compression_type), quality, rotation, &codec_config);
     }
 
+    // check if we need to submit image to the eval pipeline
+    status = check_eval(ctx->eval_ctx, codec_config, &is_eval_frame);
+    CHECK_AND_RETURN(status, "could not check and submit eval frame");
 
+    // submit the image for the actual encoding (needs to be submitted *before* the eval frame
     status = submit_image(ctx, codec_config, image_data, is_eval_frame);
+    CHECK_AND_RETURN(status, "could not submit frame");
+
+    if (is_eval_frame) {
+        // submit the eval frame if appropriate
+        status = run_eval(ctx->eval_ctx, codec_config, image_data);
+        CHECK_AND_RETURN(status, "could not submit eval frame");
+    }
 
     return status;
 }
@@ -163,8 +174,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
 
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_dequeue_1spot(JNIEnv *env, jclass clazz,
-                                                                     jint timeout,
-                                                                     jint dev_type) {
+                                                                     jint timeout, jint dev_type) {
     assert(NULL != ctx);
     return dequeue_spot(ctx, timeout, (device_type_enum) dev_type);
 }
@@ -227,8 +237,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getCodecConfig(JNIEnv *en
 
     assert(NULL != state);
 
-    jclass button_config_class = env->FindClass(
-            "org/portablecl/poclaisademo/CodecConfig");
+    jclass button_config_class = env->FindClass("org/portablecl/poclaisademo/CodecConfig");
     assert(nullptr != button_config_class);
 
     jmethodID button_config_constructor = env->GetMethodID(button_config_class, "<init>", "(III)V");

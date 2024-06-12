@@ -27,8 +27,6 @@ extern "C" {
 dnn_context_t *create_dnn_context() {
 
     dnn_context_t *context = (dnn_context_t *) calloc(1, sizeof(dnn_context_t));
-    context->iou = -5.0;
-
     return context;
 }
 
@@ -42,19 +40,6 @@ char *kernel_names = dnn_kernel_name ";"
                      eval_kernel_name;
 
 /**
- *  Macro that sets the queue object to the right queue based on the codec config
- */
-#define PICK_QUEUE(queue, ctx, config) \
-    if (LOCAL_DEVICE == config->device_type) {\
-    queue = ctx->local_queue;\
-    } else if (REMOTE_DEVICE == config->device_type) {\
-    queue = ctx->remote_queue;\
-    } else {\
-    LOGE("unknown device type to enqueue dnn to\n");\
-    return -1;\
-    }\
-
-/**
  * init the dnn context
  * @param dnn_context
  * @param ocl_context
@@ -64,10 +49,8 @@ char *kernel_names = dnn_kernel_name ";"
  * @param enable_eval whether or not to init the eval kernels as well
  * @return OpenCL status message
  */
-int
-init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, int width, int height,
-                 cl_device_id *dnn_device,
-                 cl_device_id *reconstruct_device, int enable_eval) {
+int init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, int width, int height,
+                     cl_device_id *dnn_device, cl_device_id *reconstruct_device, int enable_eval) {
 
     int status;
 
@@ -99,14 +82,13 @@ init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, int width, 
     CHECK_AND_RETURN(status, "creating reconstruct kernel failed");
 
     dnn_context->out_mask_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
-                                               width * height * MAX_DETECTIONS *
-                                               sizeof(cl_char) / 4,
-                                               NULL, &status);
+                                               width * height * MAX_DETECTIONS * sizeof(cl_char) /
+                                               4, NULL, &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
 
     dnn_context->postprocess_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
-                                                  MASK_W * MASK_H * sizeof(cl_uchar),
-                                                  NULL, &status);
+                                                  MASK_W * MASK_H * sizeof(cl_uchar), NULL,
+                                                  &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation postprocessing buffer");
 
     dnn_context->detect_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
@@ -120,9 +102,8 @@ init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, int width, 
     // set the kernel parameters
     status = clSetKernelArg(dnn_context->dnn_kernel, 1, sizeof(cl_uint), &(dnn_context->width));
     status |= clSetKernelArg(dnn_context->dnn_kernel, 2, sizeof(cl_uint), &(dnn_context->height));
-    status |=
-            clSetKernelArg(dnn_context->dnn_kernel, 3, sizeof(cl_int),
-                           &(dnn_context->rotate_cw_degrees));
+    status |= clSetKernelArg(dnn_context->dnn_kernel, 3, sizeof(cl_int),
+                             &(dnn_context->rotate_cw_degrees));
     status |= clSetKernelArg(dnn_context->dnn_kernel, 5, sizeof(cl_mem),
                              &(dnn_context->detect_buf));
 
@@ -149,8 +130,7 @@ init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, int width, 
         dnn_context->eval_kernel = clCreateKernel(program, eval_kernel_name, &status);
         CHECK_AND_RETURN(status, "could not create eval kernel");
         dnn_context->eval_buf = clCreateBuffer(ocl_context, CL_MEM_WRITE_ONLY, sizeof(cl_float),
-                                               NULL,
-                                               &status);
+                                               NULL, &status);
         CHECK_AND_RETURN(status, "could create eval_buf");
         status |= clSetKernelArg(dnn_context->eval_kernel, 5, sizeof(cl_mem),
                                  &(dnn_context->eval_buf));
@@ -184,9 +164,8 @@ init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, int width, 
  */
 cl_int
 write_buffer_dnn(const dnn_context_t *ctx, device_type_enum device_type, uint8_t *inp_host_buf,
-                 size_t buf_size,
-                 cl_mem cl_buf, const cl_event *wait_event, event_array_t *event_array,
-                 cl_event *result_event) {
+                 size_t buf_size, cl_mem cl_buf, const cl_event *wait_event,
+                 event_array_t *event_array, cl_event *result_event) {
     ZoneScoped;
 
     cl_int status;
@@ -214,8 +193,8 @@ write_buffer_dnn(const dnn_context_t *ctx, device_type_enum device_type, uint8_t
     CHECK_AND_RETURN(status, "could migrate enc buffer back before writing");
     append_to_event_array(event_array, undef_mig_event, VAR_NAME(undef_mig_event));
 
-    status = clEnqueueWriteBuffer(write_queue, cl_buf, CL_FALSE, 0,
-                                  buf_size, inp_host_buf, 1, &undef_mig_event, &write_img_event);
+    status = clEnqueueWriteBuffer(write_queue, cl_buf, CL_FALSE, 0, buf_size, inp_host_buf, 1,
+                                  &undef_mig_event, &write_img_event);
     CHECK_AND_RETURN(status, "failed to write image to enc buffers");
     append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
     *result_event = write_img_event;
@@ -228,17 +207,19 @@ write_buffer_dnn(const dnn_context_t *ctx, device_type_enum device_type, uint8_t
  * @param wait_event event to wait on before starting these commands
  * @param config config with relevant info
  * @param input_format the format that the inp_buf is in
+ * @param do_reconstruct reconstruct full segmentation mask (not necessary for the eval frame, only used for segmentation)
  * @param inp_buf  uncompressed image, either yuv or rgb
  * @param detection_array array of bounding boxes of detected objects
  * @param segmentation_array bitmap of segments of detected objects
  * @param event_array where to append the command events to
  * @param out_event event that can be waited on
+ * @param tmp_buf_ctx optional context for saving results to buffers for eval; Ignored if NULL
  * @return CL_SUCCESS if everything went well, otherwise a cl error number
  */
 cl_int
 enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_config_t config,
-            const pixel_format_enum input_format, const cl_mem inp_buf,
-            event_array_t *event_array, cl_event *out_event) {
+            const pixel_format_enum input_format, const bool do_reconstruct, const cl_mem inp_buf,
+            event_array_t *event_array, cl_event *out_event, tmp_buf_ctx_t *tmp_buf_ctx) {
     ZoneScoped;
     cl_int status;
 
@@ -246,17 +227,19 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
     cl_int inp_format = (cl_int) input_format;
 
     status = clSetKernelArg(ctx->dnn_kernel, 0, sizeof(cl_mem), &inp_buf);
-    status |=
-            clSetKernelArg(ctx->dnn_kernel, 3, sizeof(cl_int), &(config.rotation));
+    status |= clSetKernelArg(ctx->dnn_kernel, 3, sizeof(cl_int), &(config.rotation));
     status |= clSetKernelArg(ctx->dnn_kernel, 4, sizeof(cl_int), &inp_format);
     CHECK_AND_RETURN(status, "could not assign buffers to DNN kernel");
 
     // figure out on which queue to run the dnn
     cl_command_queue dnn_queue;
+    TracyCLCtx dnn_tracy_ctx;
     if (LOCAL_DEVICE == config.device_type) {
         dnn_queue = ctx->local_queue;
+        dnn_tracy_ctx = ctx->local_tracy_ctx;
     } else if (REMOTE_DEVICE == config.device_type) {
         dnn_queue = ctx->remote_queue;
+        dnn_tracy_ctx = ctx->remote_tracy_ctx;
     } else {
         LOGE("unknown device type to enqueue dnn to\n");
         return -1;
@@ -265,23 +248,34 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
     cl_event run_dnn_event;
 
     {
-        TracyCLZone(ctx->remote_tracy_ctx, "DNN");
+        TracyCLZone(dnn_tracy_ctx, "DNN");
         status = clEnqueueNDRangeKernel(dnn_queue, ctx->dnn_kernel, ctx->work_dim, NULL,
-                                        ctx->global_size, ctx->local_size, 1,
-                                        wait_event, &run_dnn_event);
+                                        ctx->global_size, ctx->local_size, 1, wait_event,
+                                        &run_dnn_event);
         CHECK_AND_RETURN(status, "failed to enqueue ND range DNN kernel");
         append_to_event_array(event_array, run_dnn_event, VAR_NAME(dnn_event));
         TracyCLZoneSetEvent(run_dnn_event);
     }
 
+    if (tmp_buf_ctx != NULL) {
+        // Save detections to a temporary buffer for the quality evaluation pipeline
+        size_t sz = DETECTION_SIZE * sizeof(cl_int);
+
+        cl_event copy_event_det;
+        status = clEnqueueCopyBuffer(dnn_queue, ctx->detect_buf, tmp_buf_ctx->det, 0, 0, sz, 1,
+                                     &run_dnn_event, &copy_event_det);
+        CHECK_AND_RETURN(status, "failed to copy result buffer");
+        append_to_event_array(tmp_buf_ctx->event_array, copy_event_det, VAR_NAME(copy_det_event));
+        tmp_buf_ctx->copy_event_det = copy_event_det;
+    }
+
     if (config.do_segment) {
-        cl_event run_postprocess_event, mig_seg_event, run_reconstruct_event, read_segment_event;
+        cl_event run_postprocess_event, mig_seg_event, run_reconstruct_event;
 
         {
             // postprocess
-            TracyCLZone(ctx->remote_tracy_ctx, "postprocess");
-            status = clEnqueueNDRangeKernel(dnn_queue, ctx->postprocess_kernel, ctx->work_dim,
-                                            NULL,
+            TracyCLZone(dnn_tracy_ctx, "postprocess");
+            status = clEnqueueNDRangeKernel(dnn_queue, ctx->postprocess_kernel, ctx->work_dim, NULL,
                                             (ctx->global_size), (ctx->local_size), 1,
                                             &run_dnn_event, &run_postprocess_event);
             CHECK_AND_RETURN(status, "failed to enqueue ND range postprocess kernel");
@@ -289,32 +283,47 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
             TracyCLZoneSetEvent(run_postprocess_event);
         }
 
-        {
-            // move postprocessed segmentation data to host device
-            TracyCLZone(ctx->local_tracy_ctx, "migrate DNN");
-            status = clEnqueueMigrateMemObjects(ctx->local_queue, 1,
-                                                &(ctx->postprocess_buf), 0, 1,
-                                                &run_postprocess_event,
-                                                &mig_seg_event);
-            CHECK_AND_RETURN(status, "failed to enqueue migration of postprocess buffer");
-            append_to_event_array(event_array, mig_seg_event, VAR_NAME(mig_seg_event));
-            TracyCLZoneSetEvent(mig_seg_event);
+        if (tmp_buf_ctx != NULL) {
+            // Save postprocessed segmentation to a temporary buffer for the quality evaluation pipeline
+            size_t sz = MASK_W * MASK_H * sizeof(cl_uchar);
+
+            cl_event copy_event_seg;
+            status = clEnqueueCopyBuffer(dnn_queue, ctx->postprocess_buf, tmp_buf_ctx->seg_post, 0,
+                                         0, sz, 1, &run_postprocess_event, &copy_event_seg);
+            CHECK_AND_RETURN(status, "failed to copy result buffer");
+            append_to_event_array(tmp_buf_ctx->event_array, copy_event_seg,
+                                  VAR_NAME(copy_seg_event));
+            tmp_buf_ctx->copy_event_seg_post = copy_event_seg;
         }
 
-        {
-            // reconstruct postprocessed data to RGBA segmentation mask
-            TracyCLZone(ctx->local_tracy_ctx, "reconstruct");
-            status = clEnqueueNDRangeKernel(ctx->local_queue, ctx->reconstruct_kernel,
-                                            ctx->work_dim,
-                                            NULL,
-                                            ctx->global_size, ctx->local_size, 1,
-                                            &mig_seg_event, &run_reconstruct_event);
-            CHECK_AND_RETURN(status, "failed to enqueue ND range reconstruct kernel");
-            append_to_event_array(event_array, run_reconstruct_event, VAR_NAME(reconstruct_event));
-            TracyCLZoneSetEvent(run_reconstruct_event);
-        }
+        if (do_reconstruct) {
+            {
+                // move postprocessed segmentation data to host device
+                TracyCLZone(ctx->local_tracy_ctx, "migrate DNN");
+                status = clEnqueueMigrateMemObjects(ctx->local_queue, 1, &(ctx->postprocess_buf), 0,
+                                                    1, &run_postprocess_event, &mig_seg_event);
+                CHECK_AND_RETURN(status, "failed to enqueue migration of postprocess buffer");
+                append_to_event_array(event_array, mig_seg_event, VAR_NAME(mig_seg_event));
+                TracyCLZoneSetEvent(mig_seg_event);
+            }
 
-        *out_event = run_reconstruct_event;
+            {
+                // reconstruct postprocessed data to RGBA segmentation mask
+                TracyCLZone(ctx->local_tracy_ctx, "reconstruct");
+                status = clEnqueueNDRangeKernel(ctx->local_queue, ctx->reconstruct_kernel,
+                                                ctx->work_dim, NULL, ctx->global_size,
+                                                ctx->local_size, 1, &mig_seg_event,
+                                                &run_reconstruct_event);
+                CHECK_AND_RETURN(status, "failed to enqueue ND range reconstruct kernel");
+                append_to_event_array(event_array, run_reconstruct_event,
+                                      VAR_NAME(reconstruct_event));
+                TracyCLZoneSetEvent(run_reconstruct_event);
+            }
+
+            *out_event = run_reconstruct_event;
+        } else {
+            *out_event = run_postprocess_event;
+        }
     } else {
         *out_event = run_dnn_event;
     }
@@ -322,61 +331,6 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
     // TODO: migrate result buffers to local device
 
     return 0;
-}
-
-/**
- * enqueue the eval kernel which calculates the iou and stores it in the iou var of the ctx
- * @param eval_ctx baseline context used a ground truth
- * @param ctx the current context that may be working on a compressed image
- * @param config
- * @param wait_list
- * @param wait_list_size
- * @param event_array
- * @param result_event
- * @return OpenCL status
- */
-cl_int
-enqueue_eval_dnn(dnn_context_t *eval_ctx, dnn_context_t *ctx, codec_config_t *config,
-                 cl_event *wait_list, int wait_list_size,
-                 event_array_t *event_array, cl_event *result_event) {
-
-    // basic check that the dnn contexts are compatible.
-    assert((ctx->height == eval_ctx->height) && (ctx->width == eval_ctx->width));
-
-    cl_int status;
-    status = clSetKernelArg(eval_ctx->eval_kernel, 0, sizeof(cl_mem), &(ctx->detect_buf));
-    status |= clSetKernelArg(eval_ctx->eval_kernel, 1, sizeof(cl_mem), &(ctx->segmentation_buf));
-    status |= clSetKernelArg(eval_ctx->eval_kernel, 2, sizeof(cl_mem), &(eval_ctx->detect_buf));
-    status |= clSetKernelArg(eval_ctx->eval_kernel, 3, sizeof(cl_mem),
-                             &(eval_ctx->segmentation_buf));
-    status |= clSetKernelArg(eval_ctx->eval_kernel, 4, sizeof(cl_int), &(config->do_segment));
-    CHECK_AND_RETURN(status, "could not assign eval kernel params");
-
-    // figure out on which queue to run the dnn
-    cl_command_queue queue;
-    PICK_QUEUE(queue, eval_ctx, config)
-
-    // TODO: add check to see if queue is present in eval_ctx as well
-    // and give a warning that unexpected buffer transfers might happen
-    // if this is not the case
-
-    cl_event eval_iou_event, eval_read_iou_event;
-
-    status = clEnqueueNDRangeKernel(queue, eval_ctx->eval_kernel, eval_ctx->work_dim, NULL,
-                                    eval_ctx->global_size, eval_ctx->local_size,
-                                    wait_list_size, wait_list, &eval_iou_event);
-    CHECK_AND_RETURN(status, "failed to enqueue ND range eval kernel");
-    append_to_event_array(event_array, eval_iou_event, VAR_NAME(eval_iou_event));
-
-    status = clEnqueueReadBuffer(queue, eval_ctx->eval_buf, CL_FALSE, 0,
-                                 1 * sizeof(cl_float), &(eval_ctx->iou), 1, &eval_iou_event,
-                                 &eval_read_iou_event);
-    CHECK_AND_RETURN(status, "failed to read eval iou result buffer");
-    append_to_event_array(event_array, eval_read_iou_event, VAR_NAME(eval_read_iou_event));
-
-    *result_event = eval_read_iou_event;
-
-    return CL_SUCCESS;
 }
 
 /**
@@ -391,9 +345,8 @@ enqueue_eval_dnn(dnn_context_t *eval_ctx, dnn_context_t *ctx, codec_config_t *co
  * @return OpenCL status
  */
 cl_int
-enqueue_read_results_dnn(dnn_context_t *ctx, codec_config_t *config,
-                         int32_t *detection_array, uint8_t *segmentation_array,
-                         event_array_t *event_array, int wait_size,
+enqueue_read_results_dnn(dnn_context_t *ctx, codec_config_t *config, int32_t *detection_array,
+                         uint8_t *segmentation_array, event_array_t *event_array, int wait_size,
                          cl_event *wait_list) {
     ZoneScoped;
     // TODO: create special remote reading queue to not block on dnn
@@ -406,24 +359,18 @@ enqueue_read_results_dnn(dnn_context_t *ctx, codec_config_t *config,
     cl_event read_detect_event, read_segment_event = NULL;
     int wait_event_size = 1;
 
-    status = clEnqueueReadBuffer(queue, ctx->detect_buf, CL_FALSE, 0,
-                                 DET_COUNT * sizeof(cl_int), detection_array,
-                                 wait_size,
-                                 wait_list,
-                                 &read_detect_event);
+    status = clEnqueueReadBuffer(queue, ctx->detect_buf, CL_FALSE, 0, DET_COUNT * sizeof(cl_int),
+                                 detection_array, wait_size, wait_list, &read_detect_event);
     CHECK_AND_RETURN(status, "could not read detection array");
 
-    append_to_event_array(event_array, read_detect_event,
-                          VAR_NAME(read_detect_event));
+    append_to_event_array(event_array, read_detect_event, VAR_NAME(read_detect_event));
 
     if (config->do_segment) {
         status = clEnqueueReadBuffer(ctx->local_queue, ctx->segmentation_buf, CL_FALSE, 0,
                                      SEG_OUT_COUNT * sizeof(cl_uchar), segmentation_array,
-                                     wait_size, wait_list,
-                                     &read_segment_event);
+                                     wait_size, wait_list, &read_segment_event);
         CHECK_AND_RETURN(status, "could not read segmentation array");
-        append_to_event_array(event_array, read_segment_event,
-                              VAR_NAME(read_segment_event));
+        append_to_event_array(event_array, read_segment_event, VAR_NAME(read_segment_event));
         // increment the size of the wait event list
         wait_event_size = 2;
     }
@@ -444,13 +391,19 @@ enqueue_read_results_dnn(dnn_context_t *ctx, codec_config_t *config,
  * @param context
  * @return CL_SUCCESS or an error otherwise
  */
-cl_int
-destroy_dnn_context(dnn_context_t **context) {
+cl_int destroy_dnn_context(dnn_context_t **context) {
 
     dnn_context_t *c = *context;
 
     if (NULL == c) {
         return CL_SUCCESS;
+    }
+
+    if (c->local_tracy_ctx == c->remote_tracy_ctx) {
+        TracyCLDestroy(c->local_tracy_ctx);
+    } else {
+        TracyCLDestroy(c->local_tracy_ctx);
+        TracyCLDestroy(c->remote_tracy_ctx);
     }
 
     COND_REL_MEM(c->out_mask_buf)

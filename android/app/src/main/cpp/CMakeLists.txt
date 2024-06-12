@@ -226,6 +226,7 @@ add_library(poclnative
 		poclImageProcessorV2.cpp poclImageProcessorV2.h
 		jniWrapperV2.cpp
 		codec_select.cpp codec_select.h
+		eval.cpp eval.h
 		jni_discovery.cpp
         )
 

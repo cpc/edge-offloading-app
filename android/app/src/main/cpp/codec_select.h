@@ -74,6 +74,7 @@ typedef struct {
 typedef struct {
     pthread_mutex_t lock;
     codec_stats_t stats;
+    bool local_only;
     int id;      // the currently active codec; points at CONFIGS
     int64_t since_last_select_ms;
     int64_t last_timestamp_ns;
@@ -83,7 +84,7 @@ typedef struct {
     bool is_allowed[NUM_CONFIGS];  // If the codec is allowed to be used or not
 } codec_select_state_t;
 
-void init_codec_select(codec_select_state_t **state);
+void init_codec_select(int config_flags, codec_select_state_t **state);
 
 void destroy_codec_select(codec_select_state_t **state);
 

@@ -57,7 +57,7 @@ void
 add_ns_to_time(struct timespec *const ts, const long increment);
 
 long
-compare_timespec(struct timespec *const ts_a, struct timespec *const ts_b);
+compare_timespec(const struct timespec *const ts_a, const struct timespec *const ts_b);
 
 #ifdef __cplusplus
 }

@@ -8,7 +8,7 @@
 #include <rename_opencl.h>
 #include <CL/cl.h>
 #include "event_logger.h"
-#include "poclImageProcessor.h"
+#include "poclImageProcessorTypes.h"
 
 #include <Tracy.hpp>
 #include <TracyOpenCL.hpp>
@@ -16,6 +16,19 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ *  Macro that sets the queue object to the right queue based on the codec config
+ */
+#define PICK_QUEUE(queue, ctx, config) \
+    if (LOCAL_DEVICE == config->device_type) {\
+        queue = ctx->local_queue;\
+    } else if (REMOTE_DEVICE == config->device_type) {\
+        queue = ctx->remote_queue;\
+    } else {\
+        LOGE("unknown device type to enqueue dnn to\n");\
+        return -1;\
+    }\
 
 typedef struct {
     cl_mem out_mask_buf; // input for postprocess kernel
@@ -45,41 +58,38 @@ typedef struct {
 
     cl_kernel eval_kernel; // kernel that that calculates intersection over union
     cl_mem eval_buf; // used to read the iou
-    float iou; // store the iou
-
+//    float iou; // store the iou
 } dnn_context_t;
+
+typedef struct {
+    cl_event copy_event_det;      // Saving the detections from the compressed frame
+    cl_event copy_event_seg_post; // Saving the segmentations from the compressed frame
+    cl_mem det;                   // Temporary buffer to store detections from the compressed frame
+    cl_mem seg_post;              // Temporary buffer to store segmentations from the compressed frame
+    event_array_t *event_array;
+} tmp_buf_ctx_t;
 
 dnn_context_t *create_dnn_context();
 
-int
-init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, int width, int height,
-                 cl_device_id *dnn_device,
-                 cl_device_id *reconstruct_device, int enable_eval);
+int init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, int width, int height,
+                     cl_device_id *dnn_device, cl_device_id *reconstruct_device, int enable_eval);
 
 cl_int
 write_buffer_dnn(const dnn_context_t *ctx, device_type_enum device_type, uint8_t *inp_host_buf,
-                 size_t buf_size,
-                 cl_mem cl_buf, const cl_event *wait_event, event_array_t *event_array,
-                 cl_event *result_event);
-
-cl_int
-enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_config_t config,
-            const pixel_format_enum input_format, cl_mem inp_buf,
-            event_array_t *event_array, cl_event *out_event);
-
-cl_int
-enqueue_eval_dnn(dnn_context_t *eval_ctx, dnn_context_t *ctx, codec_config_t *config,
-                 cl_event *wait_list, int wait_list_size,
+                 size_t buf_size, cl_mem cl_buf, const cl_event *wait_event,
                  event_array_t *event_array, cl_event *result_event);
 
 cl_int
-enqueue_read_results_dnn(dnn_context_t *ctx, codec_config_t *config,
-                         int32_t *detection_array, uint8_t *segmentation_array,
-                         event_array_t *event_array, int wait_size,
-                         cl_event *wait_list);
+enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_config_t config,
+            const pixel_format_enum input_format, const bool do_reconstruct, const cl_mem inp_buf,
+            event_array_t *event_array, cl_event *out_event, tmp_buf_ctx_t *tmp_buf_ctx);
 
 cl_int
-destroy_dnn_context(dnn_context_t **context);
+enqueue_read_results_dnn(dnn_context_t *ctx, codec_config_t *config, int32_t *detection_array,
+                         uint8_t *segmentation_array, event_array_t *event_array, int wait_size,
+                         cl_event *wait_list);
+
+cl_int destroy_dnn_context(dnn_context_t **context);
 
 #ifdef __cplusplus
 }

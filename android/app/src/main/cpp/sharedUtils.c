@@ -39,7 +39,7 @@ add_ns_to_time(struct timespec *const ts, const long increment) {
  * @return
  */
 long
-compare_timespec(struct timespec *const ts_a, struct timespec *const ts_b) {
+compare_timespec(const struct timespec *const ts_a, const struct timespec *const ts_b) {
     long diff = ts_a->tv_sec - ts_b->tv_sec;
     if (0 == diff) {
         return ts_a->tv_nsec - ts_b->tv_nsec;

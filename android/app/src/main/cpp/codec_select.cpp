@@ -49,11 +49,12 @@ static int cmp(const void *a, const void *b) {
     }
 }
 
-void init_codec_select(codec_select_state_t **state) {
+void init_codec_select(int config_flags, codec_select_state_t **state) {
     codec_select_state_t *new_state = (codec_select_state_t *) calloc(1,
                                                                       sizeof(codec_select_state_t));
 
     pthread_mutex_init(&new_state->lock, NULL);
+    new_state->local_only = (config_flags & LOCAL_ONLY) != 0;
     new_state->is_calibrating = true; // start by calibrating
     new_state->stats.prev_id = -1;
     new_state->is_allowed[0] = true;  // always allow local device
@@ -75,6 +76,7 @@ void update_stats(const frame_metadata_t *frame_metadata, codec_select_state_t *
     const float latency_ms =
             (float) (frame_metadata->host_ts_ns.stop - frame_metadata->host_ts_ns.start) / 1e6f;
 
+    // TODO: Get ping from Java PingMonitor
     float ping_ms;
     if (frame_metadata->host_ts_ns.fill_ping_duration < 0) {
         // fill ping didn't finish before the processing
@@ -209,7 +211,7 @@ void select_codec_auto(codec_select_state_t *state) {
             for (int i = 1; i < NUM_CONFIGS; ++i) {
                 sorted_latencies[i - 1] = {.val = stats->init_latency_ms[i], .idx=i};
 
-                if (stats->init_latency_ms[i] <= stats->init_latency_ms[0]) {
+                if (!state->local_only && (stats->init_latency_ms[i] <= stats->init_latency_ms[0])) {
                     // only consider remote devices with latency <= local
                     nlat += 1;
                     tgt_latency_ms += (stats->init_latency_ms[i] - tgt_latency_ms) / nlat;

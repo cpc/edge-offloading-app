@@ -10,6 +10,7 @@ import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_DEVICE;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.REMOTE_DEVICE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.allCompressionOptions;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getCompressionString;
@@ -570,7 +571,7 @@ public class MainActivity extends AppCompatActivity {
 
                     // if we are doing things locally only, and the user tries to change things,
                     // set the position back to no compression
-                    int noCompIndex = compressionEntries.getPosition("no compression");
+                    int noCompIndex = compressionEntries.getPosition(getCompressionString(NO_COMPRESSION));
                     if (!modeSwitch.isChecked() && position != noCompIndex) {
 
                         compressionSpinner.setSelection(noCompIndex);
@@ -723,6 +724,13 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(MainActivity.this, "Switching to local device, please wait",
                         Toast.LENGTH_SHORT).show();
                 poclImageProcessor.setInferencingDevice(LOCAL_DEVICE);
+                // Set compression to no compression
+                poclImageProcessor.setCompressionType(NO_COMPRESSION);
+                int position =
+                        compressionEntries.getPosition(getCompressionString(NO_COMPRESSION));
+                if (compressionSpinner.getSelectedItemPosition() != position) {
+                    compressionSpinner.setSelection(position);
+                }
             }
 
             resetMonitors();
@@ -954,7 +962,6 @@ public class MainActivity extends AppCompatActivity {
             int position =
                     compressionEntries.getPosition(getCompressionString(config.compressionType));
             if (compressionSpinner.getSelectedItemPosition() != position) {
-                Log.println(Log.ERROR, "test", "position being changed by algo");
                 compressionSpinner.setSelection(position);
             }
         });

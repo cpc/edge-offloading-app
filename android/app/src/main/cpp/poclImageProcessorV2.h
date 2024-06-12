@@ -10,12 +10,27 @@
 #include "yuv_compression.h"
 #include "jpeg_compression.h"
 #include "hevc_compression.h"
+#include "dnn_stage.h"
 
 #include "testapps.h"
-#include "dnn_stage.h"
 #include <stdint.h>
 #include <semaphore.h>
 #include <time.h>
+
+#include <Tracy.hpp>
+#include <TracyOpenCL.hpp>
+
+#define CSV_HEADER "frameindex,tag,parameter,value\n"
+#define MAX_NUM_CL_DEVICES 4
+
+#define MAX_DETECTIONS 10
+#define MASK_W 160
+#define MASK_H 120
+
+#define DETECTION_SIZE     (1 + MAX_DETECTIONS * 6)
+#define SEGMENTATION_SIZE  (MAX_DETECTIONS * MASK_W * MASK_H)
+#define RECONSTRUCTED_SIZE (MASK_W * MASK_H * 4) // RGBA image
+#define TOTAL_OUT_SIZE     (DETECTION_SIZE + SEGMENTATION_SIZE)
 
 #ifdef __cplusplus
 extern "C" {
@@ -82,9 +97,14 @@ typedef struct {
 } dnn_results;
 
 typedef struct {
+    bool is_eval_running;   // tells whether there is an image running currently in the eval pipeline
     pipeline_context *eval_pipeline;
-    dnn_results *eval_results;
+    cl_event dnn_out_event;   // Postprocessing event from enqueue_dnn of the uncompressed eval frame
+    cl_event iou_read_event;          // Reading IoU result
+    tmp_buf_ctx_t tmp_buf_ctx;
+    event_array_t *event_array;
     struct timespec next_eval_ts;
+    float iou;
 } eval_pipeline_context_t;
 
 typedef struct {
@@ -106,10 +126,9 @@ typedef struct {
 
     cl_command_queue read_queue; // queue to read the collected results
 
-    TracyCLCtx *tracy_ctxs; // used for opencl tracy profiling
     int devices_found; // used to keep track of how many devices there are
 
-    eval_pipeline_context_t eval_ctx; // used to run the eval pipeline
+    eval_pipeline_context_t *eval_ctx; // used to run the eval pipeline
 
     hevc_config_t global_hevc_config; // used to configure the global hevc codec
     int hevc_configured;
@@ -124,37 +143,32 @@ create_pocl_image_processor_context(pocl_image_processor_context **ctx, const in
                                     const char *codec_sources, const size_t src_size, int fd,
                                     char *service_name);
 
-int
-dequeue_spot(pocl_image_processor_context *const ctx, const int timeout,
-             const device_type_enum dev_type);
+int dequeue_spot(pocl_image_processor_context *const ctx, const int timeout,
+                 const device_type_enum dev_type);
 
-int
-submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
-             image_data_t image_data, int is_eval_frame);
+cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t config,
+                                const bool do_reconstruct, const image_data_t image_data,
+                                frame_metadata_t *metadata, dnn_results *output,
+                                tmp_buf_ctx_t *tmp_buf_ctx);
 
-int
-wait_image_available(pocl_image_processor_context *ctx, int timeout);
+int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
+                 image_data_t image_data, int is_eval_frame);
 
-int
-receive_image(pocl_image_processor_context *ctx, int32_t *detection_array,
-              uint8_t *segmentation_array,
-              frame_metadata_t *eval_metadata, int *segmentation);
+int wait_image_available(pocl_image_processor_context *ctx, int timeout);
 
-int
-destroy_pocl_image_processor_context(pocl_image_processor_context **ctx);
+int receive_image(pocl_image_processor_context *ctx, int32_t *detection_array,
+                  uint8_t *segmentation_array, frame_metadata_t *eval_metadata, int *segmentation);
 
-float
-get_last_iou(pocl_image_processor_context *ctx);
+int destroy_pocl_image_processor_context(pocl_image_processor_context **ctx);
 
-int
-check_and_configure_global_hevc(pocl_image_processor_context *ctx, codec_config_t codec,
-                                pipeline_context *pipeline);
+float get_last_iou(pocl_image_processor_context *ctx);
 
-void
-halt_lanes(pocl_image_processor_context *ctx);
+int check_and_configure_global_hevc(pocl_image_processor_context *ctx, codec_config_t codec,
+                                    pipeline_context *pipeline);
 
-void
-resume_lanes(pocl_image_processor_context *ctx);
+void halt_lanes(pocl_image_processor_context *ctx);
+
+void resume_lanes(pocl_image_processor_context *ctx);
 
 #ifdef __cplusplus
 }
