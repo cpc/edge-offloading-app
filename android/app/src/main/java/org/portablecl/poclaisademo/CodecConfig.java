@@ -11,10 +11,12 @@ public class CodecConfig {
 
     // Not part of codec_config_t, used for debugging
     public final int configIndex;
+    public final int configSortIndex;
 
-    public CodecConfig(int compressionType, int deviceIndex, int configIndex) {
+    public CodecConfig(int compressionType, int deviceIndex, int configIndex, int configSortIndex) {
         this.compressionType = compressionType;
         this.deviceIndex = deviceIndex;
         this.configIndex = configIndex;
+        this.configSortIndex = configSortIndex;
     }
 }

@@ -117,7 +117,7 @@
         android:layout_marginTop="16dp"
         android:checked="false"
         android:showText="true"
-        android:text="Enable Quality Algorithm"
+        android:text="Auto Codec Select"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/disableLoggingSwitch" />

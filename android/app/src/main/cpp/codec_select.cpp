@@ -14,7 +14,7 @@ extern "C" {
 #endif
 
 // How often to perform codec selection
-static const int64_t SELECT_INTERVAL_MS = 3000;
+static const int64_t SELECT_INTERVAL_MS = 1500;
 
 // Smoothing factor (higher means smoother)
 static const float PING_ALPHA = 0.9f;
@@ -211,7 +211,8 @@ void select_codec_auto(codec_select_state_t *state) {
             for (int i = 1; i < NUM_CONFIGS; ++i) {
                 sorted_latencies[i - 1] = {.val = stats->init_latency_ms[i], .idx=i};
 
-                if (!state->local_only && (stats->init_latency_ms[i] <= stats->init_latency_ms[0])) {
+                if (!state->local_only &&
+                    (stats->init_latency_ms[i] <= stats->init_latency_ms[0])) {
                     // only consider remote devices with latency <= local
                     nlat += 1;
                     tgt_latency_ms += (stats->init_latency_ms[i] - tgt_latency_ms) / nlat;
@@ -318,6 +319,21 @@ int get_codec_id(codec_select_state_t *state) {
     const int id = state->id;
     pthread_mutex_unlock(&state->lock);
     return id;
+}
+
+int get_codec_sort_id(codec_select_state_t *state) {
+    pthread_mutex_lock(&state->lock);
+    const int id = state->id;
+    int sort_id = 0;
+
+    for (int i = 1; i < NUM_CONFIGS; ++i) {
+        if (state->init_sorted_ids[i] == id) {
+            sort_id = i;
+        }
+    }
+
+    pthread_mutex_unlock(&state->lock);
+    return sort_id;
 }
 
 codec_params_t get_codec_params(codec_select_state_t *state) {

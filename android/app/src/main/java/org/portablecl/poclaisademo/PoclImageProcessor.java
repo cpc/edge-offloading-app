@@ -624,7 +624,7 @@ public class PoclImageProcessor {
         if (null != activity) {
 
             // send it to the main activity
-            CodecConfig config = new CodecConfig(NO_COMPRESSION, LOCAL_DEVICE, this.quality);
+            CodecConfig config = new CodecConfig(NO_COMPRESSION, LOCAL_DEVICE, this.quality, this.quality);
             activity.setButtonsFromJNI(config);
             activity.enableRemote(false);
             activity.runOnUiThread(() -> Toast.makeText(context,

@@ -240,15 +240,23 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getCodecConfig(JNIEnv *en
     jclass button_config_class = env->FindClass("org/portablecl/poclaisademo/CodecConfig");
     assert(nullptr != button_config_class);
 
-    jmethodID button_config_constructor = env->GetMethodID(button_config_class, "<init>", "(III)V");
+    jmethodID button_config_constructor = env->GetMethodID(button_config_class, "<init>",
+                                                           "(IIII)V");
     assert(nullptr != button_config_constructor);
 
     codec_params_t config = get_codec_params(state);
-    int codec_id = get_codec_id(state);
+
+    int codec_id = -1;
+    int codec_sort_id = -1;
+
+    if (!state->is_calibrating) {
+        codec_id = get_codec_id(state);
+        codec_sort_id = get_codec_sort_id(state);
+    }
 
     return env->NewObject(button_config_class, button_config_constructor,
                           (jint) config.compression_type, (jint) config.device_type,
-                          (jint) codec_id);
+                          (jint) codec_id, (jint) codec_sort_id);
 }
 
 JNIEXPORT jobject JNICALL

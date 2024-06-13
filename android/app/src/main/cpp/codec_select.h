@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define SELECT_VERBOSITY 0 // Verbosity of messages printed from this file (0 turns them off)
+#define SELECT_VERBOSITY 1 // Verbosity of messages printed from this file (0 turns them off)
 
 // Simple LOGI wrapper to reduce clutter
 #define SLOGI(verbosity, ...) \
@@ -97,6 +97,7 @@ select_codec_manual(device_type_enum device_index, int do_segment, compression_t
 void select_codec_auto(codec_select_state_t *state);
 
 int get_codec_id(codec_select_state_t *state);
+int get_codec_sort_id(codec_select_state_t *state);
 codec_params_t get_codec_params(codec_select_state_t *state);
 
 #ifdef __cplusplus

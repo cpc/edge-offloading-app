@@ -955,8 +955,14 @@ public class MainActivity extends AppCompatActivity {
                 modeSwitch.performClick();
             }
 
+            String msg = "calib";
+
+            if (config.configSortIndex >= 0) {
+                msg = Integer.toString(config.configSortIndex);
+            }
+
             // set the quality text that corresponds to a algorithm config
-            qualityText.setText(Integer.toString(config.configIndex));
+            qualityText.setText(msg);
 
             // set the spinner to the right position if it isn't already the same
             int position =
