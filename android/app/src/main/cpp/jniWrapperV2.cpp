@@ -155,7 +155,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
     }
 
     // check if we need to submit image to the eval pipeline
-    status = check_eval(ctx->eval_ctx, codec_config, &is_eval_frame);
+    status = check_eval(ctx->eval_ctx, state, codec_config, &is_eval_frame);
     CHECK_AND_RETURN(status, "could not check and submit eval frame");
 
     // submit the image for the actual encoding (needs to be submitted *before* the eval frame
@@ -164,7 +164,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
 
     if (is_eval_frame) {
         // submit the eval frame if appropriate
-        status = run_eval(ctx->eval_ctx, codec_config, image_data);
+        status = run_eval(ctx->eval_ctx, state, codec_config, image_data);
         CHECK_AND_RETURN(status, "could not submit eval frame");
     }
 
@@ -205,16 +205,20 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_receiveImage(JNIEnv *env,
     int status;
     // todo: process this metadata
     frame_metadata_t metadata;
+//    lane_state_t new_state;
     status = receive_image(ctx, detection_array, segmentation_array, &metadata,
-                           (int32_t *) metadata_array);
-
-    // narrow down to micro seconds
-    metadata_array[1] = ((metadata.host_ts_ns.stop - metadata.host_ts_ns.start) / 1000);
+                           (int32_t *) metadata_array, state->collected_events);
 
     if (status == CL_SUCCESS) {
         // log statistics to codec selection data
-        update_stats(&metadata, state);
+        update_stats(&metadata, ctx->eval_ctx, state);
     }
+
+    // not strictly necessary, just easier to debug without having old values lying around
+    reset_collected_events(state->collected_events);
+
+    // narrow down to micro seconds
+    metadata_array[1] = ((metadata.host_ts_ns.stop - metadata.host_ts_ns.start) / 1000);
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);
@@ -241,22 +245,18 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getCodecConfig(JNIEnv *en
     assert(nullptr != button_config_class);
 
     jmethodID button_config_constructor = env->GetMethodID(button_config_class, "<init>",
-                                                           "(IIII)V");
+                                                           "(IIIII)V");
     assert(nullptr != button_config_constructor);
 
     codec_params_t config = get_codec_params(state);
 
-    int codec_id = -1;
-    int codec_sort_id = -1;
-
-    if (!state->is_calibrating) {
-        codec_id = get_codec_id(state);
-        codec_sort_id = get_codec_sort_id(state);
-    }
+    int is_calibrating = (int) (state->is_calibrating);
+    int codec_id = get_codec_id(state);
+    int codec_sort_id = get_codec_sort_id(state);
 
     return env->NewObject(button_config_class, button_config_constructor,
                           (jint) config.compression_type, (jint) config.device_type,
-                          (jint) codec_id, (jint) codec_sort_id);
+                          (jint) codec_id, (jint) codec_sort_id, (jint) is_calibrating);
 }
 
 JNIEXPORT jobject JNICALL
@@ -281,6 +281,23 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getStats(JNIEnv *env, jcl
     }
 
     return env->NewObject(stats_class, stats_constructor, (jfloat) ping_ms, (jfloat) ping_ms_avg);
+}
+
+JNIEXPORT void JNICALL
+Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_pushExternalStats(JNIEnv *env, jclass clazz,
+                                                                         jlong timestamp, jint amp,
+                                                                         jint volt) {
+    if (state != NULL) {
+        push_external_stats(state, timestamp, amp, volt);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_pushExternalPing(JNIEnv *env, jclass clazz,
+                                                                        jfloat ping_ms) {
+    if (state != NULL) {
+        push_external_ping(state, ping_ms);
+    }
 }
 
 #ifdef __cplusplus

@@ -125,6 +125,7 @@ add_executable(
         ${APP_DIR}/poclImageProcessorV2.cpp ${APP_DIR}/poclImageProcessorV2.h
         ${APP_DIR}/dnn_stage.cpp ${APP_DIR}/dnn_stage.h
         ${APP_DIR}/eval.cpp ${APP_DIR}/eval.h
+        ${APP_DIR}/codec_select.cpp ${APP_DIR}/codec_select.h
         ${APP_DIR}/poclImageProcessorUtils.cpp ${APP_DIR}/poclImageProcessorUtils.cpp
 )
 

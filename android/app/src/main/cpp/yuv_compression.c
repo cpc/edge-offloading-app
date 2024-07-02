@@ -15,9 +15,8 @@
  * allocate memory for the codec context and set pointers to NULL;
  * @return pointer to context
  */
-yuv_codec_context_t *
-create_yuv_context() {
-    yuv_codec_context_t *context = (yuv_codec_context_t *) calloc(1,sizeof(yuv_codec_context_t));
+yuv_codec_context_t *create_yuv_context() {
+    yuv_codec_context_t *context = (yuv_codec_context_t *) calloc(1, sizeof(yuv_codec_context_t));
     return context;
 }
 
@@ -37,16 +36,14 @@ create_yuv_context() {
  */
 int
 init_yuv_context(yuv_codec_context_t *codec_context, cl_context cl_context, cl_device_id enc_device,
-                 cl_device_id dec_device, const char *source, const size_t
-                 src_size, const int profile_compression_size) {
+                 cl_device_id dec_device, const char *source, const size_t src_size,
+                 const int profile_compression_size) {
 
     int status;
 
     cl_device_id codec_devices[] = {enc_device, dec_device};
 
-    cl_program program = clCreateProgramWithSource(cl_context, 1, &source,
-                                                   &src_size,
-                                                   &status);
+    cl_program program = clCreateProgramWithSource(cl_context, 1, &source, &src_size, &status);
     CHECK_AND_RETURN(status, "creation of codec program failed");
 
     status = clBuildProgram(program, 2, codec_devices, NULL, NULL, NULL);
@@ -118,7 +115,7 @@ init_yuv_context(yuv_codec_context_t *codec_context, cl_context cl_context, cl_d
     codec_context->output_format = YUV_SEMI_PLANAR;
 
     codec_context->profile_compressed_size = profile_compression_size;
-    codec_context->compressed_size = total_pixels * 3/2;
+    codec_context->compressed_size = total_pixels * 3 / 2;
 
     clReleaseProgram(program);
 
@@ -138,10 +135,10 @@ init_yuv_context(yuv_codec_context_t *codec_context, cl_context cl_context, cl_d
  */
 cl_int
 write_buffer_yuv(const yuv_codec_context_t *ctx, const uint8_t *inp_host_buf, size_t buf_size,
-                 cl_mem cl_buf, const cl_event *wait_event,
-                 event_array_t *event_array, cl_event *result_event) {
+                 cl_mem cl_buf, const cl_event *wait_event, event_array_t *event_array,
+                 cl_event *result_event) {
     cl_int status;
-    cl_event write_img_event, undef_mig_event;
+    cl_event write_img_event, undef_img_mig_event;
 
     int wait_size = 0;
     if (NULL != wait_event) {
@@ -150,12 +147,12 @@ write_buffer_yuv(const yuv_codec_context_t *ctx, const uint8_t *inp_host_buf, si
 
     status = clEnqueueMigrateMemObjects(ctx->enc_queue, 1, &cl_buf,
                                         CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, wait_size,
-                                        wait_event, &undef_mig_event);
+                                        wait_event, &undef_img_mig_event);
     CHECK_AND_RETURN(status, "could migrate enc buffer back before writing");
-    append_to_event_array(event_array, undef_mig_event, VAR_NAME(undef_mig_event));
+    append_to_event_array(event_array, undef_img_mig_event, VAR_NAME(undef_img_mig_event));
 
-    status = clEnqueueWriteBuffer(ctx->enc_queue, cl_buf, CL_FALSE, 0, buf_size,
-                                  inp_host_buf, 1, &undef_mig_event, &write_img_event);
+    status = clEnqueueWriteBuffer(ctx->enc_queue, cl_buf, CL_FALSE, 0, buf_size, inp_host_buf, 1,
+                                  &undef_img_mig_event, &write_img_event);
     CHECK_AND_RETURN(status, "failed to write input image with yuv ctx");
     append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
     *result_event = write_img_event;
@@ -173,39 +170,29 @@ write_buffer_yuv(const yuv_codec_context_t *ctx, const uint8_t *inp_host_buf, si
  * @param result_event event that can be waited on when compression is done
  * @return CL_SUCCESS if everything goes well
  */
-cl_int
-enqueue_yuv_compression(const yuv_codec_context_t *cxt, cl_event wait_event, cl_mem inp_buf,
-                        cl_mem out_buf, event_array_t *event_array,
-                        cl_event *result_event) {
+cl_int enqueue_yuv_compression(const yuv_codec_context_t *cxt, cl_event wait_event, cl_mem inp_buf,
+                               cl_mem out_buf, event_array_t *event_array, cl_event *result_event) {
     cl_int status;
-    cl_event enc_y_event, enc_uv_event,
-            dec_y_event, dec_uv_event, migrate_event;
+    cl_event enc_y_event, enc_uv_event, dec_y_event, dec_uv_event, mig_event;
 
-    status = clSetKernelArg(cxt->enc_y_kernel, 0, sizeof(cl_mem),
-                            &inp_buf);
-    status |= clSetKernelArg(cxt->enc_uv_kernel, 0, sizeof(cl_mem),
-                             &inp_buf);
-    status |= clSetKernelArg(cxt->dec_y_kernel, 3, sizeof(cl_mem),
-                             &out_buf);
-    status |= clSetKernelArg(cxt->dec_uv_kernel, 3, sizeof(cl_mem),
-                             &out_buf);
+    status = clSetKernelArg(cxt->enc_y_kernel, 0, sizeof(cl_mem), &inp_buf);
+    status |= clSetKernelArg(cxt->enc_uv_kernel, 0, sizeof(cl_mem), &inp_buf);
+    status |= clSetKernelArg(cxt->dec_y_kernel, 3, sizeof(cl_mem), &out_buf);
+    status |= clSetKernelArg(cxt->dec_uv_kernel, 3, sizeof(cl_mem), &out_buf);
     CHECK_AND_RETURN(status, "failed to set kernel args");
 
     status = clEnqueueNDRangeKernel(cxt->enc_queue, cxt->enc_y_kernel, cxt->work_dim, NULL,
-                                    cxt->y_global_size,
-                                    NULL, 1, &wait_event, &enc_y_event);
+                                    cxt->y_global_size, NULL, 1, &wait_event, &enc_y_event);
     CHECK_AND_RETURN(status, "failed to enqueue enc_y_kernel");
     append_to_event_array(event_array, enc_y_event, VAR_NAME(enc_y_event));
 
     status = clEnqueueNDRangeKernel(cxt->enc_queue, cxt->enc_uv_kernel, cxt->work_dim, NULL,
-                                    cxt->uv_global_size,
-                                    NULL, 1, &wait_event, &enc_uv_event);
+                                    cxt->uv_global_size, NULL, 1, &wait_event, &enc_uv_event);
     CHECK_AND_RETURN(status, "failed to enqueue enc_uv_kernel");
     append_to_event_array(event_array, enc_uv_event, VAR_NAME(enc_uv_event));
 
     status = clEnqueueNDRangeKernel(cxt->dec_queue, cxt->dec_y_kernel, cxt->work_dim, NULL,
-                                    cxt->y_global_size,
-                                    NULL, 1, &enc_y_event, &dec_y_event);
+                                    cxt->y_global_size, NULL, 1, &enc_y_event, &dec_y_event);
     CHECK_AND_RETURN(status, "failed to enqueue dec_y_kernel");
     append_to_event_array(event_array, dec_y_event, VAR_NAME(dec_y_event));
 
@@ -213,8 +200,8 @@ enqueue_yuv_compression(const yuv_codec_context_t *cxt, cl_event wait_event, cl_
     // no guarantee what happens if both dec_y and dec_uv write at the same time.
     cl_event dec_uv_wait_events[] = {enc_uv_event, dec_y_event};
     status = clEnqueueNDRangeKernel(cxt->dec_queue, cxt->dec_uv_kernel, cxt->work_dim, NULL,
-                                    cxt->uv_global_size,
-                                    NULL, 2, dec_uv_wait_events, &dec_uv_event);
+                                    cxt->uv_global_size, NULL, 2, dec_uv_wait_events,
+                                    &dec_uv_event);
     CHECK_AND_RETURN(status, "failed to enqueue dec_uv_kernel");
     append_to_event_array(event_array, dec_uv_event, VAR_NAME(dec_uv_event));
 
@@ -224,18 +211,17 @@ enqueue_yuv_compression(const yuv_codec_context_t *cxt, cl_event wait_event, cl_
     // https://man.opencl.org/clEnqueueMigrateMemObjects.html
     cl_mem migrate_bufs[] = {cxt->out_enc_y_buf, cxt->out_enc_uv_buf};
     status = clEnqueueMigrateMemObjects(cxt->enc_queue, 2, migrate_bufs,
-                                        CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, 1,
-                                        &dec_uv_event, &migrate_event);
+                                        CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, 1, &dec_uv_event,
+                                        &mig_event);
     CHECK_AND_RETURN(status, "failed to migrate buffers back");
-    append_to_event_array(event_array, migrate_event, VAR_NAME(migrate_event));
+    append_to_event_array(event_array, mig_event, VAR_NAME(mig_event));
 
-    *result_event = migrate_event;
+    *result_event = mig_event;
     return 0;
 
 }
 
-size_t
-get_compression_size_yuv(const yuv_codec_context_t *cxt) {
+size_t get_compression_size_yuv(const yuv_codec_context_t *cxt) {
     return cxt->compressed_size;
 }
 
@@ -245,8 +231,7 @@ get_compression_size_yuv(const yuv_codec_context_t *cxt) {
  * @param context
  * @return CL_SUCCESS and otherwise an error
  */
-cl_int
-destroy_yuv_context(yuv_codec_context_t **context) {
+cl_int destroy_yuv_context(yuv_codec_context_t **context) {
 
     yuv_codec_context_t *c = *context;
 

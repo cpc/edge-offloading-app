@@ -92,8 +92,8 @@ submit_eval_frame(eval_pipeline_context_t *eval_ctx, const codec_config_t codec_
     return CL_SUCCESS;
 }
 
-cl_int check_eval(eval_pipeline_context_t *eval_ctx, const codec_config_t codec_config,
-                  int *is_eval_frame) {
+cl_int check_eval(eval_pipeline_context_t *eval_ctx, codec_select_state_t *state,
+                  const codec_config_t codec_config, int *is_eval_frame) {
     cl_int status;
     *is_eval_frame = 0;
 
@@ -122,6 +122,7 @@ cl_int check_eval(eval_pipeline_context_t *eval_ctx, const codec_config_t codec_
 
             // eval finished
             eval_ctx->is_eval_running = false;
+            signal_eval_finish(state, eval_ctx->iou);
 
             TracyCLCollect(eval_ctx->eval_pipeline->dnn_context->local_tracy_ctx);
             TracyCLCollect(eval_ctx->eval_pipeline->dnn_context->remote_tracy_ctx);
@@ -155,8 +156,8 @@ cl_int check_eval(eval_pipeline_context_t *eval_ctx, const codec_config_t codec_
     return CL_SUCCESS;
 }
 
-cl_int run_eval(eval_pipeline_context_t *eval_ctx, const codec_config_t codec_config,
-                const image_data_t image_data) {
+cl_int run_eval(eval_pipeline_context_t *eval_ctx, codec_select_state_t *state,
+                const codec_config_t codec_config, const image_data_t image_data) {
     cl_int status;
 
     if (EVAL_VERBOSITY >= 1) {
@@ -168,6 +169,8 @@ cl_int run_eval(eval_pipeline_context_t *eval_ctx, const codec_config_t codec_co
 
     // set this to true only after we know that submitting went fine
     eval_ctx->is_eval_running = true;
+    int codec_id = get_codec_id(state);
+    signal_eval_start(state, codec_id);
 
     // increment the time for the next eval
     clock_gettime(CLOCK_MONOTONIC, &eval_ctx->next_eval_ts);

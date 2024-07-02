@@ -12,11 +12,13 @@ public class CodecConfig {
     // Not part of codec_config_t, used for debugging
     public final int configIndex;
     public final int configSortIndex;
+    public final boolean isCalibrating;
 
-    public CodecConfig(int compressionType, int deviceIndex, int configIndex, int configSortIndex) {
+    public CodecConfig(int compressionType, int deviceIndex, int configIndex, int configSortIndex, int is_calibrating) {
         this.compressionType = compressionType;
         this.deviceIndex = deviceIndex;
         this.configIndex = configIndex;
         this.configSortIndex = configSortIndex;
+        this.isCalibrating = is_calibrating != 0;
     }
 }

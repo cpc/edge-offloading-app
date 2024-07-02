@@ -1,5 +1,7 @@
 package org.portablecl.poclaisademo;
 
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.pushExternalStats;
+
 import android.util.Log;
 
 import java.io.FileOutputStream;
@@ -22,6 +24,7 @@ public class StatLogger implements Runnable {
 
     private long timeEnergy, timeBandw;
     private int amp, volt;
+    private int prev_amp, prev_volt;
 
     private float ping_ms;
 
@@ -32,6 +35,8 @@ public class StatLogger implements Runnable {
         this.trafficMonitor = trafficMonitor;
         this.energyMonitor = energyMonitor;
         this.pingMonitor = pingMonitor;
+        this.prev_amp = 0;
+        this.prev_volt = 0;
 
         builder = new StringBuilder();
 
@@ -70,26 +75,36 @@ public class StatLogger implements Runnable {
 
     @Override
     public void run() {
-
-        builder.setLength(0);
-
         dataPoint = trafficMonitor.pollTrafficStats();
         timeBandw = System.nanoTime();
-        builder.append(timeBandw).append(",").append(dataPoint.rx_bytes_confirmed).append(",")
-                .append(dataPoint.tx_bytes_confirmed);
 
         volt = energyMonitor.pollVoltage();
         amp = energyMonitor.pollCurrent();
         timeEnergy = System.nanoTime();
-        builder.append(",").append(timeEnergy).append(",").append(amp).append(",").append(volt);
 
-        ping_ms = pingMonitor.getPing();
-        builder.append(",").append(ping_ms);
+        if (amp == prev_amp && volt == prev_volt) {
+            // Do not push repeated samples which skew the statistics
+            return;
+        }
 
-        builder.append("\n");
+        pushExternalStats(timeEnergy, amp, volt);
 
+        prev_amp = amp;
+        prev_volt = volt;
+
+        // TODO: pingMonitor is null and thus the getPing() call gets stuck
+        // TODO: Since this runs fast now (every 20 ms), let's not call ping here anyway
+//        ping_ms = pingMonitor.getPing();
 
         if (null != stream) {
+            builder.setLength(0);
+            builder.append(timeBandw).append(",").append(dataPoint.rx_bytes_confirmed).append(",")
+                    .append(dataPoint.tx_bytes_confirmed);
+            builder.append(",").append(timeEnergy).append(",").append(amp).append(",").append(volt);
+//            builder.append(",").append(ping_ms);
+            builder.append(",").append(0.0f);  // TODO PING
+            builder.append("\n");
+
             try {
                 stream.write(builder.toString().getBytes());
             } catch (IOException e) {

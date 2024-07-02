@@ -40,11 +40,7 @@ extern "C" {
 #define POCL_IMAGE_PROCESSOR_UNRECOVERABLE_ERROR -101
 
 typedef enum {
-    LANE_REMOTE_LOST = -3,
-    LANE_SHUTDOWN = -2,
-    LANE_ERROR = -1,
-    LANE_READY = 0,
-    LANE_BUSY = 1,
+    LANE_REMOTE_LOST = -3, LANE_SHUTDOWN = -2, LANE_ERROR = -1, LANE_READY = 0, LANE_BUSY = 1,
 } lane_state_t;
 
 typedef struct {
@@ -97,10 +93,10 @@ typedef struct {
 } dnn_results;
 
 typedef struct {
-    bool is_eval_running;   // tells whether there is an image running currently in the eval pipeline
+    bool is_eval_running;  // tells whether there is an image running currently in the eval pipeline
     pipeline_context *eval_pipeline;
     cl_event dnn_out_event;   // Postprocessing event from enqueue_dnn of the uncompressed eval frame
-    cl_event iou_read_event;          // Reading IoU result
+    cl_event iou_read_event;  // Reading IoU result
     tmp_buf_ctx_t tmp_buf_ctx;
     event_array_t *event_array;
     struct timespec next_eval_ts;
@@ -137,11 +133,10 @@ typedef struct {
 
 } pocl_image_processor_context;
 
-int
-create_pocl_image_processor_context(pocl_image_processor_context **ctx, const int max_lanes,
-                                    const int width, const int height, const int config_flags,
-                                    const char *codec_sources, const size_t src_size, int fd,
-                                    char *service_name);
+int create_pocl_image_processor_context(pocl_image_processor_context **ctx, const int max_lanes,
+                                        const int width, const int height, const int config_flags,
+                                        const char *codec_sources, const size_t src_size, int fd,
+                                        char *service_name);
 
 int dequeue_spot(pocl_image_processor_context *const ctx, const int timeout,
                  const device_type_enum dev_type);
@@ -157,7 +152,8 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
 int wait_image_available(pocl_image_processor_context *ctx, int timeout);
 
 int receive_image(pocl_image_processor_context *ctx, int32_t *detection_array,
-                  uint8_t *segmentation_array, frame_metadata_t *eval_metadata, int *segmentation);
+                  uint8_t *segmentation_array, frame_metadata_t *eval_metadata, int *segmentation,
+                  collected_events_t *collected_events);
 
 int destroy_pocl_image_processor_context(pocl_image_processor_context **ctx);
 

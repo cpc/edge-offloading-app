@@ -31,7 +31,6 @@
 extern "C" {
 #endif
 
-#define MAX_EVENTS 99
 #define MAX_DETECTIONS 10
 #define MASK_W 160
 #define MASK_H 120
@@ -746,9 +745,7 @@ cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t conf
     // make sure we are not enqueuing a remote device when for some reason the remote device is gone
     assert((REMOTE_DEVICE == config.device_type) ? (ctx->local_only != 1) : 1);
 
-    // TODO: Old comment, is this still true:
-    // this is done at the beginning so that the quality algorithm has
-    // had the option to use the events
+    // Reset the event array to prepare for the next run
     release_events(ctx->event_array);
     reset_event_array(ctx->event_array);
 
@@ -1034,11 +1031,14 @@ size_t get_compression_size(const pipeline_context ctx, const compression_t comp
  */
 int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_array,
                   uint8_t *segmentation_array, frame_metadata_t *return_metadata,
-                  int *const segmentation) {
+                  int *const segmentation, collected_events_t *collected_events) {
     ZoneScoped;
 
     // variables used later, but need to be declared now for goto statement
     char *markId = new char[16];
+
+    cl_mem sz_buf = nullptr;
+    cl_command_queue sz_queue = nullptr;
 
     int index = ctx->frame_index_tail % ctx->lane_count;
     ctx->frame_index_tail += 1;
@@ -1080,6 +1080,37 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
 
     image_metadata.host_ts_ns.after_wait = get_timestamp_ns();
 
+    // These need to be collected AFTER waiting for all events and BEFORE setting the lane as ready
+    // to prevent resetting the event array at the beginning of submitting a new image.
+    collect_events(image_metadata.event_array, collected_events);
+
+    // TODO: Refactor with get_compression_size()
+    // Read the encoded size buffer
+    switch (image_metadata.codec.compression_type) {
+        case JPEG_COMPRESSION:
+            sz_buf = pipeline->jpeg_context->size_buf;
+            sz_queue = pipeline->jpeg_context->enc_queue;
+            break;
+        case HEVC_COMPRESSION:
+            sz_buf = pipeline->hevc_context->size_buf;
+            sz_queue = pipeline->hevc_context->enc_queue;
+            break;
+        default:
+            image_metadata.size_bytes_tx = pipeline->host_inp_buf_size;
+    }
+
+    if (sz_buf != nullptr && sz_queue != nullptr) {
+        cl_event sz_read_event;
+        status = clEnqueueReadBuffer(sz_queue, sz_buf, CL_FALSE, 0, sizeof(cl_ulong),
+                                     &image_metadata.size_bytes_tx, 0, NULL, &sz_read_event);
+        CHECK_AND_CATCH(status, "could not read size_bytes buffer", new_state);
+
+        status = clWaitForEvents(1, &sz_read_event);
+        CHECK_AND_CATCH(status, "failed to wait for sz read event", new_state);
+    }
+
+    image_metadata.size_bytes_rx = DETECTION_SIZE + MASK_W * MASK_H;
+
     // TODO PING: Don't run ping on each frame
 //    image_metadata.host_ts_ns.fill_ping_duration = 0;
 //    if (ctx->devices_found <= 2) {
@@ -1116,13 +1147,13 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
     image_metadata.host_ts_ns.stop = get_timestamp_ns();
 
     if (ENABLE_PROFILING & config_flags) {
-        status = print_events(ctx->file_descriptor, image_metadata.frame_index,
-                              image_metadata.event_array);
+        status = log_events(ctx->file_descriptor, image_metadata.frame_index,
+                            image_metadata.event_array);
         CHECK_AND_CATCH(status, "failed to print events", new_state);
 
         if (1 == image_metadata.is_eval_frame) {
-            status = print_events(ctx->file_descriptor, image_metadata.frame_index,
-                                  ctx->eval_ctx->eval_pipeline->event_array);
+            status = log_events(ctx->file_descriptor, image_metadata.frame_index,
+                                ctx->eval_ctx->eval_pipeline->event_array);
             CHECK_AND_CATCH(status, "failed to print events", new_state);
         }
 
@@ -1148,6 +1179,9 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
 
 
     FINISH:
+
+    // TODO: Move update_stats() here and revert back the chopped-off finish code
+//    *new_lane_state = new_state;
 
 SET_CTX_STATE(pipeline, LANE_ERROR, new_state)
 

@@ -35,8 +35,7 @@ hevc_codec_context_t *create_hevc_context() {
 cl_int
 init_hevc_context_with_kernel_names(hevc_codec_context_t *codec_context, cl_context ocl_context,
                                     cl_device_id *enc_device, cl_device_id *dec_device,
-                                    int enable_resize,
-                                    const char *configure_kernel_name,
+                                    int enable_resize, const char *configure_kernel_name,
                                     const char *encode_kernel_name,
                                     const char *decode_kernel_name) {
     // this is the same value the media codec sets
@@ -51,8 +50,7 @@ init_hevc_context_with_kernel_names(hevc_codec_context_t *codec_context, cl_cont
     strcat(enc_program_kernel_names, encode_kernel_name);
 
     cl_program enc_program = clCreateProgramWithBuiltInKernels(ocl_context, 1, enc_device,
-                                                               enc_program_kernel_names,
-                                                               &status);
+                                                               enc_program_kernel_names, &status);
     free(enc_program_kernel_names);
     CHECK_AND_RETURN(status, "could not create enc program");
 
@@ -60,8 +58,7 @@ init_hevc_context_with_kernel_names(hevc_codec_context_t *codec_context, cl_cont
     CHECK_AND_RETURN(status, "could not build enc program");
 
     cl_program dec_program = clCreateProgramWithBuiltInKernels(ocl_context, 1, dec_device,
-                                                               decode_kernel_name,
-                                                               &status);
+                                                               decode_kernel_name, &status);
     CHECK_AND_RETURN(status, "could not create dec program");
 
     status = clBuildProgram(dec_program, 1, dec_device, NULL, NULL, NULL);
@@ -148,10 +145,9 @@ init_hevc_context_with_kernel_names(hevc_codec_context_t *codec_context, cl_cont
  * @param enable_resize parameter to enable resize extensions
  * @return cl status
  */
-cl_int
-init_c2_android_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
-                             cl_device_id *enc_device, cl_device_id *dec_device,
-                             int enable_resize) {
+cl_int init_c2_android_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
+                                    cl_device_id *enc_device, cl_device_id *dec_device,
+                                    int enable_resize) {
 
     return init_hevc_context_with_kernel_names(codec_context, ocl_context, enc_device, dec_device,
                                                enable_resize,
@@ -178,13 +174,11 @@ init_c2_android_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl
  * @param enable_resize parameter to enable resize extensions
  * @return cl status
  */
-cl_int
-init_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
-                  cl_device_id *enc_device, cl_device_id *dec_device, int enable_resize) {
+cl_int init_hevc_context(hevc_codec_context_t *codec_context, cl_context ocl_context,
+                         cl_device_id *enc_device, cl_device_id *dec_device, int enable_resize) {
 
     return init_hevc_context_with_kernel_names(codec_context, ocl_context, enc_device, dec_device,
-                                               enable_resize,
-                                               "pocl.configure.hevc.yuv420nv21",
+                                               enable_resize, "pocl.configure.hevc.yuv420nv21",
                                                "pocl.encode.hevc.yuv420nv21",
                                                "pocl.decode.hevc.yuv420nv21");
 }
@@ -207,13 +201,11 @@ enqueue_hevc_compression(const hevc_codec_context_t *cxt, cl_event *wait_event, 
     cl_int status;
 
 //    cl_event enc_image_event,
-    cl_event enc_event, dec_event, mig_event;
+    cl_event enc_event, dec_event, undef_mig_event, mig_event;
 
-    status = clSetKernelArg(cxt->enc_kernel, 0, sizeof(cl_mem),
-                            &(inp_buf));
+    status = clSetKernelArg(cxt->enc_kernel, 0, sizeof(cl_mem), &(inp_buf));
 
-    status |= clSetKernelArg(cxt->dec_kernel, 2, sizeof(cl_mem),
-                             &(out_buf));
+    status |= clSetKernelArg(cxt->dec_kernel, 2, sizeof(cl_mem), &(out_buf));
 
     // the compressed image and the size of the image are in these buffers respectively
     cl_mem migrate_bufs[] = {cxt->comp_buf, cxt->size_buf};
@@ -231,20 +223,27 @@ enqueue_hevc_compression(const hevc_codec_context_t *cxt, cl_event *wait_event, 
     // the enc device.
     status = clEnqueueMigrateMemObjects(cxt->enc_queue, 2, migrate_bufs,
                                         CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, wait_event_size,
-                                        wait_event_pointer,
-                                        &mig_event);
+                                        wait_event_pointer, &undef_mig_event);
     CHECK_AND_RETURN(status, "could not migrate buffers back");
-    append_to_event_array(event_array, mig_event, VAR_NAME(mig_event));
+    append_to_event_array(event_array, undef_mig_event, VAR_NAME(undef_mig_event));
 
+    // encode
     status = clEnqueueNDRangeKernel(cxt->enc_queue, cxt->enc_kernel, cxt->work_dim, NULL,
-                                    cxt->enc_global_size,
-                                    NULL, 1, &mig_event, &enc_event);
+                                    cxt->enc_global_size, NULL, 1, &undef_mig_event,
+                                    &enc_event);
     CHECK_AND_RETURN(status, "failed to enqueue compression kernel");
     append_to_event_array(event_array, enc_event, VAR_NAME(enc_event));
 
+    // explicitly migrate the image instead of having enqueueNDrangekernel do it implicitly
+    // so that we can profile the transfer times
+    status = clEnqueueMigrateMemObjects(cxt->dec_queue, 2, migrate_bufs, 0, 1, &enc_event,
+                                        &mig_event);
+    CHECK_AND_RETURN(status, "failed to enqueue migration to remote");
+    append_to_event_array(event_array, mig_event, VAR_NAME(mig_event));
+
+    // decode
     status = clEnqueueNDRangeKernel(cxt->dec_queue, cxt->dec_kernel, cxt->work_dim, NULL,
-                                    cxt->dec_global_size,
-                                    NULL, 1, &enc_event, &dec_event);
+                                    cxt->dec_global_size, NULL, 1, &mig_event, &dec_event);
     CHECK_AND_RETURN(status, "failed to enqueue decompression kernel");
     append_to_event_array(event_array, dec_event, VAR_NAME(dec_event));
 
@@ -261,9 +260,8 @@ enqueue_hevc_compression(const hevc_codec_context_t *cxt, cl_event *wait_event, 
  * @param result_event an output event that can be waited on
  * @return CL_SUCCESS and otherwise a cl error
  */
-cl_int
-configure_hevc_codec(hevc_codec_context_t *const codec_context, event_array_t *event_array,
-                     cl_event *result_event) {
+cl_int configure_hevc_codec(hevc_codec_context_t *const codec_context, event_array_t *event_array,
+                            cl_event *result_event) {
     cl_int status;
 
     cl_event config_codec_event;
@@ -295,8 +293,7 @@ configure_hevc_codec(hevc_codec_context_t *const codec_context, event_array_t *e
  * @param context
  * @return CL_SUCCESS and otherwise an error
  */
-cl_int
-destroy_hevc_context(hevc_codec_context_t **context) {
+cl_int destroy_hevc_context(hevc_codec_context_t **context) {
 
     hevc_codec_context_t *c = *context;
 
@@ -329,11 +326,9 @@ destroy_hevc_context(hevc_codec_context_t **context) {
  * @param B
  * @return
  */
-cl_int
-hevc_configs_different(hevc_config_t A, hevc_config_t B) {
+cl_int hevc_configs_different(hevc_config_t A, hevc_config_t B) {
 
-    return (A.i_frame_interval != B.i_frame_interval) ||
-           (A.framerate != B.framerate) ||
+    return (A.i_frame_interval != B.i_frame_interval) || (A.framerate != B.framerate) ||
            (A.bitrate != B.bitrate);
 }
 
@@ -342,8 +337,7 @@ hevc_configs_different(hevc_config_t A, hevc_config_t B) {
  * @param ctx
  * @param new_config
  */
-void
-set_hevc_config(hevc_codec_context_t *ctx, const hevc_config_t *const new_config) {
+void set_hevc_config(hevc_codec_context_t *ctx, const hevc_config_t *const new_config) {
     ctx->config.bitrate = new_config->bitrate;
     ctx->config.i_frame_interval = new_config->i_frame_interval;
     ctx->config.framerate = new_config->framerate;
@@ -360,13 +354,12 @@ set_hevc_config(hevc_codec_context_t *ctx, const hevc_config_t *const new_config
  * @param result_event
  * @return
  */
-cl_int
-write_buffer_hevc(const hevc_codec_context_t *ctx, uint8_t *inp_host_buf, size_t buf_size,
-                  cl_mem cl_buf, cl_event *wait_event, event_array_t *event_array,
-                  cl_event *result_event) {
+cl_int write_buffer_hevc(const hevc_codec_context_t *ctx, uint8_t *inp_host_buf, size_t buf_size,
+                         cl_mem cl_buf, cl_event *wait_event, event_array_t *event_array,
+                         cl_event *result_event) {
 
     cl_int status;
-    cl_event write_img_event, undef_mig_event;
+    cl_event write_img_event, undef_img_mig_event;
 
     // check if there is a wait event,
     // if the size is 0, the list needs to be NULL
@@ -376,20 +369,19 @@ write_buffer_hevc(const hevc_codec_context_t *ctx, uint8_t *inp_host_buf, size_t
     }
 
     status = clEnqueueMigrateMemObjects(ctx->enc_queue, 1, &cl_buf,
-                                        CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED,
-                                        wait_event_size, wait_event, &undef_mig_event);
+                                        CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, wait_event_size,
+                                        wait_event, &undef_img_mig_event);
     CHECK_AND_RETURN(status, "could migrate enc buffer back before writing");
-    append_to_event_array(event_array, undef_mig_event, VAR_NAME(undef_mig_event));
+    append_to_event_array(event_array, undef_img_mig_event, VAR_NAME(undef_img_mig_event));
 
-    status = clEnqueueWriteBuffer(ctx->enc_queue, cl_buf, CL_FALSE, 0,
-                                  buf_size, inp_host_buf, 1, &undef_mig_event, &write_img_event);
+    status = clEnqueueWriteBuffer(ctx->enc_queue, cl_buf, CL_FALSE, 0, buf_size, inp_host_buf, 1,
+                                  &undef_img_mig_event, &write_img_event);
     CHECK_AND_RETURN(status, "failed to write image to enc buffers");
     append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
     *result_event = write_img_event;
     return status;
 }
 
-size_t
-get_compression_size_hevc(hevc_codec_context_t *ctx) {
+size_t get_compression_size_hevc(hevc_codec_context_t *ctx) {
     return ctx->compressed_size;
 }

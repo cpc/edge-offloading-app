@@ -1466,7 +1466,7 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
     }
 
     if (ENABLE_PROFILING & config_flags) {
-        status = print_events(file_descriptor, frame_index, event_array);
+        status = log_events(file_descriptor, frame_index, event_array);
         CHECK_AND_RETURN(status, "failed to print events");
 
         dprintf(file_descriptor, "%d,frame,timestamp,%ld\n", frame_index,
@@ -1498,7 +1498,7 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
 
     if (is_eval_ready) {
         if (ENABLE_PROFILING & config_flags) {
-            status = print_events(file_descriptor, frame_index, eval_event_array);
+            status = log_events(file_descriptor, frame_index, eval_event_array);
             CHECK_AND_RETURN(status, "failed to print eval events");
         }
 

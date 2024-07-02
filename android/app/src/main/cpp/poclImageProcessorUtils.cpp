@@ -10,8 +10,7 @@
 extern "C" {
 #endif
 
-const char *
-get_compression_name(const compression_t compression_id) {
+const char *get_compression_name(const compression_t compression_id) {
     switch (compression_id) {
         case NO_COMPRESSION:
             return "none";
@@ -39,11 +38,9 @@ get_compression_name(const compression_t compression_id) {
  * @param compression_type
  * @param dest_buf
  */
-void
-copy_yuv_to_arrayV2(const int width, const int height, const image_data_t image,
-                    const compression_t compression_type,
-                    cl_uchar *const dest_buf) {
-  ZoneScoped;
+void copy_yuv_to_arrayV2(const int width, const int height, const image_data_t image,
+                         const compression_t compression_type, cl_uchar *const dest_buf) {
+    ZoneScoped;
     assert(image.type == YUV_DATA_T && "image is not a yuv image");
 
     // this will be optimized out by the compiler
@@ -73,30 +70,24 @@ copy_yuv_to_arrayV2(const int width, const int height, const image_data_t image,
 
 }
 
-void
-log_eval_metadata(const int file_descriptor, const int frame_index,
-                   const frame_metadata_t metadata) {
-    dprintf(file_descriptor, "%d,frame,timestamp,%ld\n", frame_index,
-            metadata.image_timestamp);
+void log_eval_metadata(const int file_descriptor, const int frame_index,
+                       const frame_metadata_t metadata) {
+    dprintf(file_descriptor, "%d,frame,timestamp,%ld\n", frame_index, metadata.image_timestamp);
     dprintf(file_descriptor, "%d,frame,is_eval,%d\n", frame_index, metadata.is_eval_frame);
 //    dprintf(file_descriptor, "%d,config,segment,%d\n", frame_index, metadata.segmentation);
     log_host_ts_ns(file_descriptor, frame_index, metadata.host_ts_ns);
 }
 
-void
-log_host_ts_ns(const int file_descriptor, const int frame_index, const host_ts_ns_t host_ts) {
+void log_host_ts_ns(const int file_descriptor, const int frame_index, const host_ts_ns_t host_ts) {
     dprintf(file_descriptor, "%d,frame_time,start_ns,%lu\n", frame_index, host_ts.start);
     dprintf(file_descriptor, "%d,frame_time,before_enc_ns,%lu\n", frame_index, host_ts.before_enc);
-    dprintf(file_descriptor, "%d,frame_time,before_fill_ns,%lu\n", frame_index,
-            host_ts.before_fill);
     dprintf(file_descriptor, "%d,frame_time,before_dnn_ns,%lu\n", frame_index, host_ts.before_dnn);
-    dprintf(file_descriptor, "%d,frame_time,before_eval_ns,%lu\n", frame_index,
-            host_ts.before_eval);
     dprintf(file_descriptor, "%d,frame_time,before_wait_ns,%lu\n", frame_index,
             host_ts.before_wait);
     dprintf(file_descriptor, "%d,frame_time,after_wait_ns,%lu\n", frame_index, host_ts.after_wait);
     dprintf(file_descriptor, "%d,frame_time,stop_ns,%lu\n", frame_index, host_ts.stop);
-    dprintf(file_descriptor, "%d,frame_time,fill_ping_ns,%ld\n", frame_index, host_ts.fill_ping_duration);
+    dprintf(file_descriptor, "%d,frame_time,fill_ping_ns,%ld\n", frame_index,
+            host_ts.fill_ping_duration);
 }
 
 void

@@ -43,9 +43,7 @@ enum {
 typedef struct {
     int64_t start;
     int64_t before_enc;
-    int64_t before_fill;
     int64_t before_dnn;
-    int64_t before_eval;
     int64_t before_wait;
     int64_t after_wait;
     int64_t stop;
@@ -139,9 +137,9 @@ typedef struct {
 
 typedef struct {
     event_array_t *event_array;
-    event_array_t *eval_event_array;
     float iou;
-    uint64_t size_bytes;
+    uint64_t size_bytes_tx;  // number of transmitted bytes (encoded frame size)
+    uint64_t size_bytes_rx;  // number of received bytes (postprocessed segmentations and/or detections)
     host_ts_ns_t host_ts_ns;
     int frame_index;
     long image_timestamp;

@@ -1,5 +1,7 @@
 package org.portablecl.poclaisademo;
 
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.pushExternalPing;
+
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -63,6 +65,8 @@ public class PingMonitor {
      * @param ip address to ping
      */
     public PingMonitor(String ip) {
+        // TODO: This wasn't necessary on the previous PC, but required on the current PC, otherwise crashes:
+        System.loadLibrary("poclaisademo");
 
         totalPingTime = 0;
         pingCount = 0;
@@ -146,6 +150,7 @@ public class PingMonitor {
                     ping = Float.parseFloat(Objects.requireNonNull(patternMatcher.group(2)));
                     totalPingTime += ping;
                     pingCount++;
+                    pushExternalPing(ping);
                 }
             }
         } catch (IOException e) {

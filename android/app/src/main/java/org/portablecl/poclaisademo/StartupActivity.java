@@ -437,8 +437,8 @@ public class StartupActivity extends AppCompatActivity {
                 jpegCompButton.setChecked(true);
             }
 
-            if (hevcCompButton.isChecked()) {
-                hevcCompButton.setChecked(false);
+            if (!hevcCompButton.isChecked()) {
+                hevcCompButton.setChecked(true);
             }
 
             if (softwareHevcCompButton.isChecked()) {

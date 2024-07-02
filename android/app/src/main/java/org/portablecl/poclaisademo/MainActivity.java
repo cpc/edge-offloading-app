@@ -256,6 +256,11 @@ public class MainActivity extends AppCompatActivity {
      */
     private ScheduledFuture statLoggerFuture;
 
+    /**
+     * needed to stop the ping pushing thread
+     */
+    private ScheduledFuture pingPusherFuture;
+
     private CameraLogger cameraLogger;
 
     private ConfigStore configStore;
@@ -795,13 +800,17 @@ public class MainActivity extends AppCompatActivity {
                     Log.println(Log.WARN, "Logging", "could not open file, disabling logging");
                     enableLogging = false;
                 }
-
             }
 
-            // todo: settle on desired period
+            // Setting this to <200ms leads to many repeated samples -- these are filtered out and
+            // high frequency is used for more precisely determining when the change in power occurred.
             statLoggerFuture =
                     statUpdateScheduler.scheduleAtFixedRate(statLogger,
-                            1000, 500, TimeUnit.MILLISECONDS);
+                            1000, 20, TimeUnit.MILLISECONDS);
+
+            // Pushing ping to the codec_select at a higher rate than UI updates
+            pingPusherFuture = statUpdateScheduler.scheduleAtFixedRate(pingPusher,
+                            1000, 200, TimeUnit.MILLISECONDS);
 
             setupCamera();
             poclImageProcessor.start();
@@ -936,6 +945,15 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
+    private final Runnable pingPusher = new Runnable() {
+        @Override
+        public void run() {
+            if (pingMonitor != null) {
+                pingMonitor.tick();
+            }
+        }
+    };
+
     public void drawOverlay(int doSegment, int[] detectionResults, byte[] segmentationResults
             , Size captureSize, boolean orientationsSwapped) {
         runOnUiThread(() -> overlayVisualizer.drawOverlay(doSegment, detectionResults,
@@ -955,10 +973,11 @@ public class MainActivity extends AppCompatActivity {
                 modeSwitch.performClick();
             }
 
-            String msg = "calib";
-
-            if (config.configSortIndex >= 0) {
-                msg = Integer.toString(config.configSortIndex);
+            String msg;
+            if (config.isCalibrating) {
+                msg = String.format("calib%d", config.configIndex);
+            } else {
+                msg = String.format("id%d (%d)", config.configIndex, config.configSortIndex);
             }
 
             // set the quality text that corresponds to a algorithm config
@@ -1024,6 +1043,11 @@ public class MainActivity extends AppCompatActivity {
         if (null != statLoggerFuture) {
             statLoggerFuture.cancel(true);
             statLoggerFuture = null;
+        }
+
+        if (null != pingPusherFuture) {
+            pingPusherFuture.cancel(true);
+            pingPusherFuture = null;
         }
 
         // imageprocessthread depends on camera and background threads, so close this first

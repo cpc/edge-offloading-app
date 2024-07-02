@@ -169,7 +169,7 @@ write_buffer_dnn(const dnn_context_t *ctx, device_type_enum device_type, uint8_t
     ZoneScoped;
 
     cl_int status;
-    cl_event write_img_event, undef_mig_event;
+    cl_event write_img_event, undef_img_mig_event;
 
     // figure out on which queue to run
     cl_command_queue write_queue;
@@ -189,12 +189,12 @@ write_buffer_dnn(const dnn_context_t *ctx, device_type_enum device_type, uint8_t
 
     status = clEnqueueMigrateMemObjects(write_queue, 1, &cl_buf,
                                         CL_MIGRATE_MEM_OBJECT_CONTENT_UNDEFINED, wait_size,
-                                        wait_event, &undef_mig_event);
+                                        wait_event, &undef_img_mig_event);
     CHECK_AND_RETURN(status, "could migrate enc buffer back before writing");
-    append_to_event_array(event_array, undef_mig_event, VAR_NAME(undef_mig_event));
+    append_to_event_array(event_array, undef_img_mig_event, VAR_NAME(undef_img_mig_event));
 
     status = clEnqueueWriteBuffer(write_queue, cl_buf, CL_FALSE, 0, buf_size, inp_host_buf, 1,
-                                  &undef_mig_event, &write_img_event);
+                                  &undef_img_mig_event, &write_img_event);
     CHECK_AND_RETURN(status, "failed to write image to enc buffers");
     append_to_event_array(event_array, write_img_event, VAR_NAME(write_img_event));
     *result_event = write_img_event;
@@ -245,42 +245,42 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
         return -1;
     }
 
-    cl_event run_dnn_event;
+    cl_event dnn_event;
 
     {
         TracyCLZone(dnn_tracy_ctx, "DNN");
         status = clEnqueueNDRangeKernel(dnn_queue, ctx->dnn_kernel, ctx->work_dim, NULL,
                                         ctx->global_size, ctx->local_size, 1, wait_event,
-                                        &run_dnn_event);
+                                        &dnn_event);
         CHECK_AND_RETURN(status, "failed to enqueue ND range DNN kernel");
-        append_to_event_array(event_array, run_dnn_event, VAR_NAME(dnn_event));
-        TracyCLZoneSetEvent(run_dnn_event);
+        append_to_event_array(event_array, dnn_event, VAR_NAME(dnn_event));
+        TracyCLZoneSetEvent(dnn_event);
     }
 
     if (tmp_buf_ctx != NULL) {
         // Save detections to a temporary buffer for the quality evaluation pipeline
         size_t sz = DETECTION_SIZE * sizeof(cl_int);
 
-        cl_event copy_event_det;
+        cl_event copy_det_event;
         status = clEnqueueCopyBuffer(dnn_queue, ctx->detect_buf, tmp_buf_ctx->det, 0, 0, sz, 1,
-                                     &run_dnn_event, &copy_event_det);
+                                     &dnn_event, &copy_det_event);
         CHECK_AND_RETURN(status, "failed to copy result buffer");
-        append_to_event_array(tmp_buf_ctx->event_array, copy_event_det, VAR_NAME(copy_det_event));
-        tmp_buf_ctx->copy_event_det = copy_event_det;
+        append_to_event_array(tmp_buf_ctx->event_array, copy_det_event, VAR_NAME(copy_det_event));
+        tmp_buf_ctx->copy_event_det = copy_det_event;
     }
 
     if (config.do_segment) {
-        cl_event run_postprocess_event, mig_seg_event, run_reconstruct_event;
+        cl_event postprocess_event, mig_seg_event, reconstruct_event;
 
         {
             // postprocess
             TracyCLZone(dnn_tracy_ctx, "postprocess");
             status = clEnqueueNDRangeKernel(dnn_queue, ctx->postprocess_kernel, ctx->work_dim, NULL,
                                             (ctx->global_size), (ctx->local_size), 1,
-                                            &run_dnn_event, &run_postprocess_event);
+                                            &dnn_event, &postprocess_event);
             CHECK_AND_RETURN(status, "failed to enqueue ND range postprocess kernel");
-            append_to_event_array(event_array, run_postprocess_event, VAR_NAME(postprocess_event));
-            TracyCLZoneSetEvent(run_postprocess_event);
+            append_to_event_array(event_array, postprocess_event, VAR_NAME(postprocess_event));
+            TracyCLZoneSetEvent(postprocess_event);
         }
 
         if (tmp_buf_ctx != NULL) {
@@ -289,7 +289,7 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
 
             cl_event copy_event_seg;
             status = clEnqueueCopyBuffer(dnn_queue, ctx->postprocess_buf, tmp_buf_ctx->seg_post, 0,
-                                         0, sz, 1, &run_postprocess_event, &copy_event_seg);
+                                         0, sz, 1, &postprocess_event, &copy_event_seg);
             CHECK_AND_RETURN(status, "failed to copy result buffer");
             append_to_event_array(tmp_buf_ctx->event_array, copy_event_seg,
                                   VAR_NAME(copy_seg_event));
@@ -301,7 +301,7 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
                 // move postprocessed segmentation data to host device
                 TracyCLZone(ctx->local_tracy_ctx, "migrate DNN");
                 status = clEnqueueMigrateMemObjects(ctx->local_queue, 1, &(ctx->postprocess_buf), 0,
-                                                    1, &run_postprocess_event, &mig_seg_event);
+                                                    1, &postprocess_event, &mig_seg_event);
                 CHECK_AND_RETURN(status, "failed to enqueue migration of postprocess buffer");
                 append_to_event_array(event_array, mig_seg_event, VAR_NAME(mig_seg_event));
                 TracyCLZoneSetEvent(mig_seg_event);
@@ -313,19 +313,19 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
                 status = clEnqueueNDRangeKernel(ctx->local_queue, ctx->reconstruct_kernel,
                                                 ctx->work_dim, NULL, ctx->global_size,
                                                 ctx->local_size, 1, &mig_seg_event,
-                                                &run_reconstruct_event);
+                                                &reconstruct_event);
                 CHECK_AND_RETURN(status, "failed to enqueue ND range reconstruct kernel");
-                append_to_event_array(event_array, run_reconstruct_event,
+                append_to_event_array(event_array, reconstruct_event,
                                       VAR_NAME(reconstruct_event));
-                TracyCLZoneSetEvent(run_reconstruct_event);
+                TracyCLZoneSetEvent(reconstruct_event);
             }
 
-            *out_event = run_reconstruct_event;
+            *out_event = reconstruct_event;
         } else {
-            *out_event = run_postprocess_event;
+            *out_event = postprocess_event;
         }
     } else {
-        *out_event = run_dnn_event;
+        *out_event = dnn_event;
     }
 
     // TODO: migrate result buffers to local device

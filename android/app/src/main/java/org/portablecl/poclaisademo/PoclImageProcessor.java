@@ -533,13 +533,20 @@ public class PoclImageProcessor {
 
                     currentTime = System.currentTimeMillis();
 
-                    status = poclSubmitYUVImage(
-                            currentInferencingDevice, do_segment, compressionType, quality,
-                            rotation, do_algorithm,
-                            Y, YRowStride, YPixelStride,
-                            U, UVRowStride, UVPixelStride,
-                            V, VRowStride, VPixelStride,
-                            imageTimestamp);
+                    // TODO: Make this selectable
+                    boolean measuringIdlePower = false;
+
+                    if (measuringIdlePower) {
+                        status = 0;
+                    } else {
+                        status = poclSubmitYUVImage(
+                                currentInferencingDevice, do_segment, compressionType, quality,
+                                rotation, do_algorithm,
+                                Y, YRowStride, YPixelStride,
+                                U, UVRowStride, UVPixelStride,
+                                V, VRowStride, VPixelStride,
+                                imageTimestamp);
+                    }
 
                     if (status != 0) {
                         throw new IllegalStateException("native poclSubmitYUVImage returned " +
@@ -624,7 +631,7 @@ public class PoclImageProcessor {
         if (null != activity) {
 
             // send it to the main activity
-            CodecConfig config = new CodecConfig(NO_COMPRESSION, LOCAL_DEVICE, this.quality, this.quality);
+            CodecConfig config = new CodecConfig(NO_COMPRESSION, LOCAL_DEVICE, this.quality, this.quality, 0);
             activity.setButtonsFromJNI(config);
             activity.enableRemote(false);
             activity.runOnUiThread(() -> Toast.makeText(context,
