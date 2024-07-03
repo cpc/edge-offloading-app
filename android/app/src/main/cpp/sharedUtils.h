@@ -59,6 +59,13 @@ add_ns_to_time(struct timespec *const ts, const long increment);
 long
 compare_timespec(const struct timespec *const ts_a, const struct timespec *const ts_b);
 
+/** Helpers for logging values into a file **/
+
+void log_frame_int(int fd, int frame_index, const char* tag, const char* parameter, int value);
+void log_frame_i64(int fd, int frame_index, const char* tag, const char* parameter, int64_t value);
+void log_frame_f(int fd, int frame_index, const char* tag, const char* parameter, float value);
+void log_frame_str(int fd, int frame_index, const char *tag, const char *parameter, const char *value);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,6 +1,6 @@
 package org.portablecl.poclaisademo;
 
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.pushExternalStats;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.pushExternalPow;
 
 import android.util.Log;
 
@@ -87,7 +87,7 @@ public class StatLogger implements Runnable {
             return;
         }
 
-        pushExternalStats(timeEnergy, amp, volt);
+        pushExternalPow(timeEnergy, amp, volt);
 
         prev_amp = amp;
         prev_volt = volt;

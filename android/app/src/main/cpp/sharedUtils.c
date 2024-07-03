@@ -5,6 +5,7 @@
 #include "sharedUtils.h"
 #include <time.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #define NS_PER_S 1000000000
 
@@ -46,6 +47,23 @@ compare_timespec(const struct timespec *const ts_a, const struct timespec *const
     }
     return diff;
 
+}
+
+void log_frame_int(int fd, int frame_index, const char *tag, const char *parameter, int value) {
+    dprintf(fd, "%d,%s,%s,%d\n", frame_index, tag, parameter, value);
+}
+
+void log_frame_i64(int fd, int frame_index, const char *tag, const char *parameter, int64_t value) {
+    dprintf(fd, "%d,%s,%s,%ld\n", frame_index, tag, parameter, value);
+}
+
+void log_frame_f(int fd, int frame_index, const char *tag, const char *parameter, float value) {
+    dprintf(fd, "%d,%s,%s,%f\n", frame_index, tag, parameter, value);
+}
+
+void
+log_frame_str(int fd, int frame_index, const char *tag, const char *parameter, const char *value) {
+    dprintf(fd, "%d,%s,%s,%s\n", frame_index, tag, parameter, value);
 }
 
 #ifdef __cplusplus

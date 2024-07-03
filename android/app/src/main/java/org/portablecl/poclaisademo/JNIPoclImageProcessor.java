@@ -151,9 +151,9 @@ public class JNIPoclImageProcessor {
     public static native TrafficMonitor.DataPoint getRemoteTrafficStats();
 
     public static native CodecConfig getCodecConfig();
-    public static native MainActivity.Stats getStats();
+//    public static native MainActivity.Stats getStats();
 
     // push stats like voltage and current from Java to the C side
-    public static native void pushExternalStats(long timestamp, int amp, int volt);
-    public static native void pushExternalPing(float ping_ms);
+    public static native void pushExternalPow(long timestamp, int amp, int volt);
+    public static native void pushExternalPing(long timestamp, float ping_ms);
 }

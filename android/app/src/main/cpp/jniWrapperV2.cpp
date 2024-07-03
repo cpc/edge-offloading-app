@@ -74,7 +74,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(
 
     free(codec_sources);
 
-    init_codec_select(config_flags, &state);
+    init_codec_select(config_flags, fd, &state);
 
     if (service_name != NULL)
         env->ReleaseStringUTFChars(service_name, _service_name);
@@ -143,6 +143,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
 
     int status;
     int is_eval_frame = 0;
+    int frame_index = -1;
 
     // read the current config from the codec selection state
     codec_config_t codec_config;
@@ -159,12 +160,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
     CHECK_AND_RETURN(status, "could not check and submit eval frame");
 
     // submit the image for the actual encoding (needs to be submitted *before* the eval frame
-    status = submit_image(ctx, codec_config, image_data, is_eval_frame);
+    status = submit_image(ctx, codec_config, image_data, is_eval_frame, &frame_index);
     CHECK_AND_RETURN(status, "could not submit frame");
 
     if (is_eval_frame) {
         // submit the eval frame if appropriate
-        status = run_eval(ctx->eval_ctx, state, codec_config, image_data);
+        status = run_eval(ctx->eval_ctx, state, codec_config, frame_index, image_data);
         CHECK_AND_RETURN(status, "could not submit eval frame");
     }
 
@@ -259,44 +260,46 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getCodecConfig(JNIEnv *en
                           (jint) codec_id, (jint) codec_sort_id, (jint) is_calibrating);
 }
 
-JNIEXPORT jobject JNICALL
-Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getStats(JNIEnv *env, jclass clazz) {
-
-    assert(NULL != state);
-
-    jclass stats_class = env->FindClass("org/portablecl/poclaisademo/MainActivity$Stats");
-    assert(nullptr != stats_class);
-
-    jmethodID stats_constructor = env->GetMethodID(stats_class, "<init>", "(FF)V");
-    assert(nullptr != stats_constructor);
-
-    float ping_ms = 0.0f;
-    float ping_ms_avg = 0.0f;
-
-    if (state != NULL) {
-        pthread_mutex_lock(&state->lock);
-        ping_ms = state->stats.ping_ms;
-        ping_ms_avg = state->stats.ping_ms_avg;
-        pthread_mutex_unlock(&state->lock);
-    }
-
-    return env->NewObject(stats_class, stats_constructor, (jfloat) ping_ms, (jfloat) ping_ms_avg);
-}
+// For reference, if we want to measure ping using fillbuffer again:
+//JNIEXPORT jobject JNICALL
+//Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_getStats(JNIEnv *env, jclass clazz) {
+//
+//    assert(NULL != state);
+//
+//    jclass stats_class = env->FindClass("org/portablecl/poclaisademo/MainActivity$Stats");
+//    assert(nullptr != stats_class);
+//
+//    jmethodID stats_constructor = env->GetMethodID(stats_class, "<init>", "(FF)V");
+//    assert(nullptr != stats_constructor);
+//
+//    float ping_ms = 0.0f;
+//    float ping_ms_avg = 0.0f;
+//
+//    if (state != NULL) {
+//        pthread_mutex_lock(&state->lock);
+//        ping_ms = state->stats.ping_ms;
+//        ping_ms_avg = state->stats.ping_ms_avg;
+//        pthread_mutex_unlock(&state->lock);
+//    }
+//
+//    return env->NewObject(stats_class, stats_constructor, (jfloat) ping_ms, (jfloat) ping_ms_avg);
+//}
 
 JNIEXPORT void JNICALL
-Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_pushExternalStats(JNIEnv *env, jclass clazz,
-                                                                         jlong timestamp, jint amp,
-                                                                         jint volt) {
+Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_pushExternalPow(JNIEnv *env, jclass clazz,
+                                                                       jlong timestamp, jint amp,
+                                                                       jint volt) {
     if (state != NULL) {
-        push_external_stats(state, timestamp, amp, volt);
+        push_external_pow(state, timestamp, amp, volt);
     }
 }
 
 JNIEXPORT void JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_pushExternalPing(JNIEnv *env, jclass clazz,
+                                                                        jlong timestamp,
                                                                         jfloat ping_ms) {
     if (state != NULL) {
-        push_external_ping(state, ping_ms);
+        push_external_ping(state, timestamp, ping_ms);
     }
 }
 

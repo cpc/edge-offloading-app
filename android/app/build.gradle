@@ -21,7 +21,7 @@ android {
         externalNativeBuild {
             cmake {
                 arguments "-DTRACY_ENABLE=OFF"
-                cppFlags '-std=c++17 -O3 -mfpu=neon -ftree-vectorize'
+                cppFlags '-std=c++17 -O0 -g -mfpu=neon -ftree-vectorize'
             }
         }
     }

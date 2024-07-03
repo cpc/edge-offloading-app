@@ -147,10 +147,11 @@ public class PingMonitor {
                 }
                 patternMatcher = pattern.matcher(pingLine);
                 if (patternMatcher.find()) {
+                    long timestamp = System.nanoTime();
                     ping = Float.parseFloat(Objects.requireNonNull(patternMatcher.group(2)));
                     totalPingTime += ping;
                     pingCount++;
-                    pushExternalPing(ping);
+                    pushExternalPing(timestamp, ping);
                 }
             }
         } catch (IOException e) {

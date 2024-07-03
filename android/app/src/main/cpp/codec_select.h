@@ -29,7 +29,7 @@ extern "C" {
  * Size of external stats storage (should be set such that slow update_stats() doesn't cause buffer
  * overflows when pushing new results from Java)
  */
-#define NUM_EXTERNAL_SAMPLES 128
+#define NUM_EXTERNAL_SAMPLES 256
 
 /**
  * How many constraints we are placing on variables driving the codec selection.
@@ -86,7 +86,7 @@ static const codec_params_t CONFIGS[NUM_CONFIGS] = {
         36864 * 20 * 5}}},
         {.compression_type = HEVC_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.hevc = {.i_frame_interval = 1, .framerate = 5, .bitrate =
         36864 * 20 * 5}}},
-        {.compression_type = HEVC_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.hevc = {.i_frame_interval = 1, .framerate = 5, .bitrate = 3000 }}},
+        {.compression_type = HEVC_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.hevc = {.i_frame_interval = 1, .framerate = 5, .bitrate = 3000}}},
 
 };
 
@@ -97,12 +97,17 @@ typedef enum {
     METRIC_LATENCY_MS, METRIC_SIZE_BYTES, METRIC_SIZE_BYTES_LOG10, METRIC_POWER_W, METRIC_IOU,
 } metric_t;
 
+const char *const METRIC_NAMES[NUM_METRICS] = {"latency_ms", "size_bytes", "size_bytes_log10",
+                                               "power_w", "iou"};
+
 /**
  * Whether the variable should be maximized (e.g., IoU), or minimized (e.g., power, latency)
  */
 typedef enum {
     OPT_MIN, OPT_MAX,
 } optimization_t;
+
+const char *const OPT_NAMES[2] = {"min", "max"};
 
 /**
  * Type of the constraint
@@ -111,6 +116,8 @@ typedef enum {
     CONSTR_HARD,  // Hard constraints need to fit below/over a certain limit, not counted into the metric product
     CONSTR_SOFT,  // Soft constraints do not have a limit, they are used to calculate the product to select the best codec
 } constraint_type_t;
+
+const char *const CONSTR_TYPE_NAMES[2] = {"hard", "soft"};
 
 /**
  * Umbrella type for hard and soft constraints
@@ -128,26 +135,36 @@ typedef struct {
  */
 typedef struct {
     int id; // Codec ID for which eval pipeline is running. Since only one eval pipeline can run
+    int frame_id; // Frame index of a frame that started the eval pipeline
     // at a time, this correctly reflects the one stored in eval_ctx. To be used only in
     // signal_eval_finish().
     int init_iou_nsamples[NUM_CONFIGS];
     float init_iou[NUM_CONFIGS];
+    int iou_nsamples[NUM_CONFIGS];
     float iou[NUM_CONFIGS];
 } eval_data_t;
 
 /**
- * Data coming from the Java side, such as power
+ * Data coming from the Java side, such as power or ping
  */
 typedef struct {
     int64_t prev_frame_stop_ts_ns;
     int inext;
     int istart;
+    // data coming from external source:
     int64_t ts_ns[NUM_EXTERNAL_SAMPLES];
-    int amp[NUM_EXTERNAL_SAMPLES];
-    int volt[NUM_EXTERNAL_SAMPLES];
+    int ext_amp[NUM_EXTERNAL_SAMPLES];
+    int ext_volt[NUM_EXTERNAL_SAMPLES];
+    float ext_ping_ms[NUM_EXTERNAL_SAMPLES];
+    // collected statistics:
     int init_pow_w_nsamples[NUM_CONFIGS];
     float init_pow_w[NUM_CONFIGS];
+    int pow_w_nsamples[NUM_CONFIGS];
     float pow_w[NUM_CONFIGS];
+    int init_ping_ms_nsamples[NUM_CONFIGS];
+    float init_ping_ms[NUM_CONFIGS];
+    int ping_ms_nsamples[NUM_CONFIGS];
+    float ping_ms[NUM_CONFIGS];
 } external_data_t;
 
 /**
@@ -179,20 +196,13 @@ typedef struct {
 typedef struct {
     int prev_id;  // codec ID of the last frame entering update_stats()
     int64_t last_ping_ts_ns;
-    float ping_ms;
-    float ping_ms_avg;
     int init_nsamples_prev[NUM_CONFIGS];
     int init_nsamples[NUM_CONFIGS];
     int init_nruns[NUM_CONFIGS];
-    int init_ping_nsamples;
-    float init_ping_ms_avg;
-//    float init_latency_ms[NUM_CONFIGS];
     int64_t last_received_image_ts_ns;  // TODO: Could be probably merged with state.last_timestamp_ns
     latency_data_t init_latency_data[NUM_CONFIGS];
     int cur_nsamples;
     latency_data_t cur_latency_data;
-//    float cur_latency_ms;
-//    float latency_ms_avg[NUM_CONFIGS];
     eval_data_t *eval_data;
     external_data_t *external_data;
 } codec_stats_t;
@@ -205,10 +215,13 @@ typedef struct {
     collected_events_t *collected_events;
     codec_stats_t stats;
     bool local_only;
+    bool is_calibrating;
+    bool enable_profiling;
+    int fd;  // file descriptor of a log file
+    int last_frame_id;  // Frame index of the frame that is being or was last logged into the stats
     int id;  // the currently active codec; points at CONFIGS
     int64_t since_last_select_ms;
     int64_t last_timestamp_ns;
-    bool is_calibrating;
     float tgt_latency_ms;  // latency target to aim for
     int init_sorted_ids[NUM_CONFIGS];  // IDs of init_latency_ms sorted by latency
     bool is_allowed[NUM_CONFIGS];  // If the codec is allowed to be used or not (based on init devices)
@@ -222,13 +235,14 @@ typedef struct {
  * constraints.
  */
 typedef struct {
-    int codec_id;
     float vals[NUM_METRICS];
+    int violated_constraint[NUM_METRICS];  // which constraint was violated by the metric (-1 if none)
+    bool all_fit_constraints;  // all metrics fit the constraints
+    int codec_id;
     float product;
-    bool fits_constraints;
 } indexed_metrics_t;
 
-void init_codec_select(int config_flags, codec_select_state_t **state);
+void init_codec_select(int config_flags, int fd, codec_select_state_t **state);
 
 void destroy_codec_select(codec_select_state_t **state);
 
@@ -245,11 +259,11 @@ int get_codec_id(codec_select_state_t *state);
 int get_codec_sort_id(codec_select_state_t *state);
 codec_params_t get_codec_params(codec_select_state_t *state);
 
-void signal_eval_start(codec_select_state_t *state, int codec_id);
+void signal_eval_start(codec_select_state_t *state, int frame_index, int codec_id);
 void signal_eval_finish(codec_select_state_t *state, float iou);
 
-void push_external_stats(codec_select_state_t *state, int64_t ts_ns, int amp, int volt);
-void push_external_ping(codec_select_state_t *state, float ping_ms);
+void push_external_pow(codec_select_state_t *state, int64_t ts_ns, int amp, int volt);
+void push_external_ping(codec_select_state_t *state, int64_t ts_ns, float ping_ms);
 
 #ifdef __cplusplus
 }

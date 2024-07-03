@@ -875,16 +875,17 @@ cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t conf
  * @return opencl status
  */
 int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
-                 image_data_t image_data, int is_eval_frame) {
+                 image_data_t image_data, int is_eval_frame, int *frame_index) {
     // this function should be called when dequeue_spot acquired a semaphore,
     ZoneScoped;
 
     int status;
     int index = ctx->frame_index_head % ctx->lane_count;
     ctx->frame_index_head += 1;
+    *frame_index = ctx->frame_index_head - 1;
 
     char *markId = new char[16];
-    snprintf(markId, 16, "frame start: %i", ctx->frame_index_head - 1);
+    snprintf(markId, 16, "frame start: %i", *frame_index);
     TracyMessage(markId, strlen(markId));
 //    LOGI("submit_image index: %d\n", index);
 
@@ -932,7 +933,7 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     collected_result->event_list_size = 1;
 
     // populate the metadata
-    image_metadata->frame_index = ctx->frame_index_head - 1;
+    image_metadata->frame_index = *frame_index;
     image_metadata->image_timestamp = image_data.image_timestamp;
     image_metadata->codec = codec_config;
     image_metadata->event_array = ctx->pipeline_array[index].event_array;
@@ -996,28 +997,43 @@ int wait_image_available(pocl_image_processor_context *ctx, int timeout) {
 
 }
 
-size_t get_compression_size(const pipeline_context ctx, const compression_t compression) {
+cl_int get_compression_size(pipeline_context *pipeline_ctx, frame_metadata_t *frame_metadata) {
+    cl_int status;
+    cl_mem sz_buf = nullptr;
+    cl_command_queue sz_queue = nullptr;
 
-    switch (compression) {
-
+    // TODO: refactor to use get_compression_size_<codec>()
+    // Read the encoded size buffer if applicable
+    switch (frame_metadata->codec.compression_type) {
 #ifndef  DISABLE_JPEG
         case JPEG_COMPRESSION:
-            return get_compression_size_jpeg(ctx.jpeg_context);
+            sz_buf = pipeline_ctx->jpeg_context->size_buf;
+            sz_queue = pipeline_ctx->jpeg_context->enc_queue;
+            break;
 #endif
 #ifndef DISABLE_HEVC
         case HEVC_COMPRESSION:
-            assert(0 && "not implemented yet");
-        case SOFTWARE_HEVC_COMPRESSION:
-            assert(0 && "not implemented yet");
+            sz_buf = pipeline_ctx->hevc_context->size_buf;
+            sz_queue = pipeline_ctx->hevc_context->enc_queue;
+            break;
 #endif
-        case YUV_COMPRESSION:
-            return get_compression_size_yuv(ctx.yuv_context);
-        case NO_COMPRESSION:
-            return sizeof(cl_uchar) * ctx.height * ctx.width * 3 / 2;
         default:
-            LOGE("requested size of unknown compression type\n");
-            return 0;
+            frame_metadata->size_bytes_tx = pipeline_ctx->host_inp_buf_size;
     }
+
+    if (sz_buf != nullptr && sz_queue != nullptr) {
+        cl_event sz_read_event;
+        status = clEnqueueReadBuffer(sz_queue, sz_buf, CL_FALSE, 0, sizeof(cl_ulong),
+                                     &frame_metadata->size_bytes_tx, 0, NULL, &sz_read_event);
+        CHECK_AND_RETURN(status, "could not read size_bytes buffer");
+
+        status = clWaitForEvents(1, &sz_read_event);
+        CHECK_AND_RETURN(status, "failed to wait for sz read event");
+    }
+
+    frame_metadata->size_bytes_rx = DETECTION_SIZE + MASK_W * MASK_H;
+
+    return CL_SUCCESS;
 }
 
 /**
@@ -1036,9 +1052,6 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
 
     // variables used later, but need to be declared now for goto statement
     char *markId = new char[16];
-
-    cl_mem sz_buf = nullptr;
-    cl_command_queue sz_queue = nullptr;
 
     int index = ctx->frame_index_tail % ctx->lane_count;
     ctx->frame_index_tail += 1;
@@ -1084,32 +1097,9 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
     // to prevent resetting the event array at the beginning of submitting a new image.
     collect_events(image_metadata.event_array, collected_events);
 
-    // TODO: Refactor with get_compression_size()
-    // Read the encoded size buffer
-    switch (image_metadata.codec.compression_type) {
-        case JPEG_COMPRESSION:
-            sz_buf = pipeline->jpeg_context->size_buf;
-            sz_queue = pipeline->jpeg_context->enc_queue;
-            break;
-        case HEVC_COMPRESSION:
-            sz_buf = pipeline->hevc_context->size_buf;
-            sz_queue = pipeline->hevc_context->enc_queue;
-            break;
-        default:
-            image_metadata.size_bytes_tx = pipeline->host_inp_buf_size;
-    }
-
-    if (sz_buf != nullptr && sz_queue != nullptr) {
-        cl_event sz_read_event;
-        status = clEnqueueReadBuffer(sz_queue, sz_buf, CL_FALSE, 0, sizeof(cl_ulong),
-                                     &image_metadata.size_bytes_tx, 0, NULL, &sz_read_event);
-        CHECK_AND_CATCH(status, "could not read size_bytes buffer", new_state);
-
-        status = clWaitForEvents(1, &sz_read_event);
-        CHECK_AND_CATCH(status, "failed to wait for sz read event", new_state);
-    }
-
-    image_metadata.size_bytes_rx = DETECTION_SIZE + MASK_W * MASK_H;
+    // Read the size of the compressed image and segmentation data
+    status = get_compression_size(pipeline, &image_metadata);
+    CHECK_AND_CATCH(status, "could not get compression size", new_state);
 
     // TODO PING: Don't run ping on each frame
 //    image_metadata.host_ts_ns.fill_ping_duration = 0;
@@ -1151,16 +1141,15 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
                             image_metadata.event_array);
         CHECK_AND_CATCH(status, "failed to print events", new_state);
 
-        if (1 == image_metadata.is_eval_frame) {
-            status = log_events(ctx->file_descriptor, image_metadata.frame_index,
-                                ctx->eval_ctx->eval_pipeline->event_array);
-            CHECK_AND_CATCH(status, "failed to print events", new_state);
-        }
+        // TODO: Move to the eval loop
+//        if (1 == image_metadata.is_eval_frame) {
+//            status = log_events(ctx->file_descriptor, image_metadata.frame_index,
+//                                ctx->eval_ctx->eval_pipeline->event_array);
+//            CHECK_AND_CATCH(status, "failed to print eval events", new_state);
+//        }
 
-        uint64_t compressed_size = get_compression_size(*pipeline,
-                                                        image_metadata.codec.compression_type);
-        dprintf(ctx->file_descriptor, "%d,compression,size_bytes,%lu\n", image_metadata.frame_index,
-                compressed_size);
+        dprintf(ctx->file_descriptor, "%d,compression,size_bytes_tx,%lu\n", image_metadata.frame_index, image_metadata.size_bytes_tx);
+        dprintf(ctx->file_descriptor, "%d,compression,size_bytes_rx,%lu\n", image_metadata.frame_index, image_metadata.size_bytes_rx);
 
         log_host_ts_ns(ctx->file_descriptor, image_metadata.frame_index, image_metadata.host_ts_ns);
     }
