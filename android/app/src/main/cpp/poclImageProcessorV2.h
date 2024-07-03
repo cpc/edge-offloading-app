@@ -79,12 +79,6 @@ typedef struct {
     lane_state_t state;
     int local_only; // used to indicate that it is not possible to use the remote device
 
-    // todo: see if it makes more sense to store the codec config  in the pipeline instead of the
-    // eval_metadata and just use the metadata to return the values back at the function caller
-//    codec_config_t config;
-//    cl_event wait_events[2];
-//    int wait_events_size;
-
 } pipeline_context;
 
 typedef struct {

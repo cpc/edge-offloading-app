@@ -204,7 +204,6 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_receiveImage(JNIEnv *env,
     int64_t *metadata_array = env->GetLongArrayElements(metadataExchange, JNI_FALSE);
 
     int status;
-    // todo: process this metadata
     frame_metadata_t metadata;
 //    lane_state_t new_state;
     status = receive_image(ctx, detection_array, segmentation_array, &metadata,

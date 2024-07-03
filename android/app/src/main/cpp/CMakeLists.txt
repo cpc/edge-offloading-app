@@ -29,28 +29,6 @@ option(TRACY_NO_SAMPLING "enable tracing with stack traces" ON)
 add_subdirectory(${EXTERNAL_PATH}/tracy tracy-build)
 message(STATUS "TRACY_ENABLE: ${TRACY_ENABLE}")
 
-# Creates and names a library, sets it as either STATIC
-# or SHARED, and provides the relative paths to its source code.
-# You can define multiple libraries, and CMake builds them for you.
-# Gradle automatically packages shared libraries with your APK.
-
-add_library( # Sets the name of the library.
-        poclaisademo
-
-        # Sets the library as a shared library.
-        SHARED
-
-        # Provides a relative path to your source file(s).
-        vectorAddExample.cpp
-        vectorAddExample.h
-        )
-
-target_include_directories(poclaisademo PRIVATE
-        ${EXTERNAL_PATH}/libopencl-stub/include
-		${EXTERNAL_PATH}/tracy/public/tracy
-        )
-
-
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because CMake includes system libraries in the search path by
 # default, you only need to specify the name of the public NDK library
@@ -207,10 +185,12 @@ ExternalProject_Add(pocl
 configure_file("config.h.in.cmake" "config.h" ESCAPE_QUOTES)
 include_directories("${CMAKE_BINARY_DIR}")
 
+# Creates and names a library, sets it as either STATIC
+# or SHARED, and provides the relative paths to its source code.
+# You can define multiple libraries, and CMake builds them for you.
+# Gradle automatically packages shared libraries with your APK.
 add_library(poclnative
         SHARED
-        poclRemoteExample.cpp
-        poclRemoteExample.h
         sharedUtils.h sharedUtils.c
 #        poclImageProcessor.cpp
         jni_utils.cpp jni_utils.h
@@ -229,7 +209,6 @@ add_library(poclnative
 		eval.cpp eval.h
 		jni_discovery.cpp
         )
-
 
 add_library(libpocl_pthread_add_i8 SHARED IMPORTED)
 set_target_properties(libpocl_pthread_add_i8 PROPERTIES IMPORTED_LOCATION
@@ -252,9 +231,13 @@ target_include_directories(poclnative
         PRIVATE
         ${EXTERNAL_PATH}/pocl/include
         ${CMAKE_CURRENT_BINARY_DIR}/opencv/sdk/native/jni/include
+		${EXTERNAL_PATH}/libopencl-stub/include
 		${EXTERNAL_PATH}/tracy/public/tracy
         )
 
+# Specifies libraries CMake should link to your target library. You
+# can link multiple libraries, such as libraries you define in this
+# build script, prebuilt third-party libraries, or system libraries.
 target_link_libraries(
         poclnative
         ${android-lib}
@@ -278,27 +261,3 @@ target_link_libraries(
 
 add_dependencies(pocl build_opencv build_turbojpeg)
 add_dependencies(poclnative pocl)
-add_dependencies(poclaisademo poclnative)
-
-# Specifies libraries CMake should link to your target library. You
-# can link multiple libraries, such as libraries you define in this
-# build script, prebuilt third-party libraries, or system libraries.
-
-target_link_libraries( # Specifies the target library.
-        poclaisademo
-
-        # Links the target library to the log library
-        # included in the NDK.
-        ${log-lib}
-
-        poclnative
-
-        opencv_imgproc
-
-        opencv_imgcodecs
-
-        opencv_core
-        
-        mediandk
-		Tracy::TracyClient
-        )

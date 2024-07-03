@@ -83,14 +83,6 @@ import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends AppCompatActivity {
 
-    // These native functions are defined in src/main/cpp/vectorAddExample.cpp
-    // todo: move these headers to their own file
-    public native int initCL(AssetManager am);
-
-    public native int vectorAddCL(int N, float[] A, float[] B, float[] C);
-
-    public native int destroyCL();
-
     /**
      * NOTE: many of these variables are declared in this scope
      * because different callback methods need access to them and
@@ -267,7 +259,7 @@ public class MainActivity extends AppCompatActivity {
 
     // Used to load the 'poclaisademo' library on application startup.
     static {
-        System.loadLibrary("poclaisademo");
+        System.loadLibrary("poclnative");
     }
 
     static TextView ocl_text;
@@ -475,16 +467,6 @@ public class MainActivity extends AppCompatActivity {
             modeSwitch.setClickable(false);
             qualityText.setClickable(false);
         }
-
-        // TODO: remove this example
-        // this is an example run
-        // Running in separate thread to avoid UI hangs
-        Thread td = new Thread() {
-            public void run() {
-                doVectorAdd();
-            }
-        };
-        td.start();
 
     }
 
@@ -1081,56 +1063,6 @@ public class MainActivity extends AppCompatActivity {
         Runtime.getRuntime().exit(0);
 
         super.onDestroy();
-    }
-
-    /**
-     * call the opencl native code
-     */
-    void doVectorAdd() {
-
-        if (DEBUGEXECUTION) {
-            Log.println(Log.INFO, "EXECUTIONFLOW", "started doVectorAdd method");
-        }
-
-        printLog(ocl_text, "\ncalling opencl init functions... ");
-        initCL(getAssets());
-
-        // Create 2 vectors A & B
-        // And yes, this array size is embarrassingly huge for demo!
-        float[] A = {1, 2, 3, 4, 5, 6, 7};
-        float[] B = {8, 9, 0, 6, 7, 8, 9};
-        float[] C = new float[A.length];
-
-        printLog(ocl_text, "\n A: ");
-        for (int i = 0; i < A.length; i++)
-            printLog(ocl_text, A[i] + "    ");
-
-        printLog(ocl_text, "\n B: ");
-        for (int i = 0; i < B.length; i++)
-            printLog(ocl_text, B[i] + "    ");
-
-        printLog(ocl_text, "\n\ncalling opencl vector-addition kernel... ");
-        vectorAddCL(C.length, A, B, C);
-
-        printLog(ocl_text, "\n C: ");
-        for (int i = 0; i < C.length; i++)
-            printLog(ocl_text, C[i] + "    ");
-
-        boolean correct = true;
-        for (int i = 0; i < C.length; i++) {
-            if (C[i] != (A[i] + B[i])) {
-                correct = false;
-                break;
-            }
-        }
-
-        if (correct)
-            printLog(ocl_text, "\n\nresult: passed\n");
-        else
-            printLog(ocl_text, "\n\nresult: failed\n");
-
-        printLog(ocl_text, "\ndestroy opencl resources... ");
-        destroyCL();
     }
 
     void printLog(TextView tv, final String str) {

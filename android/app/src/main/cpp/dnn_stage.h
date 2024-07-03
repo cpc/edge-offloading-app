@@ -17,6 +17,16 @@
 extern "C" {
 #endif
 
+#define MAX_DETECTIONS 10
+#define MASK_W 160
+#define MASK_H 120
+
+#define DET_COUNT (1 + MAX_DETECTIONS * 6)
+#define SEG_COUNT (MAX_DETECTIONS * MASK_W * MASK_H)
+#define SEG_OUT_COUNT (MASK_W * MASK_H * 4)
+// TODO: check if this size actually needed, or one value can be dropped
+#define TOT_OUT_COUNT (DET_COUNT + SEG_COUNT)
+
 /**
  *  Macro that sets the queue object to the right queue based on the codec config
  */

@@ -168,7 +168,7 @@ public class BenchmarkService extends Service {
      * needed to call native pocl functions
      */
     static {
-        System.loadLibrary("poclaisademo");
+        System.loadLibrary("poclnative");
     }
 
     public BenchmarkService() {

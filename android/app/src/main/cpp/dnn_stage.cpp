@@ -14,16 +14,6 @@ extern "C" {
 
 #define DNN_VERBOSITY 0
 
-#define MAX_DETECTIONS 10
-#define MASK_W 160
-#define MASK_H 120
-
-#define DET_COUNT (1 + MAX_DETECTIONS * 6)
-#define SEG_COUNT (MAX_DETECTIONS * MASK_W * MASK_H)
-#define SEG_OUT_COUNT (MASK_W * MASK_H * 4)
-// TODO: check if this size actually needed, or one value can be dropped
-#define TOT_OUT_COUNT (DET_COUNT + SEG_COUNT)
-
 dnn_context_t *create_dnn_context() {
 
     dnn_context_t *context = (dnn_context_t *) calloc(1, sizeof(dnn_context_t));
@@ -139,10 +129,6 @@ int init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, int wid
     dnn_context->work_dim = 1;
     dnn_context->global_size[0] = 1;
     dnn_context->local_size[0] = 1;
-
-
-//    dnn_context->tracy_dnn_queue = TracyCLContext(ocl_context, &dnn_device);
-//    dnn_context->tracy_reconstruct_queue = TracyCLContext(ocl_context, &reconstruct_device);
 
     clReleaseProgram(program);
 
@@ -328,8 +314,6 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
         *out_event = dnn_event;
     }
 
-    // TODO: migrate result buffers to local device
-
     return 0;
 }
 
@@ -349,7 +333,6 @@ enqueue_read_results_dnn(dnn_context_t *ctx, codec_config_t *config, int32_t *de
                          uint8_t *segmentation_array, event_array_t *event_array, int wait_size,
                          cl_event *wait_list) {
     ZoneScoped;
-    // TODO: create special remote reading queue to not block on dnn
 
     // figure out on which queue to run the dnn
     cl_command_queue queue;

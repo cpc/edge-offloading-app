@@ -31,15 +31,7 @@
 extern "C" {
 #endif
 
-#define MAX_DETECTIONS 10
-#define MASK_W 160
-#define MASK_H 120
-
-#define DET_COUNT (1 + MAX_DETECTIONS * 6)
-#define SEG_COUNT (MAX_DETECTIONS * MASK_W * MASK_H)
-#define SEG_OUT_COUNT (MASK_W * MASK_H * 4)
-// TODO: check if this size actually needed, or one value can be dropped
-#define TOT_OUT_COUNT (DET_COUNT + SEG_COUNT)
+#define MAX_EVENTS 99
 
 /**
  * check that the code was built with the right features enables
@@ -207,7 +199,6 @@ int setup_pipeline_context(pipeline_context *ctx, const int width, const int hei
     }
 #endif // DISABLE_JPEG
 #ifndef DISABLE_HEVC
-    // TODO: update hevc contexts
     if (HEVC_COMPRESSION & ctx->config_flags) {
 
         ctx->hevc_context = create_hevc_context();
@@ -810,7 +801,6 @@ cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t conf
     }
 #endif // DISABLE_JPEG
 #ifndef DISABLE_HEVC
-        // TODO: test hecv compression
     else if (HEVC_COMPRESSION == compression_type) {
 
         inp_format = ctx->hevc_context->output_format;
@@ -856,7 +846,6 @@ cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t conf
                          tmp_buf_ctx);
     CHECK_AND_CATCH(status, "could not enqueue dnn stage", new_state);
 
-    // TODO: create goto statement putting the state to an error
     FINISH:
     if (new_state != LANE_BUSY) {
         SET_CTX_STATE(ctx, LANE_ERROR, new_state)

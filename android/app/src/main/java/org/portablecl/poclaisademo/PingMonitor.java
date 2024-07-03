@@ -58,6 +58,10 @@ public class PingMonitor {
      */
     private final Pattern pattern;
 
+    static {
+        System.loadLibrary("poclnative");
+    }
+
     /**
      * create a ping monitor that pings an ip
      * using the ping program on a subprocess.
@@ -65,8 +69,6 @@ public class PingMonitor {
      * @param ip address to ping
      */
     public PingMonitor(String ip) {
-        // TODO: This wasn't necessary on the previous PC, but required on the current PC, otherwise crashes:
-        System.loadLibrary("poclaisademo");
 
         totalPingTime = 0;
         pingCount = 0;
