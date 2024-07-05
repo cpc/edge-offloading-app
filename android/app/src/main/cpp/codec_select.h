@@ -13,11 +13,24 @@
 extern "C" {
 #endif
 
-#define SELECT_VERBOSITY 0 // Verbosity of messages printed from this file (0 turns them off)
+/** Different logging levels */
+#define SLOG_SELECT                (1 << 0)
+#define SLOG_SELECT_2              (1 << 1)
+#define SLOG_SELECT_DBG            (1 << 2)
+#define SLOG_CONSTR                (1 << 3)
+#define SLOG_UPDATE_DBG            (1 << 4)
+#define SLOG_COLLECT_LATENCY_DBG   (1 << 5)
+#define SLOG_COLLECT_EXTERNAL_DBG  (1 << 6)
+#define SLOG_EVAL                  (1 << 7)
+#define SLOG_EXTERNAL_POW          (1 << 8)
+#define SLOG_EXTERNAL_PING         (1 << 9)
+#define SLOG_DBG                   (1 << 31)
 
-// Simple LOGI wrapper to reduce clutter
-#define SLOGI(verbosity, ...) \
-    if (verbosity <= SELECT_VERBOSITY) { LOGI(__VA_ARGS__); }
+/** Verbosity of messages printed from this file (0 turns them off) */
+#define SELECT_VERBOSITY 0
+
+/** Simple LOGI wrapper to reduce clutter */
+#define SLOGI(verbosity, ...) do { if (SELECT_VERBOSITY & (verbosity)) { LOGI(__VA_ARGS__); } } while (0)
 
 /**
  * Number of codec configs considered by the selection algorithm (should be >= 1 to always have at
@@ -183,7 +196,8 @@ typedef struct {
  */
 typedef struct {
     kernel_times_ms_t kernel_times_ms;
-    float total_ms;          // total end-to-end latency
+    float total_ms;          // total run time of this codec since the last change
+    float latency_ms;        // total end-to-end latency
     float network_ms;        // total latency without kernel times
     float size_bytes;        // size of the encoded frame
     float size_bytes_log10;  // log10 of size_bytes
@@ -194,7 +208,7 @@ typedef struct {
  * Statistics collected for every frame, such as the processing time and inference accuracy
  */
 typedef struct {
-    int prev_id;  // codec ID of the last frame entering update_stats()
+    int prev_frame_codec_id;  // codec ID of the last frame entering update_stats()
     int64_t last_ping_ts_ns;
     int init_nsamples_prev[NUM_CONFIGS];
     int init_nsamples[NUM_CONFIGS];
@@ -217,6 +231,7 @@ typedef struct {
     bool local_only;
     bool is_calibrating;
     bool enable_profiling;
+    bool lock_codec;  // after calibration, lock the selected codec and never change it
     int fd;  // file descriptor of a log file
     int last_frame_id;  // Frame index of the frame that is being or was last logged into the stats
     int id;  // the currently active codec; points at CONFIGS
@@ -236,7 +251,7 @@ typedef struct {
  */
 typedef struct {
     float vals[NUM_METRICS];
-    int violated_constraint[NUM_METRICS];  // which constraint was violated by the metric (-1 if none)
+    bool violates_any_constr[NUM_METRICS];  // whether each metric in `vals` violates a constraint
     bool all_fit_constraints;  // all metrics fit the constraints
     int codec_id;
     float product;
