@@ -959,7 +959,7 @@ public class MainActivity extends AppCompatActivity {
             if (config.isCalibrating) {
                 msg = String.format("calib%d", config.configIndex);
             } else {
-                msg = String.format("id%d (%d)", config.configIndex, config.configSortIndex);
+                msg = String.format("id%d(%d)", config.configIndex, config.configSortIndex);
             }
 
             // set the quality text that corresponds to a algorithm config

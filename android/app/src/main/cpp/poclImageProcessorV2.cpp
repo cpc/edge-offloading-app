@@ -864,7 +864,8 @@ cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t conf
  * @return opencl status
  */
 int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
-                 image_data_t image_data, int is_eval_frame, int *frame_index) {
+                 image_data_t image_data, int is_eval_frame, bool codec_selected,
+                 int *frame_index) {
     // this function should be called when dequeue_spot acquired a semaphore,
     ZoneScoped;
 
@@ -881,6 +882,7 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     // store metadata
     frame_metadata_t *image_metadata = &(ctx->metadata_array[index]);
     image_metadata->is_eval_frame = is_eval_frame;
+    image_metadata->codec_selected = codec_selected ? 1 : 0;
 
     dnn_results *collected_result = &(ctx->collected_results[index]);
 
@@ -910,13 +912,13 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
 
     // TODO PING: Don't run ping on each frame
     // run the ping buffer (needs to run also on local device to check if network improved)
-//    if (ctx->devices_found > 2) {
-//        // todo: see if this should be run on every device
+    if (ctx->devices_found > 2) {
+        // todo: see if this should be run on every device
 //        image_metadata->host_ts_ns.before_fill = get_timestamp_ns();
-//        status = ping_fillbuffer_run(ctx->ping_context, ctx->remote_queue,
-//                            ctx->pipeline_array[index].event_array);
-//        CHECK_AND_CATCH_NO_STATE(status, "could not ping remote");
-//    }
+        status = ping_fillbuffer_run(ctx->ping_context, ctx->remote_queue,
+                            ctx->pipeline_array[index].event_array);
+        CHECK_AND_CATCH_NO_STATE(status, "could not ping remote");
+    }
 
     collected_result->event_list[1] = NULL;
     collected_result->event_list_size = 1;
@@ -1091,37 +1093,37 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
     CHECK_AND_CATCH(status, "could not get compression size", new_state);
 
     // TODO PING: Don't run ping on each frame
-//    image_metadata.host_ts_ns.fill_ping_duration = 0;
-//    if (ctx->devices_found <= 2) {
-//        // Don't track networking latency if the only available device is local
-//        image_metadata.host_ts_ns.fill_ping_duration = 0;
-//    } else {
-//        cl_int fill_status;
-//        status = clGetEventInfo(ctx->ping_context->event, CL_EVENT_COMMAND_EXECUTION_STATUS,
-//                                sizeof(cl_int),
-//                                &fill_status, NULL);
-//        CHECK_AND_CATCH(status, "could not get fill event info", new_state);
-//
-//        if (fill_status == CL_COMPLETE) {
-//            // Fill ping completed sooner than the rest of the loop
-//            cl_ulong start_time_ns, end_time_ns;
-//            status = clGetEventProfilingInfo(ctx->ping_context->event, CL_PROFILING_COMMAND_START,
-//                                             sizeof(cl_ulong), &start_time_ns, NULL);
-//
-//            CHECK_AND_CATCH(status, "could not get fill event start\n", new_state);
-//
-//            status = clGetEventProfilingInfo(ctx->ping_context->event, CL_PROFILING_COMMAND_END,
-//                                             sizeof(cl_ulong),
-//                                             &end_time_ns, NULL);
-//
-//            CHECK_AND_CATCH(status, "could not get fill event end \n", new_state);
-//
-//            image_metadata.host_ts_ns.fill_ping_duration = end_time_ns - start_time_ns;
-//        } else {
-//            // Fill ping still not complete, don't wait for it and use a negative value to indicate this
-//            image_metadata.host_ts_ns.fill_ping_duration = -1;
-//        }
-//    }
+    image_metadata.host_ts_ns.fill_ping_duration = 0;
+    if (ctx->devices_found <= 2) {
+        // Don't track networking latency if the only available device is local
+        image_metadata.host_ts_ns.fill_ping_duration = 0;
+    } else {
+        cl_int fill_status;
+        status = clGetEventInfo(ctx->ping_context->event, CL_EVENT_COMMAND_EXECUTION_STATUS,
+                                sizeof(cl_int),
+                                &fill_status, NULL);
+        CHECK_AND_CATCH(status, "could not get fill event info", new_state);
+
+        if (fill_status == CL_COMPLETE) {
+            // Fill ping completed sooner than the rest of the loop
+            cl_ulong start_time_ns, end_time_ns;
+            status = clGetEventProfilingInfo(ctx->ping_context->event, CL_PROFILING_COMMAND_START,
+                                             sizeof(cl_ulong), &start_time_ns, NULL);
+
+            CHECK_AND_CATCH(status, "could not get fill event start\n", new_state);
+
+            status = clGetEventProfilingInfo(ctx->ping_context->event, CL_PROFILING_COMMAND_END,
+                                             sizeof(cl_ulong),
+                                             &end_time_ns, NULL);
+
+            CHECK_AND_CATCH(status, "could not get fill event end \n", new_state);
+
+            image_metadata.host_ts_ns.fill_ping_duration = (int64_t)(end_time_ns) - (int64_t)(start_time_ns);
+        } else {
+            // Fill ping still not complete, don't wait for it and use a negative value to indicate this
+            image_metadata.host_ts_ns.fill_ping_duration = -1;
+        }
+    }
 
     image_metadata.host_ts_ns.stop = get_timestamp_ns();
 
@@ -1137,8 +1139,10 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
 //            CHECK_AND_CATCH(status, "failed to print eval events", new_state);
 //        }
 
-        dprintf(ctx->file_descriptor, "%d,compression,size_bytes_tx,%lu\n", image_metadata.frame_index, image_metadata.size_bytes_tx);
-        dprintf(ctx->file_descriptor, "%d,compression,size_bytes_rx,%lu\n", image_metadata.frame_index, image_metadata.size_bytes_rx);
+        dprintf(ctx->file_descriptor, "%d,compression,size_bytes_tx,%lu\n",
+                image_metadata.frame_index, image_metadata.size_bytes_tx);
+        dprintf(ctx->file_descriptor, "%d,compression,size_bytes_rx,%lu\n",
+                image_metadata.frame_index, image_metadata.size_bytes_rx);
 
         log_host_ts_ns(ctx->file_descriptor, image_metadata.frame_index, image_metadata.host_ts_ns);
     }

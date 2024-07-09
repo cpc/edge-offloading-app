@@ -27,7 +27,7 @@ extern "C" {
 #define SLOG_DBG                   (1 << 31)
 
 /** Verbosity of messages printed from this file (0 turns them off) */
-#define SELECT_VERBOSITY 0
+#define SELECT_VERBOSITY (0)
 
 /** Simple LOGI wrapper to reduce clutter */
 #define SLOGI(verbosity, ...) do { if (SELECT_VERBOSITY & (verbosity)) { LOGI(__VA_ARGS__); } } while (0)
@@ -36,7 +36,7 @@ extern "C" {
  * Number of codec configs considered by the selection algorithm (should be >= 1 to always have at
  * least local execution).
  */
-#define NUM_CONFIGS 10
+#define NUM_CONFIGS 8
 
 /**
  * Size of external stats storage (should be set such that slow update_stats() doesn't cause buffer
@@ -90,17 +90,14 @@ static const codec_params_t CONFIGS[NUM_CONFIGS] = {
         {.compression_type = NO_COMPRESSION, .device_type= LOCAL_DEVICE, .config = {NULL}},
         {.compression_type = NO_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {NULL}},
         {.compression_type = JPEG_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.jpeg = {.quality = 99}}},
-        {.compression_type = JPEG_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.jpeg = {.quality = 90}}},
         {.compression_type = JPEG_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.jpeg = {.quality = 80}}},
-        {.compression_type = JPEG_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.jpeg = {.quality = 10}}},
-        {.compression_type = HEVC_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.hevc = {.i_frame_interval = 2, .framerate = 5, .bitrate =
-        36864 * 90 * 5}}},
-        {.compression_type = HEVC_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.hevc = {.i_frame_interval = 2, .framerate = 5, .bitrate =
-        36864 * 20 * 5}}},
-        {.compression_type = HEVC_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.hevc = {.i_frame_interval = 1, .framerate = 5, .bitrate =
-        36864 * 20 * 5}}},
-        {.compression_type = HEVC_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.hevc = {.i_frame_interval = 1, .framerate = 5, .bitrate = 3000}}},
-
+        {.compression_type = JPEG_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.jpeg = {.quality = 15}}},
+        {.compression_type = HEVC_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.hevc = {
+                .i_frame_interval = 1, .framerate = 1, .bitrate = 5000000}}},
+        {.compression_type = HEVC_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.hevc = {
+                .i_frame_interval = 1, .framerate = 1, .bitrate = 500000}}},
+        {.compression_type = HEVC_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.hevc = {
+                .i_frame_interval = 1, .framerate = 1, .bitrate = 5000}}},
 };
 
 /**
@@ -127,13 +124,15 @@ const char *const OPT_NAMES[2] = {"min", "max"};
  */
 typedef enum {
     CONSTR_HARD,  // Hard constraints need to fit below/over a certain limit, not counted into the metric product
+    CONSTR_HARD_VOLATILE,  // Same as hard + has a volatile, network-dependent part (e.g. latency)
     CONSTR_SOFT,  // Soft constraints do not have a limit, they are used to calculate the product to select the best codec
 } constraint_type_t;
 
-const char *const CONSTR_TYPE_NAMES[2] = {"hard", "soft"};
+const char *const CONSTR_TYPE_NAMES[3] = {"hard", "hard_volatile", "soft"};
 
 /**
  * Umbrella type for hard and soft constraints
+ * TODO: This could be a union to prevent repeating redundant fields
  */
 typedef struct {
     metric_t metric;
@@ -209,7 +208,6 @@ typedef struct {
  */
 typedef struct {
     int prev_frame_codec_id;  // codec ID of the last frame entering update_stats()
-    int64_t last_ping_ts_ns;
     int init_nsamples_prev[NUM_CONFIGS];
     int init_nsamples[NUM_CONFIGS];
     int init_nruns[NUM_CONFIGS];
@@ -219,6 +217,9 @@ typedef struct {
     latency_data_t cur_latency_data;
     eval_data_t *eval_data;
     external_data_t *external_data;
+    float init_avg_fill_ping_ms;    // average ping during calibration
+    float avg_fill_ping_ms;         // average ping
+    float remote_avg_fill_ping_ms;  // average ping only calculated when offloading (i.e., not local)
 } codec_stats_t;
 
 /**
@@ -235,6 +236,7 @@ typedef struct {
     int fd;  // file descriptor of a log file
     int last_frame_id;  // Frame index of the frame that is being or was last logged into the stats
     int id;  // the currently active codec; points at CONFIGS
+    bool codec_selected; // signals that codec selection was performed (the ID could stay the same)
     int64_t since_last_select_ms;
     int64_t last_timestamp_ns;
     float tgt_latency_ms;  // latency target to aim for
@@ -251,6 +253,7 @@ typedef struct {
  */
 typedef struct {
     float vals[NUM_METRICS];
+    float vol_vals[NUM_METRICS];  // part of val which is volatile, e.g., due to network
     bool violates_any_constr[NUM_METRICS];  // whether each metric in `vals` violates a constraint
     bool all_fit_constraints;  // all metrics fit the constraints
     int codec_id;
@@ -273,6 +276,7 @@ void select_codec_auto(codec_select_state_t *state);
 int get_codec_id(codec_select_state_t *state);
 int get_codec_sort_id(codec_select_state_t *state);
 codec_params_t get_codec_params(codec_select_state_t *state);
+bool drain_codec_selected(codec_select_state_t *state);
 
 void signal_eval_start(codec_select_state_t *state, int frame_index, int codec_id);
 void signal_eval_finish(codec_select_state_t *state, float iou);

@@ -140,6 +140,7 @@ public class PingMonitor {
      */
     public void tick() {
         try {
+            long timestamp = System.nanoTime();
             String pingLine;
             while (pingReader != null && pingReader.ready()) {
 
@@ -149,7 +150,6 @@ public class PingMonitor {
                 }
                 patternMatcher = pattern.matcher(pingLine);
                 if (patternMatcher.find()) {
-                    long timestamp = System.nanoTime();
                     ping = Float.parseFloat(Objects.requireNonNull(patternMatcher.group(2)));
                     totalPingTime += ping;
                     pingCount++;

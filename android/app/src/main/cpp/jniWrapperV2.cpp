@@ -160,7 +160,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
     CHECK_AND_RETURN(status, "could not check and submit eval frame");
 
     // submit the image for the actual encoding (needs to be submitted *before* the eval frame
-    status = submit_image(ctx, codec_config, image_data, is_eval_frame, &frame_index);
+    bool codec_selected = drain_codec_selected(state);
+    status = submit_image(ctx, codec_config, image_data, is_eval_frame, codec_selected, &frame_index);
     CHECK_AND_RETURN(status, "could not submit frame");
 
     if (is_eval_frame) {

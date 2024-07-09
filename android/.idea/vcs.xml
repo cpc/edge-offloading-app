@@ -6,10 +6,8 @@
     <mapping directory="$PROJECT_DIR$/../external/android-texcomp/simple-texcomp" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../external/android-texcomp/simple-texcomp/extern/tracy" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../external/libjpeg-turbo" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/../external/libopencl-stub" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../external/libyuv" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../external/opencv" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../external/pocl" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/../external/tracy" vcs="Git" />
   </component>
 </project>

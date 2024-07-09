@@ -144,6 +144,7 @@ typedef struct {
     int frame_index;
     long image_timestamp;
     int is_eval_frame;
+    int codec_selected;
     codec_config_t codec;
 } frame_metadata_t;
 
