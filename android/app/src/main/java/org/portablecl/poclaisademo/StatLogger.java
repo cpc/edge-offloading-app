@@ -1,5 +1,6 @@
 package org.portablecl.poclaisademo;
 
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.pushExternalPing;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.pushExternalPow;
 
 import android.util.Log;
@@ -22,13 +23,10 @@ public class StatLogger implements Runnable {
 
     private PingMonitor pingMonitor;
 
-    private long timeEnergy, timeBandw;
     private int amp, volt;
     private int prev_amp, prev_volt;
 
-    private float ping_ms;
-
-    private TrafficMonitor.DataPoint dataPoint;
+    private float prev_ping_ms;
 
     public StatLogger(FileOutputStream stream, TrafficMonitor trafficMonitor,
                       EnergyMonitor energyMonitor, PingMonitor pingMonitor) {
@@ -79,30 +77,31 @@ public class StatLogger implements Runnable {
 
     @Override
     public void run() {
-        dataPoint = trafficMonitor.pollTrafficStats();
-        timeBandw = System.nanoTime();
+        TrafficMonitor.DataPoint dataPoint = trafficMonitor.pollTrafficStats();
+        long timeBandw = System.nanoTime();
 
         volt = energyMonitor.pollVoltage();
         amp = energyMonitor.pollCurrent();
-        timeEnergy = System.nanoTime();
+        long timeEnergy = System.nanoTime();
 
-        if (amp == prev_amp && volt == prev_volt) {
-            // Do not push repeated samples which skew the statistics
-            return;
+        // Do not push repeated samples which skew the statistics
+        if (amp != prev_amp || volt != prev_volt) {
+            pushExternalPow(timeEnergy, amp, volt);
+            prev_amp = amp;
+            prev_volt = volt;
         }
 
-        pushExternalPow(timeEnergy, amp, volt);
-
-        prev_amp = amp;
-        prev_volt = volt;
-
-        // TODO: pingMonitor is null and thus the getPing() call gets stuck
-        // TODO: Since this runs fast now (every 20 ms), let's not call ping here anyway
-//        ping_ms = pingMonitor.getPing();
-//        ping_ms = -1;
-//        if(null != pingMonitor) {
+        float ping_ms = -1.0f;
+//        if (null != pingMonitor) {
+//            long timePing = System.nanoTime();
 //            pingMonitor.tick();
 //            ping_ms = pingMonitor.getPing();
+//
+//            // Do not push repeated samples which skew the statistics
+//            if (ping_ms != prev_ping_ms) {
+//                prev_ping_ms = ping_ms;
+//                pushExternalPing(timePing, ping_ms);
+//            }
 //        }
 
         if (null != stream) {
@@ -110,8 +109,7 @@ public class StatLogger implements Runnable {
             builder.append(timeBandw).append(",").append(dataPoint.rx_bytes_confirmed).append(",")
                     .append(dataPoint.tx_bytes_confirmed);
             builder.append(",").append(timeEnergy).append(",").append(amp).append(",").append(volt);
-//            builder.append(",").append(ping_ms);
-            builder.append(",").append(0.0f);  // TODO PING
+            builder.append(",").append(ping_ms);
             builder.append("\n");
 
             try {

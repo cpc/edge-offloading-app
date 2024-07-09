@@ -75,7 +75,7 @@ public class PingMonitor {
      * @param ip address to ping
      */
     public PingMonitor(String ip) {
-        this(ip, 1.0f);
+        this(ip, 0.2f);
     }
 
     /**
@@ -171,7 +171,6 @@ public class PingMonitor {
      */
     public void tick() {
         try {
-            long timestamp = System.nanoTime();
             String pingLine;
             while (pingReader != null && pingReader.ready()) {
 
@@ -184,8 +183,6 @@ public class PingMonitor {
                     ping = Float.parseFloat(Objects.requireNonNull(patternMatcher.group(2)));
                     totalPingTime += ping;
                     pingCount++;
-                    // todo: remove from the tick loop
-                    pushExternalPing(timestamp, ping);
                 }
             }
         } catch (IOException e) {
