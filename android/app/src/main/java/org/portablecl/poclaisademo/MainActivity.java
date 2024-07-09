@@ -175,9 +175,19 @@ public class MainActivity extends AppCompatActivity {
 
 
     /**
-     * boolean to enable logging that gets set during creation
+     * boolean to enable logging of the image processing loop that gets set during creation
      */
-    private boolean enableLogging;
+    private boolean enablePoclLogging;
+
+    /**
+     * (unused) boolean to enable logging of the monitor statistics that gets set during creation
+     */
+    private boolean enableMonitorLogging;
+
+    /**
+     * (unused) boolean to enable logging of the camera information that gets set during creation
+     */
+    private boolean enableCameraLogging;
 
     /**
      * Quality parameter of camera's JPEG compression
@@ -285,6 +295,13 @@ public class MainActivity extends AppCompatActivity {
     private ArrayAdapter<String> compressionEntries;
     final boolean[] discoveryReconnectCheck = {true};
 
+    void setLogging(boolean enableLoggingInGeneral) {
+        enablePoclLogging = enableLoggingInGeneral;
+        // camera and monitor logs are currently unused and therefore disabled
+        enableCameraLogging = false;
+        enableMonitorLogging = false;
+    }
+
     /**
      * see https://developer.android.com/guide/components/activities/activity-lifecycle
      * what the purpose of this function is.
@@ -315,16 +332,18 @@ public class MainActivity extends AppCompatActivity {
         disableRemote = bundle.getBoolean(DISABLEREMOTEKEY);
 
         try {
-            enableLogging = bundle.getBoolean(ENABLELOGGINGKEY, false);
+            setLogging(bundle.getBoolean(ENABLELOGGINGKEY, false));
         } catch (Exception e) {
             if (VERBOSITY >= 2) {
                 Log.println(Log.INFO, "mainactivity:logging", "could not read enablelogging");
             }
-            enableLogging = false;
+            setLogging(false);
         }
 
+        boolean[] enableLoggings = { enablePoclLogging, enableMonitorLogging, enableCameraLogging };
+
         for (int i = 0; i < TOTALLOGS; i++) {
-            if (enableLogging) {
+            if (enableLoggings[i]) {
 
                 try {
                     uris[i] = Uri.parse(bundle.getString(LOGKEYS[i], null));
@@ -773,14 +792,14 @@ public class MainActivity extends AppCompatActivity {
         if (previewView.isAvailable()) {
             Log.println(Log.INFO, "MA flow", "preview available, setting up camera");
 
-            if (enableLogging) {
+            if (enableMonitorLogging) {
                 boolean streamRes = openFileOutputStream(1);
 
                 if (streamRes) {
                     statLogger.setStream(logStreams[1]);
                 } else {
-                    Log.println(Log.WARN, "Logging", "could not open file, disabling logging");
-                    enableLogging = false;
+                    Log.println(Log.WARN, "Logging", "could not open file, disabling monitor logging");
+                    enableMonitorLogging = false;
                 }
             }
 
@@ -1058,7 +1077,7 @@ public class MainActivity extends AppCompatActivity {
                         applicationContext.getPackageName());
         Intent restartIntent = Intent.makeRestartActivityTask(intent.getComponent());
         restartIntent.putExtra(DISABLEREMOTEKEY, disableRemote);
-        restartIntent.putExtra(ENABLELOGGINGKEY, enableLogging);
+        restartIntent.putExtra(ENABLELOGGINGKEY, enablePoclLogging);
         applicationContext.startActivity(restartIntent);
         Runtime.getRuntime().exit(0);
 
@@ -1598,7 +1617,7 @@ public class MainActivity extends AppCompatActivity {
                         CaptureRequest captureRequest = requestBuilder.build();
 
                         cameraLogger = null;
-                        if (enableLogging) {
+                        if (enableCameraLogging) {
                             // only set callback if the filestream is successfully opened
                             if (null != uris[2] && openFileOutputStream(2)) {
                                 cameraLogger = new CameraLogger(logStreams[2]);
