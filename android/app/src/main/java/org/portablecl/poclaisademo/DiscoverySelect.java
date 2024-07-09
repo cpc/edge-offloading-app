@@ -43,7 +43,7 @@ public class DiscoverySelect {
             this.address = address;
             this.device_type = device_type;
 
-            pingMonitor = new PingMonitor(address.split(":")[0]);
+            pingMonitor = new PingMonitor(address.split(":")[0], 10);
             pingMonitor.start();
             pingMonitor.reset();
             this.ping = pingMonitor.getAveragePing();

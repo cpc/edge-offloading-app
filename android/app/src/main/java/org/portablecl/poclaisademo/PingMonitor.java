@@ -1,5 +1,6 @@
 package org.portablecl.poclaisademo;
 
+import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.pushExternalPing;
 
 import android.util.Log;
@@ -58,6 +59,11 @@ public class PingMonitor {
      */
     private final Pattern pattern;
 
+    /**
+     * how many seconds between getting a response
+     */
+    private final float interval;
+
     static {
         System.loadLibrary("poclnative");
     }
@@ -69,11 +75,28 @@ public class PingMonitor {
      * @param ip address to ping
      */
     public PingMonitor(String ip) {
+        this(ip, 1.0f);
+    }
 
+    /**
+     * create a ping monitor that pings an ip
+     * using the ping program on a subprocess.
+     *
+     * @param ip       address to ping
+     * @param interval the polling interval of the ping in seconds. minimum is 0.2 seconds.
+     */
+    public PingMonitor(String ip, float interval) {
+
+        if (interval < 0.2f) {
+            throw new IllegalArgumentException("interval needs to be bigger than 200 ms");
+        }
         totalPingTime = 0;
         pingCount = 0;
         ping = 0;
         IPAddress = ip;
+        pingProcess = null;
+        pingReader = null;
+        this.interval = interval;
 
         pattern = Pattern.compile(regexPattern);
 
@@ -84,9 +107,17 @@ public class PingMonitor {
      * needs to be called before getting ping stats.
      */
     public void start() {
+
+        if(null != pingProcess || null != pingReader){
+            if(VERBOSITY >= 1) {
+                Log.println(Log.WARN, "pingmonitor", "ping monitor was already running when calling start");
+            }
+            return;
+        }
+
         Runtime runtime = Runtime.getRuntime();
         try {
-            pingProcess = runtime.exec("ping " + IPAddress);
+            pingProcess = runtime.exec("ping -i " + this.interval + " " + IPAddress);
             pingReader = new BufferedReader(new InputStreamReader(pingProcess.getInputStream()));
 
             // the first line is not relevant
@@ -153,6 +184,7 @@ public class PingMonitor {
                     ping = Float.parseFloat(Objects.requireNonNull(patternMatcher.group(2)));
                     totalPingTime += ping;
                     pingCount++;
+                    // todo: remove from the tick loop
                     pushExternalPing(timestamp, ping);
                 }
             }
@@ -163,6 +195,45 @@ public class PingMonitor {
             Log.println(Log.INFO, "pingmonitor", "encountered exception reading ping");
             e.printStackTrace();
         }
+    }
+
+    /**
+     * blocks until the ping gives an update
+     *
+     * @return updated ping
+     */
+    public float blockingTick(int timeout) {
+        Boolean gotPing = false;
+        long endTime = System.currentTimeMillis() + timeout;
+        try {
+            String pingLine;
+            while (!gotPing && System.currentTimeMillis() < endTime) {
+
+                if (!pingReader.ready()) {
+                    continue;
+                }
+
+                pingLine = pingReader.readLine();
+                if (null == pingLine) {
+                    break;
+                }
+                patternMatcher = pattern.matcher(pingLine);
+                if (patternMatcher.find()) {
+                    long timestamp = System.nanoTime();
+                    ping = Float.parseFloat(Objects.requireNonNull(patternMatcher.group(2)));
+                    totalPingTime += ping;
+                    pingCount++;
+                    gotPing = true;
+                }
+            }
+        } catch (IOException e) {
+            Log.println(Log.INFO, "pingmonitor", "encountered io exception reading");
+            e.printStackTrace();
+        } catch (Exception e) {
+            Log.println(Log.INFO, "pingmonitor", "encountered exception reading ping");
+            e.printStackTrace();
+        }
+        return ping;
     }
 
     /**
@@ -185,6 +256,20 @@ public class PingMonitor {
             return 0;
         }
         return totalPingTime / pingCount;
+    }
+
+    /**
+     * creates a pingmonitor and destroys it after getting the result
+     *
+     * @param ipAddress to ping
+     * @return the ping time
+     */
+    public static float singlePing(String ipAddress, int timeout) {
+        PingMonitor monitor = new PingMonitor(ipAddress, 0.2f);
+        monitor.start();
+        float ping = monitor.blockingTick(timeout);
+        monitor.stop();
+        return ping;
     }
 
 }

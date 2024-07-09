@@ -20,7 +20,7 @@ public class StatLogger implements Runnable {
 
     private final EnergyMonitor energyMonitor;
 
-    private final PingMonitor pingMonitor;
+    private PingMonitor pingMonitor;
 
     private long timeEnergy, timeBandw;
     private int amp, volt;
@@ -72,6 +72,10 @@ public class StatLogger implements Runnable {
         }
     }
 
+    public void setPingMonitor(PingMonitor pingMonitor) {
+        this.pingMonitor = pingMonitor;
+    }
+
 
     @Override
     public void run() {
@@ -95,6 +99,11 @@ public class StatLogger implements Runnable {
         // TODO: pingMonitor is null and thus the getPing() call gets stuck
         // TODO: Since this runs fast now (every 20 ms), let's not call ping here anyway
 //        ping_ms = pingMonitor.getPing();
+//        ping_ms = -1;
+//        if(null != pingMonitor) {
+//            pingMonitor.tick();
+//            ping_ms = pingMonitor.getPing();
+//        }
 
         if (null != stream) {
             builder.setLength(0);

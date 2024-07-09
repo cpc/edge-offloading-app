@@ -20,7 +20,6 @@ import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.content.res.AssetManager;
 import android.content.res.Configuration;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
@@ -408,6 +407,7 @@ public class MainActivity extends AppCompatActivity {
         Context context = getApplicationContext();
         energyMonitor = new EnergyMonitor(context);
         trafficMonitor = new TrafficMonitor();
+        pingMonitor = new PingMonitor(IPAddress.split(":")[0]);
         statLogger = new StatLogger(null,
                 trafficMonitor, energyMonitor, pingMonitor);
 
@@ -524,7 +524,9 @@ public class MainActivity extends AppCompatActivity {
 
                         for (DiscoverySelect.spinnerObject value : DSSelect.spinnerList) {
                             if (value.address.equals(IPAddress)) {
-                                pingMonitor = value.pingMonitor;
+                                pingMonitor.stop();
+                                pingMonitor = new PingMonitor(value.address.split(":")[0]);
+                                statLogger.setPingMonitor(pingMonitor);
                             }
                         }
                         discoveryReconnectCheck[0] = false;
@@ -547,7 +549,11 @@ public class MainActivity extends AppCompatActivity {
                         Discovery.addDevice(selectedServer + "/1", (temp.reconnect ? 1 : 0));
                         temp.reconnect = true;
                         poclImageProcessor.start(temp.name);
-                        pingMonitor = DSSelect.spinnerList.get(position).pingMonitor;
+                        pingMonitor.stop();
+                        pingMonitor =
+                                new PingMonitor(DSSelect.spinnerList.get(position).address.split(
+                                        ":")[0]);
+                        statLogger.setPingMonitor(pingMonitor);
                     } else if (modeSwitch.isChecked()) {
                         modeSwitch.performClick();
                     }
@@ -785,6 +791,9 @@ public class MainActivity extends AppCompatActivity {
         // schedule the metrics to update every second
         statUpdateFuture = statUpdateScheduler.scheduleAtFixedRate(statUpdater, 1, 1,
                 TimeUnit.SECONDS);
+        if(null != pingMonitor) {
+            pingMonitor.start();
+        }
 
         // when the app starts, the previewView might not be available yet,
         // in that case, do nothing and wait for on resume to be called again
@@ -1051,12 +1060,18 @@ public class MainActivity extends AppCompatActivity {
             pingPusherFuture = null;
         }
 
+        if(null != pingMonitor) {
+            pingMonitor.stop();
+        }
+
         // imageprocessthread depends on camera and background threads, so close this first
         poclImageProcessor.stop();
         closeCamera();
         stopBackgroundThreads();
 
-        closeFileOutputStreams();
+        // TODO: check that app properly opens output streams and passes them to the right objects
+        // before enabling this again
+//        closeFileOutputStreams();
 
         super.onPause();
     }
