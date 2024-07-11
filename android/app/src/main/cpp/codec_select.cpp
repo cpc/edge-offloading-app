@@ -18,6 +18,10 @@ extern "C" {
 
 // How often to perform codec selection
 static const int64_t SELECT_INTERVAL_MS = 2000;
+static const int64_t CALIB_SELECT_INTERVAL_MS = 4000;
+
+// How many dry runs the first calibration run without collecting statistics
+static const bool DRY_RUN = true;
 
 // Smoothing factors (higher means smoother)
 static const float PING_ALPHA = 0.9f;
@@ -25,7 +29,7 @@ static const float IOU_ALPHA = 0.6f;
 static const float EXTERNAL_ALPHA = 0.9f;
 
 // How many calibration runs to do in the beginning (>= 1)
-static const int NUM_CALIB_RUNS = 3;
+static const int NUM_CALIB_RUNS = 4;
 
 // How many IoU eval samples per codec are required for finishing the calibration
 static const int NUM_CALIB_IOU_SAMPLES = 2;
@@ -46,6 +50,12 @@ static const float WORST_VAL = -999999.999999f;
 // Limits for hard constraints -- could be configurable at runtime in principle
 static const float LIMIT_LATENCY_MS = 500.0f;
 static const float LIMIT_IOU = 0.5f;
+
+// Used to artificially scale latency up/down to avoid going to a cellar
+// TODO: For this to work, we'd need to precede the offsets by increasing ping sa well
+#define NUM_LATENCY_OFFSETS 0
+static const int64_t LATENCY_OFFSETS_MS[NUM_LATENCY_OFFSETS] = {}; // = {1500, 0};  // how much to add
+static const int64_t LATENCY_OFFSET_TIMES_SEC[NUM_LATENCY_OFFSETS] = {}; // = {10, 30}; // when to add
 
 // Exponentially weighted moving average
 static void ewma(float alpha, float new_x, float *old_x) {
@@ -289,9 +299,13 @@ static int select_codec(const codec_select_state_t *const state,
 
     // print ping
     SLOGI(SLOG_SELECT_2,
-          "SELECT | Select | Codec %2d, Ping init: %8.2f ms, avg: %8.2f ms, remote avg %8.2f ms",
+          "SELECT | Select | Codec %2d, Ping init (fill): %8.2f ms, avg: %8.2f ms, remote avg %8.2f ms",
           old_id, state->stats.init_avg_fill_ping_ms, state->stats.avg_fill_ping_ms,
           state->stats.remote_avg_fill_ping_ms);
+    SLOGI(SLOG_SELECT_2,
+          "SELECT | Select | Codec %2d, Ping init       : %8.2f ms, avg: %8.2f ms, remote avg %8.2f ms",
+          old_id, state->stats.init_avg_ping_ms, state->stats.avg_ping_ms,
+          state->stats.remote_avg_ping_ms);
 
     // print kernel time breakdowns
     if (state->is_calibrating) {
@@ -473,7 +487,7 @@ static int select_codec(const codec_select_state_t *const state,
 
 static void
 collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame_metadata,
-                int64_t received_frame_ts_ns, bool do_average, codec_stats_t *stats) {
+                int64_t received_frame_ts_ns, bool should_skip, codec_stats_t *stats) {
 
     SLOGI(SLOG_COLLECT_LATENCY_DBG, "SELECT | Host Times | Frame %d | start %7.2f ms\n",
           frame_metadata->frame_index,
@@ -505,10 +519,10 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
     const int frame_index = frame_metadata->frame_index;
 
     // fill ping
-    float fill_ping_ms = (float) (frame_metadata->host_ts_ns.fill_ping_duration) / 1e6f;
+    float fill_ping_ms = (float) (frame_metadata->host_ts_ns.fill_ping_duration_ms) / 1e6f;
 
-    if (frame_metadata->host_ts_ns.fill_ping_duration != -1) {
-        // TODO: Fix external ping on VerneG server
+    if (!should_skip && !state->is_dry_run &&
+        (frame_metadata->host_ts_ns.fill_ping_duration_ms != -1)) {
         float *avg_ping_ms;
 
         if (state->is_calibrating) {
@@ -517,16 +531,16 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
             avg_ping_ms = &stats->avg_fill_ping_ms;
         }
 
-        if (frame_index == 0) {
+        if (*avg_ping_ms == 0.0f) {
             *avg_ping_ms = fill_ping_ms;
-        } else {
+        } else if (fill_ping_ms != 0.0f) {
             ewma(PING_ALPHA, fill_ping_ms, avg_ping_ms);
         }
     }
 
     SLOGI(SLOG_COLLECT_LATENCY_DBG, "SELECT | Host Times | Frame %d | fill  %7.2f ms\n",
           frame_metadata->frame_index, fill_ping_ms);
-    if (frame_metadata->host_ts_ns.fill_ping_duration == -1) {
+    if (frame_metadata->host_ts_ns.fill_ping_duration_ms == -1) {
         fill_ping_ms = latency_ms;
     }
 
@@ -543,7 +557,34 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
     const float frame_time_ms =
             (float) (received_frame_ts_ns - stats->last_received_image_ts_ns) / 1e6f;
 
-    if (state->enable_profiling) {
+    latency_data_t *data;
+    int *nsamples;
+
+    if (state->is_calibrating) {
+        data = &stats->init_latency_data[frame_metadata->codec.id];
+        nsamples = &stats->init_nsamples[frame_metadata->codec.id];
+    } else {
+        data = &stats->cur_latency_data;
+        nsamples = &stats->cur_nsamples;
+    }
+
+    if (!should_skip && !state->is_dry_run) {
+        incr_avg_noup(kernel_times_ms.enc, &data->kernel_times_ms.enc, *nsamples);
+        incr_avg_noup(kernel_times_ms.dec, &data->kernel_times_ms.dec, *nsamples);
+        incr_avg_noup(kernel_times_ms.dnn, &data->kernel_times_ms.dnn, *nsamples);
+        incr_avg_noup(kernel_times_ms.postprocess, &data->kernel_times_ms.postprocess, *nsamples);
+        incr_avg_noup(kernel_times_ms.reconstruct, &data->kernel_times_ms.reconstruct, *nsamples);
+        incr_avg_noup(latency_ms, &data->latency_ms, *nsamples);
+        incr_avg_noup(network_ms, &data->network_ms, *nsamples);
+        incr_avg_noup(size_bytes, &data->size_bytes, *nsamples);
+        *nsamples += 1;
+
+        data->total_ms += frame_time_ms;
+        data->fps = (float) (*nsamples) / data->total_ms * 1e3f;
+    }
+
+
+    if (state->enable_profiling && !state->is_dry_run) {
         log_frame_f(state->fd, frame_index, "cs_update_latency", "kernel_enc_ms",
                     kernel_times_ms.enc);
         log_frame_f(state->fd, frame_index, "cs_update_latency", "kernel_dec_ms",
@@ -565,62 +606,32 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
                     stats->avg_fill_ping_ms);
         log_frame_f(state->fd, frame_index, "cs_update_latency", "remote_avg_fill_ping_ms",
                     stats->remote_avg_fill_ping_ms);
-    }
-
-    if (do_average) {
-        latency_data_t *data;
-        int *nsamples;
-
-        if (state->is_calibrating) {
-            data = &stats->init_latency_data[frame_metadata->codec.id];
-            nsamples = &stats->init_nsamples[frame_metadata->codec.id];
-        } else {
-            data = &stats->cur_latency_data;
-            nsamples = &stats->cur_nsamples;
-        }
-
-        incr_avg_noup(kernel_times_ms.enc, &data->kernel_times_ms.enc, *nsamples);
-        incr_avg_noup(kernel_times_ms.dec, &data->kernel_times_ms.dec, *nsamples);
-        incr_avg_noup(kernel_times_ms.dnn, &data->kernel_times_ms.dnn, *nsamples);
-        incr_avg_noup(kernel_times_ms.postprocess, &data->kernel_times_ms.postprocess, *nsamples);
-        incr_avg_noup(kernel_times_ms.reconstruct, &data->kernel_times_ms.reconstruct, *nsamples);
-        incr_avg_noup(latency_ms, &data->latency_ms, *nsamples);
-        incr_avg_noup(network_ms, &data->network_ms, *nsamples);
-        if (frame_metadata->size_bytes_tx > 0) {
-            // TODO: First HEVC frame is always zero-size for some reason
-            incr_avg_noup(size_bytes, &data->size_bytes, *nsamples);
-        }
-        *nsamples += 1;
-
-        data->total_ms += frame_time_ms;
-        data->fps = (float) (*nsamples) / data->total_ms * 1e3f;
-
-        if (state->enable_profiling) {
-            log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_enc_ms",
-                        data->kernel_times_ms.enc);
-            log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_dec_ms",
-                        data->kernel_times_ms.dec);
-            log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_dnn_ms",
-                        data->kernel_times_ms.dnn);
-            log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_postprocess_ms",
-                        data->kernel_times_ms.postprocess);
-            log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_reconstruct_ms",
-                        data->kernel_times_ms.reconstruct);
-            log_frame_f(state->fd, frame_index, "cs_update_latency", "total_ms", data->total_ms);
-            log_frame_f(state->fd, frame_index, "cs_update_latency", "fps", data->fps);
-            log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_latency_ms",
-                        data->latency_ms);
-            log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_network_ms",
-                        data->network_ms);
-            log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_size_bytes",
-                        data->size_bytes);
-            log_frame_int(state->fd, frame_index, "cs_update_latency", "nsamples", *nsamples);
-        }
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_enc_ms",
+                    data->kernel_times_ms.enc);
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_dec_ms",
+                    data->kernel_times_ms.dec);
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_dnn_ms",
+                    data->kernel_times_ms.dnn);
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_postprocess_ms",
+                    data->kernel_times_ms.postprocess);
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_reconstruct_ms",
+                    data->kernel_times_ms.reconstruct);
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "total_ms", data->total_ms);
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "fps", data->fps);
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_latency_ms",
+                    data->latency_ms);
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_network_ms",
+                    data->network_ms);
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_size_bytes",
+                    data->size_bytes);
+        log_frame_int(state->fd, frame_index, "cs_update_latency", "nsamples", *nsamples);
     }
 }
 
 static void collect_external_data(const codec_select_state_t *state, int frame_codec_id,
-                                  int64_t frame_stop_ts_ns, external_data_t *data) {
+                                  int64_t frame_stop_ts_ns, codec_stats_t *stats) {
+    external_data_t *data = stats->external_data;
+
     SLOGI(SLOG_COLLECT_EXTERNAL_DBG,
           "SELECT | Collect External | Frame codec %2d, stop ts: %ld, prev stop ts: %ld",
           frame_codec_id, frame_stop_ts_ns, data->prev_frame_stop_ts_ns);
@@ -673,7 +684,29 @@ static void collect_external_data(const codec_select_state_t *state, int frame_c
                 continue;
             }
 
-            incr_avg(value, avg_value, nsamples);
+            if (!state->is_dry_run) {
+                incr_avg(value, avg_value, nsamples);
+
+                if (ping_ms != EMPTY_EXT_PING) {
+                    // track also global average ping
+                    float *avg_ping_ms;
+                    float avg_latency_ms;
+
+                    if (state->is_calibrating) {
+                        avg_ping_ms = &stats->init_avg_ping_ms;
+                        avg_latency_ms = stats->init_latency_data[frame_codec_id].latency_ms;
+                    } else {
+                        avg_ping_ms = &stats->avg_ping_ms;
+                        avg_latency_ms = stats->cur_latency_data.latency_ms;
+                    }
+
+                    if (*avg_ping_ms == 0.0f) {
+                        *avg_ping_ms = ping_ms;
+                    } else if (ping_ms > 0.0f) {
+                        ewma(PING_ALPHA, ping_ms, avg_ping_ms);
+                    }
+                }
+            }
 
             if (state->enable_profiling) {
                 char param_val[32];
@@ -694,10 +727,18 @@ static void collect_external_data(const codec_select_state_t *state, int frame_c
                               ts_ns);
                 log_frame_f(state->fd, state->last_frame_id, "cs_update_external", param_val,
                             value);
-                log_frame_f(state->fd, state->last_frame_id, "cs_update_external", param_avg_val,
-                            *avg_value);
-                log_frame_int(state->fd, state->last_frame_id, "cs_update_external", param_nsamples,
-                              *nsamples);
+                if (!state->is_dry_run) {
+                    log_frame_f(state->fd, state->last_frame_id, "cs_update_external",
+                                param_avg_val, *avg_value);
+                    log_frame_int(state->fd, state->last_frame_id, "cs_update_external",
+                                  param_nsamples, *nsamples);
+                    log_frame_f(state->fd, state->last_frame_id, "cs_update_external",
+                                "init_avg_ping_ms", stats->init_avg_ping_ms);
+                    log_frame_f(state->fd, state->last_frame_id, "cs_update_external",
+                                "avg_ping_ms", stats->avg_ping_ms);
+                    log_frame_f(state->fd, state->last_frame_id, "cs_update_external",
+                                "remote_avg_ping_ms", stats->remote_avg_ping_ms);
+                }
             }
         }
 
@@ -733,6 +774,7 @@ void init_codec_select(int config_flags, int fd, codec_select_state_t **state) {
         new_state->is_allowed[id] = !new_state->local_only;
     }
     new_state->is_calibrating = !new_state->local_only; // there is nothing to calibrate in local-only
+    new_state->is_dry_run = DRY_RUN;
     new_state->enable_profiling = ENABLE_PROFILING & config_flags;
     new_state->lock_codec = false;
     new_state->fd = fd;
@@ -787,16 +829,19 @@ void update_stats(const frame_metadata_t *frame_metadata, const eval_pipeline_co
     state->last_frame_id = frame_index;
 
     codec_stats_t *stats = &state->stats;
-//    const bool should_skip = stats->prev_frame_codec_id != frame_codec_id;
+    const bool should_skip = stats->prev_frame_codec_id != frame_codec_id;
 
     if (state->enable_profiling) {
         log_frame_int(state->fd, frame_index, "cs_update", "frame_codec_id", frame_codec_id);
         log_frame_i64(state->fd, frame_index, "cs_update", "start_ns", update_start_ns);
         log_frame_int(state->fd, frame_index, "cs_update", "is_calibrating",
                       state->is_calibrating ? 1 : 0);
-//        log_frame_int(state->fd, frame_index, "cs_update", "skip", should_skip);
+        log_frame_int(state->fd, frame_index, "cs_update", "is_dry_run", state->is_dry_run ? 1 : 0);
+        log_frame_int(state->fd, frame_index, "cs_update", "skip", should_skip);
         log_frame_int(state->fd, frame_index, "cs_update", "codec_selected",
                       frame_metadata->codec_selected);
+        log_frame_i64(state->fd, frame_index, "cs_update", "latency_offset_ms",
+                      frame_metadata->latency_offset_ms);
     }
 
     if (frame_metadata->codec_selected) {
@@ -812,13 +857,13 @@ void update_stats(const frame_metadata_t *frame_metadata, const eval_pipeline_co
     }
 
     // Collect latency (do not update averages if codec just changed)
-    collect_latency(state, frame_metadata, update_start_ns, true, stats);
+    collect_latency(state, frame_metadata, update_start_ns, should_skip, stats);
 
     // Collect power
-    collect_external_data(state, frame_codec_id, frame_stop_ts_ns, stats->external_data);
+    collect_external_data(state, frame_codec_id, frame_stop_ts_ns, stats);
 
     if ((stats->prev_frame_codec_id != frame_codec_id) && state->is_calibrating) {
-            stats->init_nruns[stats->prev_frame_codec_id] += 1;
+        stats->init_nruns[stats->prev_frame_codec_id] += 1;
     }
 
 //        SLOGI(SLOG_UPDATE_DBG,
@@ -893,6 +938,11 @@ void select_codec_auto(codec_select_state_t *state) {
     const int old_id = state->id;
     codec_stats_t *stats = &state->stats;
 
+    int64_t select_interval_ms = SELECT_INTERVAL_MS;
+    if (state->is_calibrating && !state->is_dry_run) {
+        select_interval_ms = CALIB_SELECT_INTERVAL_MS;
+    }
+
     if (state->last_timestamp_ns == 0) {
         // skipping first frame
         state->last_timestamp_ns = start_ns;
@@ -902,13 +952,24 @@ void select_codec_auto(codec_select_state_t *state) {
     state->since_last_select_ms += (start_ns - state->last_timestamp_ns) / 1000000;
     state->last_timestamp_ns = start_ns;
 
-    if (state->since_last_select_ms < SELECT_INTERVAL_MS) {
+    if (state->since_last_select_ms < select_interval_ms) {
         goto cleanup;
     }
 
     state->since_last_select_ms = 0.0f;
 
     if (state->is_calibrating) {
+        if (state->is_dry_run) {
+            bool should_still_be_dry = false;
+            for (int id = 0; id < NUM_CONFIGS; ++id) {
+                if (stats->init_nruns[id] < 1) {
+                    should_still_be_dry = true;
+                    break;
+                }
+            }
+            state->is_dry_run = should_still_be_dry;
+        }
+
         bool should_still_calibrate = false;
 
         for (int id = 0; id < NUM_CONFIGS; ++id) {
@@ -927,7 +988,8 @@ void select_codec_auto(codec_select_state_t *state) {
             // TODO: Shuffle configs to ensure every run runs each codec once
 //            state->id = rand() % NUM_CONFIGS;
 
-            if (stats->init_nsamples[old_id] > stats->init_nsamples_prev[old_id]) {
+            if (state->is_dry_run ||
+                (stats->init_nsamples[old_id] > stats->init_nsamples_prev[old_id])) {
                 state->id = (old_id + 1) % NUM_CONFIGS;
             }
 
@@ -961,6 +1023,8 @@ void select_codec_auto(codec_select_state_t *state) {
             // populate stats with init values
             stats->avg_fill_ping_ms = stats->init_avg_fill_ping_ms;
             stats->remote_avg_fill_ping_ms = stats->init_avg_fill_ping_ms;
+            stats->avg_ping_ms = stats->init_avg_ping_ms;
+            stats->remote_avg_ping_ms = stats->init_avg_ping_ms;
 
             for (int id = 0; id < NUM_CONFIGS; ++id) {
                 stats->eval_data->iou_nsamples[id] = stats->eval_data->init_iou_nsamples[id];
@@ -972,9 +1036,24 @@ void select_codec_auto(codec_select_state_t *state) {
             }
 
             state->is_calibrating = false;
+            state->calib_end_ns = get_timestamp_ns();
             SLOGI(SLOG_SELECT, "SELECT | Calibrating | End | (%2d -> %2d)", old_id, state->id);
         }
     } else {
+        // Whether to apply artificial latency offset
+        if (NUM_LATENCY_OFFSETS > 0) {
+            for (int i = NUM_LATENCY_OFFSETS - 1; i >= 0; --i) {
+                int64_t offset_time_ns = LATENCY_OFFSET_TIMES_SEC[i] * 1000000000;
+
+                if ((start_ns - state->calib_end_ns) > offset_time_ns) {
+                    state->latency_offset_ms = LATENCY_OFFSETS_MS[i];
+                    SLOGI(SLOG_SELECT_DBG, "SELECT | Select | Set offset %ld ms",
+                          state->latency_offset_ms);
+                    break;
+                }
+            }
+        }
+
         if (stats->cur_nsamples < MIN_NSAMPLES) {
             SLOGI(SLOG_SELECT, "SELECT | Select | Got only %d/%d samples. Not enough, skipping",
                   stats->cur_nsamples, MIN_NSAMPLES);
@@ -1052,6 +1131,7 @@ void select_codec_auto(codec_select_state_t *state) {
 
         if (old_id != LOCAL_CODEC_ID && new_codec_id != LOCAL_CODEC_ID) {
             stats->remote_avg_fill_ping_ms = stats->avg_fill_ping_ms;
+            stats->remote_avg_ping_ms = stats->avg_ping_ms;
         }
 
         if (!state->lock_codec) {
@@ -1118,6 +1198,17 @@ bool drain_codec_selected(codec_select_state_t *state) {
     return codec_selected;
 }
 
+int64_t get_latency_offset_ms(codec_select_state_t *state) {
+    if (NUM_CALIB_IOU_SAMPLES > 0) {
+        pthread_mutex_lock(&state->lock);
+        int64_t latency_offset_ms = state->latency_offset_ms;
+        pthread_mutex_unlock(&state->lock);
+        return latency_offset_ms;
+    } else {
+        return 0;
+    }
+}
+
 void signal_eval_start(codec_select_state_t *state, int frame_index, int codec_id) {
     pthread_mutex_lock(&state->lock);
     state->stats.eval_data->id = codec_id;
@@ -1135,19 +1226,21 @@ void signal_eval_finish(codec_select_state_t *state, float iou) {
     int *iou_nsamples;
     float *iou_avg;
 
-    if (state->is_calibrating) {
-        iou_nsamples = &eval_data->init_iou_nsamples[codec_id];
-        iou_avg = &eval_data->init_iou[codec_id];
-    } else {
-        iou_nsamples = &eval_data->iou_nsamples[codec_id];
-        iou_avg = &eval_data->iou[codec_id];
-    }
-
-    if (iou >= 0.0f) {
+    if (!state->is_dry_run) {
         if (state->is_calibrating) {
-            incr_avg(iou, iou_avg, iou_nsamples);
+            iou_nsamples = &eval_data->init_iou_nsamples[codec_id];
+            iou_avg = &eval_data->init_iou[codec_id];
         } else {
-            ewma(IOU_ALPHA, iou, iou_avg);
+            iou_nsamples = &eval_data->iou_nsamples[codec_id];
+            iou_avg = &eval_data->iou[codec_id];
+        }
+
+        if (iou >= 0.0f) {
+            if (state->is_calibrating) {
+                incr_avg(iou, iou_avg, iou_nsamples);
+            } else {
+                ewma(IOU_ALPHA, iou, iou_avg);
+            }
         }
     }
 
@@ -1155,7 +1248,9 @@ void signal_eval_finish(codec_select_state_t *state, float iou) {
         const int64_t eval_ts_ns = get_timestamp_ns();
         log_frame_i64(state->fd, eval_data->frame_id, "cs_eval", "ts_ns", eval_ts_ns);
         log_frame_f(state->fd, eval_data->frame_id, "cs_eval", "iou", iou);
-        log_frame_f(state->fd, eval_data->frame_id, "cs_eval", "avg_iou", *iou_avg);
+        if (!state->is_dry_run) {
+            log_frame_f(state->fd, eval_data->frame_id, "cs_eval", "avg_iou", *iou_avg);
+        }
     }
 
 

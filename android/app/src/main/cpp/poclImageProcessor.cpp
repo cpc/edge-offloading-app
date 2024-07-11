@@ -1398,7 +1398,7 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
 
     if (num_devices <= 1) {
         // When running only locally, there is no network latency
-        host_ts_ns->fill_ping_duration = 0;
+        host_ts_ns->fill_ping_duration_ms = 0;
     } else {
         cl_int fill_status;
         status = clGetEventInfo(fill_event, CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int),
@@ -1420,10 +1420,10 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
                 return status;
             }
 
-            host_ts_ns->fill_ping_duration = end_time_ns - start_time_ns;
+            host_ts_ns->fill_ping_duration_ms = end_time_ns - start_time_ns;
         } else {
             // Fill ping still not complete, fill in large value and don't wait for it
-            host_ts_ns->fill_ping_duration = after_wait_ns - before_fill_ns;
+            host_ts_ns->fill_ping_duration_ms = after_wait_ns - before_fill_ns;
         }
     }
 

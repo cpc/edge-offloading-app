@@ -217,9 +217,12 @@ typedef struct {
     latency_data_t cur_latency_data;
     eval_data_t *eval_data;
     external_data_t *external_data;
-    float init_avg_fill_ping_ms;    // average ping during calibration
-    float avg_fill_ping_ms;         // average ping
-    float remote_avg_fill_ping_ms;  // average ping only calculated when offloading (i.e., not local)
+    float init_avg_ping_ms;         // average ping during calibration
+    float avg_ping_ms;              // average ping
+    float remote_avg_ping_ms;       // average ping only calculated when offloading (i.e., not local)
+    float init_avg_fill_ping_ms;    // average fillbuffer ping during calibration
+    float avg_fill_ping_ms;         // average fillbuffer ping
+    float remote_avg_fill_ping_ms;  // average fillbuffer ping only calculated when offloading (i.e., not local)
 } codec_stats_t;
 
 /**
@@ -231,14 +234,17 @@ typedef struct {
     codec_stats_t stats;
     bool local_only;
     bool is_calibrating;
+    bool is_dry_run;
     bool enable_profiling;
     bool lock_codec;  // after calibration, lock the selected codec and never change it
     int fd;  // file descriptor of a log file
     int last_frame_id;  // Frame index of the frame that is being or was last logged into the stats
     int id;  // the currently active codec; points at CONFIGS
     bool codec_selected; // signals that codec selection was performed (the ID could stay the same)
+    int64_t latency_offset_ms; // signals latency offset to spend sleeping at the end of the frame
     int64_t since_last_select_ms;
     int64_t last_timestamp_ns;
+    int64_t calib_end_ns;  // timestamp of the end of calibration
     float tgt_latency_ms;  // latency target to aim for
     int init_sorted_ids[NUM_CONFIGS];  // IDs of init_latency_ms sorted by latency
     bool is_allowed[NUM_CONFIGS];  // If the codec is allowed to be used or not (based on init devices)
@@ -277,6 +283,7 @@ int get_codec_id(codec_select_state_t *state);
 int get_codec_sort_id(codec_select_state_t *state);
 codec_params_t get_codec_params(codec_select_state_t *state);
 bool drain_codec_selected(codec_select_state_t *state);
+int64_t get_latency_offset_ms(codec_select_state_t *state);
 
 void signal_eval_start(codec_select_state_t *state, int frame_index, int codec_id);
 void signal_eval_finish(codec_select_state_t *state, float iou);

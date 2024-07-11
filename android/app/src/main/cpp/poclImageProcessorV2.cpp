@@ -865,7 +865,7 @@ cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t conf
  */
 int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
                  image_data_t image_data, int is_eval_frame, bool codec_selected,
-                 int *frame_index) {
+                 int64_t latency_offset_ms, int *frame_index) {
     // this function should be called when dequeue_spot acquired a semaphore,
     ZoneScoped;
 
@@ -883,6 +883,7 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     frame_metadata_t *image_metadata = &(ctx->metadata_array[index]);
     image_metadata->is_eval_frame = is_eval_frame;
     image_metadata->codec_selected = codec_selected ? 1 : 0;
+    image_metadata->latency_offset_ms = latency_offset_ms;
 
     dnn_results *collected_result = &(ctx->collected_results[index]);
 
@@ -916,7 +917,7 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
         // todo: see if this should be run on every device
 //        image_metadata->host_ts_ns.before_fill = get_timestamp_ns();
         status = ping_fillbuffer_run(ctx->ping_context, ctx->remote_queue,
-                            ctx->pipeline_array[index].event_array);
+                                     ctx->pipeline_array[index].event_array);
         CHECK_AND_CATCH_NO_STATE(status, "could not ping remote");
     }
 
@@ -1073,6 +1074,13 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
                                       results.event_list_size, results.event_list);
     CHECK_AND_CATCH(status, "could not read results back", new_state);
 
+//    if (image_metadata.latency_offset_ms > 0) {
+//        struct timespec ts;
+//        ts.tv_sec = image_metadata.latency_offset_ms / 1000;
+//        ts.tv_nsec = (image_metadata.latency_offset_ms % 1000) * 1000000;
+//        nanosleep(&ts, NULL);
+//    }
+
     for (int i = 0; i < ctx->lane_count; i++) {
         TracyCLCollect(ctx->pipeline_array[i].dnn_context->local_tracy_ctx);
         if (ctx->pipeline_array[i].dnn_context->local_tracy_ctx !=
@@ -1093,10 +1101,10 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
     CHECK_AND_CATCH(status, "could not get compression size", new_state);
 
     // TODO PING: Don't run ping on each frame
-    image_metadata.host_ts_ns.fill_ping_duration = 0;
+    image_metadata.host_ts_ns.fill_ping_duration_ms = 0;
     if (ctx->devices_found <= 2) {
         // Don't track networking latency if the only available device is local
-        image_metadata.host_ts_ns.fill_ping_duration = 0;
+        image_metadata.host_ts_ns.fill_ping_duration_ms = 0;
     } else {
         cl_int fill_status;
         status = clGetEventInfo(ctx->ping_context->event, CL_EVENT_COMMAND_EXECUTION_STATUS,
@@ -1105,6 +1113,12 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
         CHECK_AND_CATCH(status, "could not get fill event info", new_state);
 
         if (fill_status == CL_COMPLETE) {
+            // make sure we're synchronized
+            {
+                ZoneScopedN("fill ping wait");
+                clWaitForEvents(1, &ctx->ping_context->event);
+            }
+
             // Fill ping completed sooner than the rest of the loop
             cl_ulong start_time_ns, end_time_ns;
             status = clGetEventProfilingInfo(ctx->ping_context->event, CL_PROFILING_COMMAND_START,
@@ -1118,12 +1132,18 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
 
             CHECK_AND_CATCH(status, "could not get fill event end \n", new_state);
 
-            image_metadata.host_ts_ns.fill_ping_duration = (int64_t)(end_time_ns) - (int64_t)(start_time_ns);
+            image_metadata.host_ts_ns.fill_ping_duration_ms =
+                    (int64_t) (end_time_ns) - (int64_t) (start_time_ns);
         } else {
             // Fill ping still not complete, don't wait for it and use a negative value to indicate this
-            image_metadata.host_ts_ns.fill_ping_duration = -1;
+            image_metadata.host_ts_ns.fill_ping_duration_ms = -1;
         }
     }
+
+//    if (image_metadata.latency_offset_ms > 0) {
+//        // TODO: Add separate variable for artificial ping increase -- should happen before latency increase
+//        image_metadata.host_ts_ns.fill_ping_duration_ms = image_metadata.latency_offset_ms / 2 * 1000000;
+//    }
 
     image_metadata.host_ts_ns.stop = get_timestamp_ns();
 

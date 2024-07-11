@@ -87,7 +87,7 @@ void log_host_ts_ns(const int file_descriptor, const int frame_index, const host
     dprintf(file_descriptor, "%d,frame_time,after_wait_ns,%lu\n", frame_index, host_ts.after_wait);
     dprintf(file_descriptor, "%d,frame_time,stop_ns,%lu\n", frame_index, host_ts.stop);
     dprintf(file_descriptor, "%d,frame_time,fill_ping_ns,%ld\n", frame_index,
-            host_ts.fill_ping_duration);
+            host_ts.fill_ping_duration_ms);
 }
 
 void

@@ -47,7 +47,7 @@ typedef struct {
     int64_t before_wait;
     int64_t after_wait;
     int64_t stop;
-    int64_t fill_ping_duration;
+    int64_t fill_ping_duration_ms;
 } host_ts_ns_t;
 
 int supports_config_flags(const int input);
@@ -145,6 +145,7 @@ typedef struct {
     long image_timestamp;
     int is_eval_frame;
     int codec_selected;
+    int64_t latency_offset_ms;  // artificial extra time to spend sleeping in this frame (0 disables it)
     codec_config_t codec;
 } frame_metadata_t;
 

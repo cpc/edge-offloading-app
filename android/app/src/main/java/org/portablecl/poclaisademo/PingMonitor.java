@@ -169,7 +169,8 @@ public class PingMonitor {
      * function to flush the ping output and update the metrics.
      * gets called with getping and getaverageping
      */
-    public void tick() {
+    public boolean tick() {
+        boolean updated = false;
         try {
             String pingLine;
             while (pingReader != null && pingReader.ready()) {
@@ -183,6 +184,7 @@ public class PingMonitor {
                     ping = Float.parseFloat(Objects.requireNonNull(patternMatcher.group(2)));
                     totalPingTime += ping;
                     pingCount++;
+                    updated = true;
                 }
             }
         } catch (IOException e) {
@@ -192,6 +194,7 @@ public class PingMonitor {
             Log.println(Log.INFO, "pingmonitor", "encountered exception reading ping");
             e.printStackTrace();
         }
+        return updated;
     }
 
     /**

@@ -161,7 +161,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
 
     // submit the image for the actual encoding (needs to be submitted *before* the eval frame
     bool codec_selected = drain_codec_selected(state);
-    status = submit_image(ctx, codec_config, image_data, is_eval_frame, codec_selected, &frame_index);
+    int64_t latency_offset_ms = get_latency_offset_ms(state);
+    status = submit_image(ctx, codec_config, image_data, is_eval_frame, codec_selected,
+                          latency_offset_ms, &frame_index);
     CHECK_AND_RETURN(status, "could not submit frame");
 
     if (is_eval_frame) {

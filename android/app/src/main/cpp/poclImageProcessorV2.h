@@ -141,7 +141,8 @@ cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t conf
                                 tmp_buf_ctx_t *tmp_buf_ctx);
 
 int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
-                 image_data_t image_data, int is_eval_frame, bool codec_selected, int *frame_index);
+                 image_data_t image_data, int is_eval_frame, bool codec_selected,
+                 int64_t latency_offset_ms, int *frame_index);
 
 int wait_image_available(pocl_image_processor_context *ctx, int timeout);
 

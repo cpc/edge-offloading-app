@@ -26,8 +26,6 @@ public class StatLogger implements Runnable {
     private int amp, volt;
     private int prev_amp, prev_volt;
 
-    private float prev_ping_ms;
-
     public StatLogger(FileOutputStream stream, TrafficMonitor trafficMonitor,
                       EnergyMonitor energyMonitor, PingMonitor pingMonitor) {
         this.trafficMonitor = trafficMonitor;
@@ -92,17 +90,16 @@ public class StatLogger implements Runnable {
         }
 
         float ping_ms = -1.0f;
-//        if (null != pingMonitor) {
-//            long timePing = System.nanoTime();
-//            pingMonitor.tick();
-//            ping_ms = pingMonitor.getPing();
-//
-//            // Do not push repeated samples which skew the statistics
-//            if (ping_ms != prev_ping_ms) {
-//                prev_ping_ms = ping_ms;
-//                pushExternalPing(timePing, ping_ms);
-//            }
-//        }
+        if (null != pingMonitor) {
+            long timePing = System.nanoTime();
+            boolean updated = pingMonitor.tick();
+            // Do not push repeated samples which skew the statistics
+            if(updated) {
+                ping_ms = pingMonitor.getPing();
+                pushExternalPing(timePing, ping_ms);
+            }
+
+        }
 
         if (null != stream) {
             builder.setLength(0);
