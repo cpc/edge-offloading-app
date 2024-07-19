@@ -124,13 +124,14 @@ typedef struct {
     int hevc_configured;
     hevc_config_t global_soft_hevc_config; // used to confige the global software hevc codec
     int soft_hevc_configured; //used check that hevc needs to be configured
+    bool enable_eval; // Whether the asynchronous quality eval pipeline is enabled or not
 
 } pocl_image_processor_context;
 
 int create_pocl_image_processor_context(pocl_image_processor_context **ctx, const int max_lanes,
                                         const int width, const int height, const int config_flags,
                                         const char *codec_sources, const size_t src_size, int fd,
-                                        char *service_name);
+                                        bool enable_eval, char *service_name);
 
 int dequeue_spot(pocl_image_processor_context *const ctx, const int timeout,
                  const device_type_enum dev_type);

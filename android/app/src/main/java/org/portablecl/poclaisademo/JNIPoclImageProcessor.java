@@ -19,6 +19,17 @@ public class JNIPoclImageProcessor {
     public final static int JPEG_IMAGE = (1 << 3);
     public final static int HEVC_COMPRESSION = (1 << 4);
     public final static int SOFTWARE_HEVC_COMPRESSION = (1 << 5);
+    /**
+     * hashmap that maps string representations of compressionoptions to the number
+     */
+    public final static HashMap<String, Integer> allCompressionOptions =
+            populateCompressionOptions();
+    public final static int ENABLE_PROFILING = (1 << 8);
+    public final static int LOCAL_ONLY = (1 << 9);
+    public final static int LOCAL_DEVICE = 0;
+    public final static int PASSTHRU_DEVICE = 1;
+    public final static int REMOTE_DEVICE = 2;
+    public final static int REMOTE_DEVICE_2 = 3;
 
     /**
      * function that maps a compression option to its string representation
@@ -73,20 +84,6 @@ public class JNIPoclImageProcessor {
         return returnMap;
     }
 
-    /**
-     * hashmap that maps string representations of compressionoptions to the number
-     */
-    public final static HashMap<String, Integer> allCompressionOptions =
-            populateCompressionOptions();
-
-    public final static int ENABLE_PROFILING = (1 << 8);
-    public final static int LOCAL_ONLY = (1 << 9);
-
-    public final static int LOCAL_DEVICE = 0;
-    public final static int PASSTHRU_DEVICE = 1;
-    public final static int REMOTE_DEVICE = 2;
-    public final static int REMOTE_DEVICE_2 = 3;
-
     public static native int initPoclImageProcessor(int configFlags,
                                                     AssetManager jAssetManager,
                                                     int width, int height, int fd);
@@ -113,10 +110,9 @@ public class JNIPoclImageProcessor {
                                                   byte[] segmentationResult, ByteBuffer data,
                                                   int size, long imageTimestamp, float energy);
 
-    public static native int initPoclImageProcessorV2(int configFlags,
-                                                      AssetManager jAssetManager,
-                                                      int width, int height, int fd,
-                                                      int max_lanes, String serviceName);
+    public static native int initPoclImageProcessorV2(int configFlags, AssetManager jAssetManager
+            , int width, int height, int fd, int max_lanes, int doAlgorithm, int runtimeEval,
+                                                      int lockCodec, String serviceName);
 
     public static native int destroyPoclImageProcessorV2();
 
@@ -155,5 +151,6 @@ public class JNIPoclImageProcessor {
 
     // push stats like voltage and current from Java to the C side
     public static native void pushExternalPow(long timestamp, int amp, int volt);
+
     public static native void pushExternalPing(long timestamp, float ping_ms);
 }

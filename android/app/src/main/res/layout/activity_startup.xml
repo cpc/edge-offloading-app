@@ -282,5 +282,28 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/targetFPS" />
 
+    <Switch
+        android:id="@+id/runtimeEvalSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:checked="true"
+        android:text="Runtime Eval"
+        app:layout_constraintBottom_toBottomOf="@+id/targetFPS"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.553"
+        app:layout_constraintStart_toEndOf="@+id/targetFPS"
+        app:layout_constraintTop_toTopOf="@+id/targetFPS" />
+
+    <Switch
+        android:id="@+id/lockCodecSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Lock Codec"
+        app:layout_constraintBottom_toBottomOf="@+id/pipelineLane"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.562"
+        app:layout_constraintStart_toEndOf="@+id/pipelineLane"
+        app:layout_constraintTop_toTopOf="@+id/pipelineLane" />
+
 
 </androidx.constraintlayout.widget.ConstraintLayout>

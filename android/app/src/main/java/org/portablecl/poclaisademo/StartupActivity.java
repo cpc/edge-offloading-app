@@ -52,7 +52,7 @@ public class StartupActivity extends AppCompatActivity {
      * suggestion ip addresses
      */
     private final static String[] IPAddresses = {"192.168.36.206", "192.168.50.112", "10.1.200.5",
-            "192.168.88.232", "192.168.88.217" };
+            "192.168.88.232", "192.168.88.217"};
 
     /**
      * A callback that loses focus when the done button is pressed on a TextView.
@@ -92,6 +92,19 @@ public class StartupActivity extends AppCompatActivity {
                     return false;
                 }
             };
+    private final View.OnClickListener runtimeEvalSwitchListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+
+        }
+    };
+    private final View.OnClickListener lockCodecSwitchListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+
+        }
+    };
+    DiscoverySelect DSSelect;
     /**
      * textview where the user inputs the ip address
      */
@@ -100,32 +113,6 @@ public class StartupActivity extends AppCompatActivity {
      * a boolean that is passed to the main activity disable remote
      */
     private boolean disableRemote;
-    /**
-     * A listener that hands interactions with the mode switch.
-     * This switch sets the option to disable remote
-     */
-    private final View.OnClickListener modeListener = new View.OnClickListener() {
-        @Override
-        public void onClick(View v) {
-
-            if (DEBUGEXECUTION) {
-                Log.println(Log.INFO, "EXECUTIONFLOW", "started modelistener callback");
-            }
-
-            // these two switches are mutually exclusive
-            if(qualityAlgorithmSwitch.isChecked() && ((Switch) v).isChecked()) {
-                qualityAlgorithmSwitch.performClick();
-            }
-
-            enableAllCompButtons(!((Switch) v).isChecked());
-            if(((Switch) v).isChecked()) {
-                setCheckedAllCompButtons(false);
-            }
-
-            disableRemote = ((Switch) v).isChecked();
-
-        }
-    };
     /**
      * boolean to store user values
      */
@@ -144,7 +131,6 @@ public class StartupActivity extends AppCompatActivity {
             enableLogging = ((Switch) v).isChecked();
         }
     };
-
     /**
      * Quality parameter of camera's JPEG compression
      */
@@ -188,7 +174,43 @@ public class StartupActivity extends AppCompatActivity {
                     }
                 }
             };
+    private Switch enableLoggingSwitch;
+    private ConfigStore configStore;
+    private ToggleButton yuvCompButton;
+    private ToggleButton jpegCompButton;
 
+    private ToggleButton hevcCompButton;
+
+    private ToggleButton softwareHevcCompButton;
+    /**
+     * callback function that disables compression options not compatible with the jpeg image
+     */
+    private final View.OnClickListener jpegImageButtonListener = new View.OnClickListener() {
+
+        @Override
+        public void onClick(View v) {
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started jpegImageButtonListener callback");
+            }
+
+            if (jpegCompButton.isChecked()) {
+                jpegCompButton.setChecked(false);
+            }
+
+            if (yuvCompButton.isChecked()) {
+                yuvCompButton.setChecked(false);
+            }
+
+            if (hevcCompButton.isChecked()) {
+                hevcCompButton.setChecked(false);
+            }
+
+            if (softwareHevcCompButton.isChecked()) {
+                softwareHevcCompButton.setChecked(false);
+            }
+        }
+    };
+    private int targetFPS;
     /**
      * A callback that handles the targetFPS edittext on screen when it loses focus.
      * This callback checks the input and sets it within the bounds.
@@ -225,7 +247,7 @@ public class StartupActivity extends AppCompatActivity {
                     }
                 }
             };
-
+    private int pipelineLanes;
     /**
      * A callback that handles the pipeline edittext on screen when it loses focus.
      * This callback checks the input and sets it within the bounds.
@@ -262,48 +284,6 @@ public class StartupActivity extends AppCompatActivity {
                     }
                 }
             };
-
-    private Switch enableLoggingSwitch;
-    private ConfigStore configStore;
-    private ToggleButton yuvCompButton;
-    private ToggleButton jpegCompButton;
-
-    private ToggleButton hevcCompButton;
-
-    private ToggleButton softwareHevcCompButton;
-
-    private int targetFPS;
-
-    private int pipelineLanes;
-
-    /**
-     * callback function that disables compression options not compatible with the jpeg image
-     */
-    private final View.OnClickListener jpegImageButtonListener = new View.OnClickListener() {
-
-        @Override
-        public void onClick(View v) {
-            if (DEBUGEXECUTION) {
-                Log.println(Log.INFO, "EXECUTIONFLOW", "started jpegImageButtonListener callback");
-            }
-
-            if (jpegCompButton.isChecked()) {
-                jpegCompButton.setChecked(false);
-            }
-
-            if (yuvCompButton.isChecked()) {
-                yuvCompButton.setChecked(false);
-            }
-
-            if (hevcCompButton.isChecked()) {
-                hevcCompButton.setChecked(false);
-            }
-
-            if (softwareHevcCompButton.isChecked()) {
-                softwareHevcCompButton.setChecked(false);
-            }
-        }
-    };
     private ToggleButton jpegImageButton;
     /**
      * a callback when the yuvCompButton is pressed. It disables buttons not compatible with it
@@ -321,7 +301,6 @@ public class StartupActivity extends AppCompatActivity {
 
         }
     };
-
     /**
      * a callback when the yuvCompButton is pressed. It disables buttons not compatible with it
      */
@@ -344,7 +323,6 @@ public class StartupActivity extends AppCompatActivity {
 
         }
     };
-
     /**
      * a callback when the yuvCompButton is pressed. It disables buttons not compatible with it
      */
@@ -367,7 +345,6 @@ public class StartupActivity extends AppCompatActivity {
 
         }
     };
-
     /**
      * a callback when the jpecCompButton is pressed. It disables buttons not compatible with it
      */
@@ -384,33 +361,36 @@ public class StartupActivity extends AppCompatActivity {
 
         }
     };
-
+    private Button startButton;
+    private Button benchmarkButton;
+    private Switch qualityAlgorithmSwitch;
     /**
-     * setClickable on every compButton
-     *
-     * @param value set false to disable clicking
+     * A listener that hands interactions with the mode switch.
+     * This switch sets the option to disable remote
      */
-    private void enableAllCompButtons(boolean value) {
-        jpegCompButton.setClickable(value);
-        jpegImageButton.setClickable(value);
-        hevcCompButton.setClickable(value);
-        yuvCompButton.setClickable(value);
-        softwareHevcCompButton.setClickable(value);
-    }
+    private final View.OnClickListener modeListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
 
-    /**
-     * set checked on all buttons
-     * @param value true or false
-     */
-    private void setCheckedAllCompButtons(boolean value) {
-        jpegCompButton.setChecked(value);
-        jpegImageButton.setChecked(value);
-        hevcCompButton.setChecked(value);
-        softwareHevcCompButton.setChecked(value);
-        yuvCompButton.setChecked(value);
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started modelistener callback");
+            }
 
-    }
+            // these two switches are mutually exclusive
+            if (qualityAlgorithmSwitch.isChecked() && ((Switch) v).isChecked()) {
+                qualityAlgorithmSwitch.performClick();
+            }
 
+            enableAllCompButtons(!((Switch) v).isChecked());
+            if (((Switch) v).isChecked()) {
+                setCheckedAllCompButtons(false);
+            }
+
+            disableRemote = ((Switch) v).isChecked();
+
+        }
+    };
+    private Switch modeSwitch;
     /**
      * a callback function that also configures the compression types
      */
@@ -425,7 +405,7 @@ public class StartupActivity extends AppCompatActivity {
             }
 
             // local only and quality algorithm are mutually exclusive
-            if( modeSwitch.isChecked() && ((Switch) v).isChecked()) {
+            if (modeSwitch.isChecked() && ((Switch) v).isChecked()) {
                 modeSwitch.performClick();
             }
 
@@ -454,32 +434,8 @@ public class StartupActivity extends AppCompatActivity {
             }
         }
     };
-
-    private Button startButton;
-    private Button benchmarkButton;
-    private Switch qualityAlgorithmSwitch;
-
-    private Switch modeSwitch;
-    DiscoverySelect DSSelect;
-
-    /**
-     * function to create a csv log file
-     *
-     * @param fileName name of the file
-     * @return an uri to the log file
-     */
-    private Uri createLogFile(String fileName) {
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName); // this is the name
-        // of the file
-        values.put(MediaStore.MediaColumns.MIME_TYPE, "text/comma-separated-values");
-        values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
-        Uri uri = getContentResolver().insert(MediaStore.Files.getContentUri("external"),
-                values);
-
-        return uri;
-    }
-
+    private Switch runtimeEvalSwitch;
+    private Switch lockCodecSwitch;
     /**
      * A listener that on the press of a button; checks input variables
      * and starts the demo if they are valid.
@@ -550,6 +506,8 @@ public class StartupActivity extends AppCompatActivity {
             configStore.setJpegQuality(jpegQuality);
             configStore.setIpAddressText(value);
             configStore.setQualityAlgorithmOption(qualityAlgorithmSwitch.isChecked());
+            configStore.setRuntimeEvalOption(runtimeEvalSwitch.isChecked());
+            configStore.setLockCodecOption(lockCodecSwitch.isChecked());
             configStore.setTargetFPS(targetFPS);
             configStore.setPipelineLanes(pipelineLanes);
             // settings are only saved when calling this function.
@@ -559,6 +517,51 @@ public class StartupActivity extends AppCompatActivity {
             startActivity(i);
         }
     };
+
+    /**
+     * setClickable on every compButton
+     *
+     * @param value set false to disable clicking
+     */
+    private void enableAllCompButtons(boolean value) {
+        jpegCompButton.setClickable(value);
+        jpegImageButton.setClickable(value);
+        hevcCompButton.setClickable(value);
+        yuvCompButton.setClickable(value);
+        softwareHevcCompButton.setClickable(value);
+    }
+
+    /**
+     * set checked on all buttons
+     *
+     * @param value true or false
+     */
+    private void setCheckedAllCompButtons(boolean value) {
+        jpegCompButton.setChecked(value);
+        jpegImageButton.setChecked(value);
+        hevcCompButton.setChecked(value);
+        softwareHevcCompButton.setChecked(value);
+        yuvCompButton.setChecked(value);
+
+    }
+
+    /**
+     * function to create a csv log file
+     *
+     * @param fileName name of the file
+     * @return an uri to the log file
+     */
+    private Uri createLogFile(String fileName) {
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName); // this is the name
+        // of the file
+        values.put(MediaStore.MediaColumns.MIME_TYPE, "text/comma-separated-values");
+        values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+        Uri uri = getContentResolver().insert(MediaStore.Files.getContentUri("external"),
+                values);
+
+        return uri;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -640,6 +643,18 @@ public class StartupActivity extends AppCompatActivity {
             qualityAlgorithmSwitch.performClick();
         }
 
+        runtimeEvalSwitch = binding.runtimeEvalSwitch;
+        runtimeEvalSwitch.setOnClickListener(runtimeEvalSwitchListener);
+        if (configStore.getRuntimeEvalOption()) {
+            runtimeEvalSwitch.performClick();
+        }
+
+        lockCodecSwitch = binding.lockCodecSwitch;
+        lockCodecSwitch.setOnClickListener(lockCodecSwitchListener);
+        if (configStore.getLockCodecOption()) {
+            lockCodecSwitch.performClick();
+        }
+
 
         targetFPS = configStore.getTargetFPS();
         DropEditText targetFPSField = binding.targetFPS;
@@ -659,21 +674,23 @@ public class StartupActivity extends AppCompatActivity {
         //  The callback is passed to an instance of DiscoverSelect class: DSSelect.
         DSSelect = new DiscoverySelect(this, discoverySpinner,
                 new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                    @Override
+                    public void onItemSelected(AdapterView<?> parent, View view, int position,
+                                               long id) {
 
-                String selectedServer = DSSelect.spinnerList.get(position).getAddress();
-                if (!selectedServer.equals(DiscoverySelect.DEFAULT_SPINNER_VAL)) {
-                    Log.d("DISC", "Spinner position selected: " + position + " : server selected " +
-                            ": " + selectedServer);
-                    IPAddressView.setText(DSSelect.spinnerList.get(position).getAddress());
-                }
-            }
+                        String selectedServer = DSSelect.spinnerList.get(position).getAddress();
+                        if (!selectedServer.equals(DiscoverySelect.DEFAULT_SPINNER_VAL)) {
+                            Log.d("DISC", "Spinner position selected: " + position + " : server " +
+                                    "selected " +
+                                    ": " + selectedServer);
+                            IPAddressView.setText(DSSelect.spinnerList.get(position).getAddress());
+                        }
+                    }
 
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-            }
-        });
+                    @Override
+                    public void onNothingSelected(AdapterView<?> parent) {
+                    }
+                });
     }
 
     /**
@@ -733,6 +750,7 @@ public class StartupActivity extends AppCompatActivity {
         super.onPause();
         DSSelect.stopDiscovery();
     }
+
     @Override
     protected void onDestroy() {
         DSSelect.stopDiscovery();

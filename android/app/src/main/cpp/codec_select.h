@@ -47,7 +47,7 @@ extern "C" {
 /**
  * How many constraints we are placing on variables driving the codec selection.
  */
-#define NUM_CONSTRAINTS 5
+#define NUM_CONSTRAINTS 4
 
 /**
  * How many metrics are considered per codec (should correspond to metric_t variants)
@@ -91,13 +91,13 @@ static const codec_params_t CONFIGS[NUM_CONFIGS] = {
         {.compression_type = NO_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {NULL}},
         {.compression_type = JPEG_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.jpeg = {.quality = 99}}},
         {.compression_type = JPEG_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.jpeg = {.quality = 80}}},
-        {.compression_type = JPEG_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.jpeg = {.quality = 15}}},
+        {.compression_type = JPEG_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.jpeg = {.quality = 20}}},
         {.compression_type = HEVC_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.hevc = {
                 .i_frame_interval = 1, .framerate = 1, .bitrate = 5000000}}},
         {.compression_type = HEVC_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.hevc = {
-                .i_frame_interval = 1, .framerate = 1, .bitrate = 500000}}},
+                .i_frame_interval = 1, .framerate = 1, .bitrate = 250000}}},
         {.compression_type = HEVC_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.hevc = {
-                .i_frame_interval = 1, .framerate = 1, .bitrate = 5000}}},
+                .i_frame_interval = 1, .framerate = 1, .bitrate = 10000}}},
 };
 
 /**
@@ -217,12 +217,14 @@ typedef struct {
     latency_data_t cur_latency_data;
     eval_data_t *eval_data;
     external_data_t *external_data;
-    float init_avg_ping_ms;         // average ping during calibration
-    float avg_ping_ms;              // average ping
-    float remote_avg_ping_ms;       // average ping only calculated when offloading (i.e., not local)
-    float init_avg_fill_ping_ms;    // average fillbuffer ping during calibration
-    float avg_fill_ping_ms;         // average fillbuffer ping
-    float remote_avg_fill_ping_ms;  // average fillbuffer ping only calculated when offloading (i.e., not local)
+    float cur_init_avg_ping_ms;         // average ping during calibration
+    float cur_avg_ping_ms;              // average ping
+    float cur_remote_avg_ping_ms;       // average ping only calculated when offloading (i.e., not local)
+    float cur_init_avg_fill_ping_ms;    // average fillbuffer ping during calibration
+    float cur_avg_fill_ping_ms;         // average fillbuffer ping
+    float cur_remote_avg_fill_ping_ms;  // average fillbuffer ping only calculated when offloading (i.e., not local)
+    float cur_init_avg_pow_w;           // average power during calibration
+    float cur_avg_pow_w;                // average power
 } codec_stats_t;
 
 /**
@@ -266,7 +268,8 @@ typedef struct {
     float product;
 } indexed_metrics_t;
 
-void init_codec_select(int config_flags, int fd, codec_select_state_t **state);
+void init_codec_select(int config_flags, int fd, int do_algorithm, bool lock_codec,
+                       codec_select_state_t **state);
 
 void destroy_codec_select(codec_select_state_t **state);
 

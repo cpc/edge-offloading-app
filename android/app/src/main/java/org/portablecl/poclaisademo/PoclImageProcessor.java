@@ -40,70 +40,54 @@ import java.util.concurrent.Semaphore;
 
 public class PoclImageProcessor {
 
-    /**
-     * the image reader is used to get images for processing
-     */
-    private ImageReader imageReader;
-
+    public final static int MAX_FPS = 30;
+    public final static int MAX_LANES = 64;
     /**
      * a semaphore used to sync the image process loop with available images.
      * zero starting permits, so a lock can only be acquired when the
      * camerareader releases a permit.
      */
     private final Semaphore imageAvailableLock;
-
     /**
      * the dimensions that the camera will be capturing images in
      */
     private final Size captureSize;
-
-    /**
-     * a thread to run pocl on
-     */
-    private Thread imageSubmitThread;
-
-    private Thread receiverThread;
-
     /**
      * a counter to keep track of FPS metrics for our image processing.
      */
     private final FPSCounter counter;
-
     /**
      * required to get the asset manager and provide toasts
      */
     private final Context context;
-
     /**
      * the activity that is making use of the image processor,
      * used to update overlay stats
      */
     private final MainActivity activity;
-
     private final Uri uri;
-
-    private boolean orientationsSwapped;
-
-    private boolean doSegment;
-
-    private int compressionType;
-
-    public int inferencingDevice;
-
-    private int quality;
-
     private final int configFlags;
-
-    private int imageFormat;
-
     private final StatLogger statLogger;
-
-    private float lastIou = -4.0f;
-
     private final boolean enableQualityAlgorithm;
-
+    private final boolean runtimeEval;
+    private final boolean lockCodec;
+    public int inferencingDevice;
+    /**
+     * the image reader is used to get images for processing
+     */
+    private ImageReader imageReader;
+    /**
+     * a thread to run pocl on
+     */
+    private Thread imageSubmitThread;
+    private Thread receiverThread;
+    private boolean orientationsSwapped;
+    private boolean doSegment;
+    private int compressionType;
+    private int quality;
+    private int imageFormat;
+    private float lastIou = -4.0f;
     private int targetFPS;
-
     private int pipelineLanes;
 
     /**
@@ -124,11 +108,12 @@ public class PoclImageProcessor {
                               FPSCounter fpsCounter,
                               int inferencingDevice, boolean doSegment,
                               Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm,
+                              boolean runtimeEval, boolean lockCodec,
                               int targetFPS, int pipelineLanes) {
         this(null, context, captureSize, imageReader, imageFormat, imageAvailableLock,
                 configFlags,
                 fpsCounter, inferencingDevice, doSegment, uri, statLogger,
-                enableQualityAlgorithm, targetFPS, pipelineLanes);
+                enableQualityAlgorithm, runtimeEval, lockCodec, targetFPS, pipelineLanes);
     }
 
     /**
@@ -149,11 +134,11 @@ public class PoclImageProcessor {
                               FPSCounter fpsCounter,
                               int inferencingDevice, boolean doSegment,
                               Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm,
+                              boolean runtimeEval, boolean lockCodec,
                               int targetFPS, int pipelineLanes) {
         this(activity, activity, captureSize, imageReader, imageFormat, imageAvailableLock,
-                configFlags,
-                fpsCounter, inferencingDevice, doSegment, uri, statLogger,
-                enableQualityAlgorithm, targetFPS, pipelineLanes);
+                configFlags, fpsCounter, inferencingDevice, doSegment, uri, statLogger,
+                enableQualityAlgorithm, runtimeEval, lockCodec, targetFPS, pipelineLanes);
     }
 
     /**
@@ -175,6 +160,7 @@ public class PoclImageProcessor {
                                FPSCounter fpsCounter,
                                int inferencingDevice, boolean doSegment,
                                Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm,
+                               boolean runtimeEval, boolean lockCodec,
                                int targetFPS, int pipelineLanes) {
         this.activity = activity;
         this.context = context;
@@ -184,6 +170,8 @@ public class PoclImageProcessor {
 //        this.enableLogging = enableLogging;
         this.statLogger = statLogger;
         this.enableQualityAlgorithm = enableQualityAlgorithm;
+        this.runtimeEval = runtimeEval;
+        this.lockCodec = lockCodec;
 
         counter = fpsCounter;
         this.inferencingDevice = inferencingDevice;
@@ -205,6 +193,32 @@ public class PoclImageProcessor {
         setTargetFPS(targetFPS);
         setPipelineLanes(pipelineLanes);
 
+    }
+
+    public static int sanitizeTargetFPS(int targetFPS) {
+        if (targetFPS > MAX_FPS) {
+            Log.println(Log.WARN, "PoclImageProcessor.java", "higher target than allowed, capping" +
+                    " to MAX_FPS");
+            targetFPS = MAX_FPS;
+        } else if (targetFPS < 1) {
+            Log.println(Log.WARN, "PoclImageProcessor.java", "lower target than allowed, capping " +
+                    "to 1");
+            targetFPS = 1;
+        }
+        return targetFPS;
+    }
+
+    public static int sanitizePipelineLanes(int lanes) {
+        if (lanes > MAX_LANES) {
+            Log.println(Log.WARN, "PoclImageProcessor.java", "higher target lanes than allowed, " +
+                    "capping to MAX_LANES");
+            lanes = MAX_LANES;
+        } else if (lanes < 1) {
+            Log.println(Log.WARN, "PoclImageProcessor.java", "lower target lanes than allowed, " +
+                    "capping to 1");
+            lanes = 1;
+        }
+        return lanes;
     }
 
     /**
@@ -238,38 +252,9 @@ public class PoclImageProcessor {
         this.compressionType = compressionType;
     }
 
-    public final static int MAX_FPS = 30;
-
-    public static int sanitizeTargetFPS(int targetFPS) {
-        if (targetFPS > MAX_FPS) {
-            Log.println(Log.WARN, "PoclImageProcessor.java", "higher target than allowed, capping" +
-                    " to MAX_FPS");
-            targetFPS = MAX_FPS;
-        } else if (targetFPS < 1) {
-            Log.println(Log.WARN, "PoclImageProcessor.java", "lower target than allowed, capping " +
-                    "to 1");
-            targetFPS = 1;
-        }
-        return targetFPS;
-    }
-
     public void setTargetFPS(int targetFPS) {
 
         this.targetFPS = sanitizeTargetFPS(targetFPS);
-    }
-    public final static int MAX_LANES = 64;
-
-    public static int sanitizePipelineLanes(int lanes) {
-        if (lanes > MAX_LANES) {
-            Log.println(Log.WARN, "PoclImageProcessor.java", "higher target lanes than allowed, " +
-                    "capping to MAX_LANES");
-            lanes = MAX_LANES;
-        } else if (lanes < 1) {
-            Log.println(Log.WARN, "PoclImageProcessor.java", "lower target lanes than allowed, " +
-                    "capping to 1");
-            lanes = 1;
-        }
-        return lanes;
     }
 
     public void setPipelineLanes(int lanes) {
@@ -334,7 +319,7 @@ public class PoclImageProcessor {
         int YPixelStride, YRowStride;
         int UVPixelStride, UVRowStride;
         int VPixelStride, VRowStride;
-        int rotation, do_segment, do_algorithm;
+        int rotation, do_segment, do_algorithm, runtime_eval, lock_codec;
         long currentTime, doneTime, poclTime, imageAcquireTime;
         int size;
         float energy;
@@ -382,9 +367,12 @@ public class PoclImageProcessor {
             try {
 
                 AssetManager assetManager = context.getAssets();
+                do_algorithm = enableQualityAlgorithm ? 1 : 0;
+                runtime_eval = runtimeEval ? 1 : 0;
+                lock_codec = lockCodec ? 1 : 0;
                 status = initPoclImageProcessorV2(runtimeConfigFlags, assetManager,
-                        captureSize.getWidth(),
-                        captureSize.getHeight(), nativeFd, this.pipelineLanes, runtimeServiceName);
+                        captureSize.getWidth(), captureSize.getHeight(), nativeFd,
+                        this.pipelineLanes, do_algorithm, runtime_eval, lock_codec, runtimeServiceName);
 
                 Log.println(Log.WARN, "temp ", " init return status: " + status);
                 switch (status) {
@@ -413,7 +401,7 @@ public class PoclImageProcessor {
                         } else {
                             Log.println(Log.WARN, "PoclImageProcessor.java:imageProcessLoop",
                                     "could " +
-                                    "not connect to server, please check connection");
+                                            "not connect to server, please check connection");
                         }
 
                         return;
@@ -631,7 +619,8 @@ public class PoclImageProcessor {
         if (null != activity) {
 
             // send it to the main activity
-            CodecConfig config = new CodecConfig(NO_COMPRESSION, LOCAL_DEVICE, this.quality, this.quality, 0);
+            CodecConfig config = new CodecConfig(NO_COMPRESSION, LOCAL_DEVICE, this.quality,
+                    this.quality, 0);
             activity.setButtonsFromJNI(config);
             activity.enableRemote(false);
             activity.runOnUiThread(() -> Toast.makeText(context,
@@ -699,7 +688,8 @@ public class PoclImageProcessor {
                     // Decide which codec to use for the next frame
                     poclSelectCodecAuto();
 
-                    // Fetch the compression type, device, etc., from the JNI and flip the buttons accordingly
+                    // Fetch the compression type, device, etc., from the JNI and flip the
+                    // buttons accordingly
                     CodecConfig config = getCodecConfig();
                     activity.setButtonsFromJNI(config);
                 }
@@ -746,6 +736,7 @@ public class PoclImageProcessor {
         imageSubmitThread.start();
 
     }
+
     /**
      * function to safely stop the image process thread and
      * ask it nicely to stop anything it is doing

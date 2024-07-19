@@ -57,6 +57,9 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(
                                                                                 jint height,
                                                                                 jint fd,
                                                                                 jint max_lanes,
+                                                                                jint do_algorithm,
+                                                                                jint runtime_eval,
+                                                                                jint lock_codec,
                                                                                 jstring service_name) {
 
     bool file_there = put_asset_in_local_storage(env, j_asset_manager, "yolov8n-seg.onnx");
@@ -70,11 +73,12 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(
         _service_name = (char *) env->GetStringUTFChars(service_name, 0);
 
     jint status = create_pocl_image_processor_context(&ctx, max_lanes, width, height, config_flags,
-                                                      codec_sources, src_size, fd, _service_name);
+                                                      codec_sources, src_size, fd, runtime_eval,
+                                                      _service_name);
 
     free(codec_sources);
 
-    init_codec_select(config_flags, fd, &state);
+    init_codec_select(config_flags, fd, do_algorithm, lock_codec, &state);
 
     if (service_name != NULL)
         env->ReleaseStringUTFChars(service_name, _service_name);
@@ -156,8 +160,10 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
     }
 
     // check if we need to submit image to the eval pipeline
-    status = check_eval(ctx->eval_ctx, state, codec_config, &is_eval_frame);
-    CHECK_AND_RETURN(status, "could not check and submit eval frame");
+    if (ctx->enable_eval || state->is_calibrating) {
+        status = check_eval(ctx->eval_ctx, state, codec_config, &is_eval_frame);
+        CHECK_AND_RETURN(status, "could not check and submit eval frame");
+    }
 
     // submit the image for the actual encoding (needs to be submitted *before* the eval frame
     bool codec_selected = drain_codec_selected(state);

@@ -403,7 +403,7 @@ cl_int pick_device(cl_platform_id platform, cl_device_id *devices, cl_uint *devi
 int create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, const int max_lanes,
                                         const int width, const int height, const int config_flags,
                                         const char *codec_sources, const size_t src_size, int fd,
-                                        char *service_name) {
+                                        bool enable_eval, char *service_name) {
 
     if (supports_config_flags(config_flags) != 0) {
         return -1;
@@ -424,6 +424,7 @@ int create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, 
     pocl_image_processor_context *ctx = (pocl_image_processor_context *) calloc(1,
                                                                                 sizeof(pocl_image_processor_context));
 
+    ctx->enable_eval = enable_eval;
     ctx->frame_index_head = 0;
     ctx->frame_index_tail = 0;
     ctx->file_descriptor = fd;

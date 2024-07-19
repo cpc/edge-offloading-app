@@ -34,6 +34,8 @@ public class ConfigStore {
     private final static String ipAddressTextKey = keyPrefix + "ipaddresstextkey";
 
     private final static String qualityAlgorithmKey = keyPrefix + "qualityalgorithmkey";
+    private final static String runtimeEvalKey = keyPrefix + "runtimeevalkey";
+    private final static String lockCodecKey = keyPrefix + "lockcodeckey";
 
     private final static String pipelineLanesKey = keyPrefix + "pipelanekey";
 
@@ -133,6 +135,30 @@ public class ConfigStore {
                     , value));
         }
         editor.putBoolean(qualityAlgorithmKey, value);
+    }
+
+    public boolean getRuntimeEvalOption() {
+        return preferences.getBoolean(runtimeEvalKey, false);
+    }
+
+    public void setRuntimeEvalOption(boolean value) {
+        if (VERBOSITY >= 2) {
+            Log.println(Log.INFO, logTag, String.format("setting runtime eval option to: %b"
+                    , value));
+        }
+        editor.putBoolean(runtimeEvalKey, value);
+    }
+
+    public boolean getLockCodecOption() {
+        return preferences.getBoolean(lockCodecKey, false);
+    }
+
+    public void setLockCodecOption(boolean value) {
+        if (VERBOSITY >= 2) {
+            Log.println(Log.INFO, logTag, String.format("setting lock codec option to: %b"
+                    , value));
+        }
+        editor.putBoolean(lockCodecKey, value);
     }
 
     public int getPipelineLanes() {
