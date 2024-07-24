@@ -18,7 +18,7 @@ extern "C" {
 
 // How often to perform codec selection
 static const int64_t SELECT_INTERVAL_MS = 2000;
-static const int64_t CALIB_SELECT_INTERVAL_MS = 5000;
+static const int64_t CALIB_SELECT_INTERVAL_MS = 6500;
 
 // Whether or not to run the first calibration run without collecting statistics
 static const bool DRY_RUN = true;
@@ -32,9 +32,9 @@ static const float EXT_POW_ALPHA = 7.0f / 8.0f;
 static const int NUM_CALIB_RUNS = 3;
 
 // How many IoU eval samples per codec are required for finishing the calibration
-static const int NUM_CALIB_IOU_SAMPLES = 2;
+static const int NUM_CALIB_IOU_SAMPLES = 5;
 
-// How many samples need to be collected before doing codec selection decision
+// How many latency samples need to be collected before doing codec selection decision
 static const int MIN_NSAMPLES = 2;
 
 // Empty initializers
@@ -196,7 +196,40 @@ static void metrics_product(const codec_select_state_t *const state, indexed_met
     return metrics_product_custom(state, state->constraints, metrics);
 }
 
-static void populate_vals(float latency_ms, float size_bytes, float power_w, float iou,
+static float get_pow_variance(const external_data_t *data) {
+    sum_data_t sum_data = data->init_pow_w_sum[data->min_pow_w_id];
+    int nsamples = data->init_pow_w_nsamples[data->min_pow_w_id];
+
+    float var = 0.0f;
+
+    if (nsamples > 1) {
+        var = (sum_data.sumsq - sum_data.sum * sum_data.sum / (float) (nsamples)) /
+              ((float) (nsamples) - 1.0f);
+    }
+
+    return var;
+}
+
+static float get_rel_pow_thr(const external_data_t *data) {
+    float min_pow_w = data->init_pow_w[data->min_pow_w_id];
+    float variance = get_pow_variance(data);
+
+    return min_pow_w + sqrtf(variance);
+}
+
+static float get_rel_pow(const external_data_t *data, float power_w) {
+    const float thr = get_rel_pow_thr(data);
+
+    float rel_pow = 1.0f;
+    if (power_w > thr) {
+        rel_pow = power_w / thr;
+    }
+
+    return rel_pow;
+}
+
+static void
+populate_vals(float latency_ms, float size_bytes, float power_w, float iou, float rel_pow,
                           float vals[NUM_METRICS]) {
     vals[METRIC_LATENCY_MS] = latency_ms;
     vals[METRIC_SIZE_BYTES] = size_bytes;
@@ -207,6 +240,7 @@ static void populate_vals(float latency_ms, float size_bytes, float power_w, flo
     }
     vals[METRIC_POWER_W] = power_w;
     vals[METRIC_IOU] = iou;
+    vals[METRIC_REL_POW] = rel_pow;
 }
 
 static indexed_metrics_t
@@ -214,8 +248,10 @@ populate_metrics(const codec_select_state_t *const state, int codec_id, float la
                  float network_ms, float size_bytes, float power_w, float iou) {
     indexed_metrics_t metrics;
 
-    populate_vals(latency_ms, size_bytes, power_w, iou, metrics.vals);
-    populate_vals(network_ms, 0.0f, 0.0f, 0.0f, metrics.vol_vals);
+    float rel_pow = get_rel_pow(state->stats.external_data, power_w);
+
+    populate_vals(latency_ms, size_bytes, power_w, iou, rel_pow, metrics.vals);
+    populate_vals(network_ms, 0.0f, 0.0f, 0.0f, 0.0f, metrics.vol_vals);
     metrics.codec_id = codec_id;
 
     metrics_product(state, &metrics);
@@ -288,6 +324,24 @@ static int cmp_vals(float cur_val, float best_val, optimization_t optimization) 
         case OPT_MAX:
             return cur_val > best_val ? 1 : -1;
     }
+}
+
+static void set_min_pow_id(external_data_t *data) {
+    int min_pow_w_id = 0;
+
+    if (NUM_CONFIGS > 1) {
+        float min_pow_w = data->init_pow_w[0];
+
+        for (int id = 1; id < NUM_CONFIGS; ++id) {
+            float pow = data->init_pow_w[id];
+            if (pow < min_pow_w) {
+                min_pow_w = pow;
+                min_pow_w_id = id;
+            }
+        }
+    }
+
+    data->min_pow_w_id = min_pow_w_id;
 }
 
 static int select_codec(const codec_select_state_t *const state,
@@ -479,6 +533,10 @@ static int select_codec(const codec_select_state_t *const state,
     }
 
     if (state->enable_profiling) {
+        float thr = get_rel_pow_thr(state->stats.external_data);
+        float pow_var = get_pow_variance(state->stats.external_data);
+        log_frame_f(state->fd, state->last_frame_id, "cs_select", "rel_pow_thr", thr);
+        log_frame_f(state->fd, state->last_frame_id, "cs_select", "pow_var", thr);
         log_frame_int(state->fd, state->last_frame_id, "cs_select", "new_codec_id", new_codec_id);
     }
 
@@ -694,6 +752,19 @@ static void collect_external_data(const codec_select_state_t *state, int frame_c
                     incr_avg(value, avg_codec_value, codec_nsamples);
                 }
 
+                if (amp != EMPTY_EXT_POW && volt != EMPTY_EXT_POW) {
+                    sum_data_t *sum_data;
+
+                    if (state->is_calibrating) {
+                        sum_data = &data->init_pow_w_sum[frame_codec_id];
+                    } else {
+                        sum_data = &data->pow_w_sum[frame_codec_id];
+                    }
+
+                    sum_data->sum += value;
+                    sum_data->sumsq += value * value;
+                }
+
                 // track also global average ping/power
                 if (*avg_value == 0.0f) {
                     *avg_value = value;
@@ -792,6 +863,7 @@ void init_codec_select(int config_flags, int fd, int do_algorithm, bool lock_cod
 //    new_state->constraints[nconstr++] = {.metric = METRIC_SIZE_BYTES_LOG10, .optimization = OPT_MIN, .type = CONSTR_SOFT, .scale = SIZE_SCALE_LOG10};
 //    new_state->constraints[nconstr++] = {.metric = METRIC_POWER_W, .optimization = OPT_MIN, .type = CONSTR_SOFT, .scale = POWER_SCALE};
     new_state->constraints[nconstr++] = {.metric = METRIC_IOU, .optimization = OPT_MAX, .type = CONSTR_SOFT, .scale = IOU_SCALE};
+    new_state->constraints[nconstr++] = {.metric = METRIC_REL_POW, .optimization = OPT_MIN, .type = CONSTR_SOFT, .scale = REL_POWER_SCALE};
     assert(nconstr == NUM_CONSTRAINTS);
 
     new_state->stats.eval_data = eval_data;
@@ -855,6 +927,9 @@ void update_stats(const frame_metadata_t *frame_metadata, const eval_pipeline_co
         for (int id = 0; id < NUM_CONFIGS; ++id) {
             stats->eval_data->iou_nsamples[id] = 1;
             stats->external_data->pow_w_nsamples[id] = 1;
+            stats->external_data->pow_w_sum[id].sum = stats->external_data->pow_w[id];
+            stats->external_data->pow_w_sum[id].sumsq =
+                    stats->external_data->pow_w[id] * stats->external_data->pow_w[id];
             stats->external_data->ping_ms_nsamples[id] = 1;
         }
 
@@ -965,6 +1040,9 @@ void select_codec_auto(codec_select_state_t *state) {
     state->since_last_select_ms = 0.0f;
 
     if (state->is_calibrating) {
+        // works on init data which are updated only during calibration
+        set_min_pow_id(stats->external_data);
+
         if (state->is_dry_run) {
             bool should_still_be_dry = false;
             for (int id = 0; id < NUM_CONFIGS; ++id) {
@@ -1038,6 +1116,7 @@ void select_codec_auto(codec_select_state_t *state) {
                 stats->eval_data->iou[id] = stats->eval_data->init_iou[id];
                 stats->external_data->pow_w_nsamples[id] = stats->external_data->init_pow_w_nsamples[id];
                 stats->external_data->pow_w[id] = stats->external_data->init_pow_w[id];
+                stats->external_data->pow_w_sum[id] = stats->external_data->init_pow_w_sum[id];
                 stats->external_data->ping_ms_nsamples[id] = stats->external_data->init_ping_ms_nsamples[id];
                 stats->external_data->ping_ms[id] = stats->external_data->init_ping_ms[id];
             }
@@ -1074,14 +1153,21 @@ void select_codec_auto(codec_select_state_t *state) {
         float init_vol_vals[NUM_METRICS];
         float offsets[NUM_METRICS];
 
+        float cur_rel_pow = get_rel_pow(stats->external_data, stats->external_data->pow_w[old_id]);
+        float init_rel_pow = get_rel_pow(stats->external_data,
+                                         stats->external_data->init_pow_w[old_id]);
+
+        // TODO: Generalize volatile latency to all metric
         populate_vals(stats->cur_latency_data.latency_ms, stats->cur_latency_data.size_bytes,
-                      stats->external_data->pow_w[old_id], stats->eval_data->iou[old_id], cur_vals);
-        populate_vals(stats->cur_latency_data.network_ms, 0.0f, 0.0f, 0.0f, cur_vol_vals);
+                      stats->external_data->pow_w[old_id], stats->eval_data->iou[old_id],
+                      cur_rel_pow, cur_vals);
+        populate_vals(stats->cur_latency_data.network_ms, 0.0f, 0.0f, 0.0f, 0.0f, cur_vol_vals);
         populate_vals(stats->init_latency_data[old_id].latency_ms,
                       stats->init_latency_data[old_id].size_bytes,
                       stats->external_data->init_pow_w[old_id], stats->eval_data->init_iou[old_id],
-                      init_vals);
-        populate_vals(stats->init_latency_data[old_id].network_ms, 0.0f, 0.0f, 0.0f, init_vol_vals);
+                      init_rel_pow, init_vals);
+        populate_vals(stats->init_latency_data[old_id].network_ms, 0.0f, 0.0f, 0.0f, 0.0f,
+                      init_vol_vals);
 
         for (int metric_id = 0; metric_id < NUM_METRICS; ++metric_id) {
             offsets[metric_id] = cur_vol_vals[metric_id] - init_vol_vals[metric_id];
@@ -1096,11 +1182,12 @@ void select_codec_auto(codec_select_state_t *state) {
         for (int id = 0; id < NUM_CONFIGS; ++id) {
             indexed_metrics_t new_init_metrics;
             new_init_metrics.codec_id = id;
+            float rel_pow = get_rel_pow(stats->external_data, stats->external_data->init_pow_w[id]);
             populate_vals(stats->init_latency_data[id].latency_ms,
                           stats->init_latency_data[id].size_bytes,
                           stats->external_data->init_pow_w[id], stats->eval_data->init_iou[id],
-                          new_init_metrics.vals);
-            populate_vals(stats->init_latency_data[id].network_ms, 0.0f, 0.0f, 0.0f,
+                          rel_pow, new_init_metrics.vals);
+            populate_vals(stats->init_latency_data[id].network_ms, 0.0f, 0.0f, 0.0f, 0.0f,
                           new_init_metrics.vol_vals);
 
             for (int constr_id = 0; constr_id < NUM_CONSTRAINTS; ++constr_id) {

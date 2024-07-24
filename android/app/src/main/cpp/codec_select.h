@@ -47,12 +47,12 @@ extern "C" {
 /**
  * How many constraints we are placing on variables driving the codec selection.
  */
-#define NUM_CONSTRAINTS 4
+#define NUM_CONSTRAINTS 5
 
 /**
  * How many metrics are considered per codec (should correspond to metric_t variants)
  */
-#define NUM_METRICS 5
+#define NUM_METRICS 6
 
 /**
  * ID of a local-only "codec" pointing at CONFIGS
@@ -63,6 +63,7 @@ extern "C" {
 const float LATENCY_SCALE = 1.0f / 1e3f;
 const float POWER_SCALE = 1.0f;
 const float IOU_SCALE = 1.0f;
+const float REL_POWER_SCALE = 1.0f;
 const float SIZE_SCALE = 1.0f / 1e6f;
 const float SIZE_SCALE_LOG10 = 1.0f / 1e3f;
 
@@ -104,11 +105,16 @@ static const codec_params_t CONFIGS[NUM_CONFIGS] = {
  * Which variables to track
  */
 typedef enum {
-    METRIC_LATENCY_MS, METRIC_SIZE_BYTES, METRIC_SIZE_BYTES_LOG10, METRIC_POWER_W, METRIC_IOU,
+    METRIC_LATENCY_MS,
+    METRIC_SIZE_BYTES,
+    METRIC_SIZE_BYTES_LOG10,
+    METRIC_POWER_W,
+    METRIC_IOU,
+    METRIC_REL_POW,
 } metric_t;
 
 const char *const METRIC_NAMES[NUM_METRICS] = {"latency_ms", "size_bytes", "size_bytes_log10",
-                                               "power_w", "iou"};
+                                               "power_w", "iou", "rel_pow"};
 
 /**
  * Whether the variable should be maximized (e.g., IoU), or minimized (e.g., power, latency)
@@ -156,6 +162,11 @@ typedef struct {
     float iou[NUM_CONFIGS];
 } eval_data_t;
 
+typedef struct {
+    float sum;
+    float sumsq;
+} sum_data_t;
+
 /**
  * Data coming from the Java side, such as power or ping
  */
@@ -171,12 +182,15 @@ typedef struct {
     // collected statistics:
     int init_pow_w_nsamples[NUM_CONFIGS];
     float init_pow_w[NUM_CONFIGS];
+    sum_data_t init_pow_w_sum[NUM_CONFIGS];
     int pow_w_nsamples[NUM_CONFIGS];
     float pow_w[NUM_CONFIGS];
+    sum_data_t pow_w_sum[NUM_CONFIGS];
     int init_ping_ms_nsamples[NUM_CONFIGS];
     float init_ping_ms[NUM_CONFIGS];
     int ping_ms_nsamples[NUM_CONFIGS];
     float ping_ms[NUM_CONFIGS];
+    int min_pow_w_id; // ID of codec with minimum mean power; Updated per select_codec()
 } external_data_t;
 
 /**
