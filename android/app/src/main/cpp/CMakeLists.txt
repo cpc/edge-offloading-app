@@ -208,6 +208,7 @@ add_library(poclnative
 		codec_select.cpp codec_select.h
 		eval.cpp eval.h
 		jni_discovery.cpp
+		RawImageReader.cpp RawImageReader.hpp
         )
 
 add_library(libpocl_pthread_add_i8 SHARED IMPORTED)

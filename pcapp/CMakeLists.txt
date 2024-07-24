@@ -55,7 +55,7 @@ include_directories("${CMAKE_BINARY_DIR}")
 
 add_compile_options(-g -fno-omit-frame-pointer )
 
-find_package(OpenCV REQUIRED COMPONENTS core dnn imgcodecs imgproc)
+find_package(OpenCV REQUIRED COMPONENTS core dnn imgcodecs imgproc highgui)
 
 set(ONNXRUNTIME_LIBRARIES onnxruntime)
 
@@ -165,3 +165,5 @@ target_link_libraries(
 target_compile_definitions(
   ${PROJECT_NAME} PRIVATE CL_TARGET_OPENCL_VERSION=300
                           CL_HPP_TARGET_OPENCL_VERSION=300)
+
+add_subdirectory(VideoReader)

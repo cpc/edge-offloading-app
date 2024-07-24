@@ -41,6 +41,8 @@ public class ConfigStore {
 
     private final static String targetFPSKey = keyPrefix + "targetfpskey";
 
+    private final static String calibrateVideoKey = keyPrefix + "calibratevideokey";
+
     /**
      * @param context can be an activity for example
      */
@@ -184,6 +186,18 @@ public class ConfigStore {
                     , fps));
         }
         editor.putInt(targetFPSKey, fps);
+    }
+
+    public String getCalibrateVideoUri() {
+        return preferences.getString(calibrateVideoKey, null);
+    }
+
+    public void setCalibrateVideoUri(String uri) {
+        if (VERBOSITY >= 2) {
+            Log.println(Log.INFO, logTag, String.format(Locale.US, "storing calibrate video uri " +
+                    "as: %s", uri));
+        }
+        editor.putString(calibrateVideoKey, uri);
     }
 
     /**

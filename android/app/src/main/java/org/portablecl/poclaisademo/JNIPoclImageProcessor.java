@@ -110,9 +110,11 @@ public class JNIPoclImageProcessor {
                                                   byte[] segmentationResult, ByteBuffer data,
                                                   int size, long imageTimestamp, float energy);
 
-    public static native int initPoclImageProcessorV2(int configFlags, AssetManager jAssetManager
-            , int width, int height, int fd, int max_lanes, int doAlgorithm, int runtimeEval,
-                                                      int lockCodec, String serviceName);
+    public static native int initPoclImageProcessorV2(int configFlags, AssetManager jAssetManager,
+                                                      int width, int height, int fd, int max_lanes,
+                                                      int doAlgorithm, int runtimeEval,
+                                                      int lockCodec, String serviceName,
+                                                      int calibrate);
 
     public static native int destroyPoclImageProcessorV2();
 

@@ -205,8 +205,10 @@ void read_function(pocl_image_processor_context *ctx) {
         }
 
         detections[0] = 0;
-        status = receive_image(ctx, detections.data(), segmentations.data(),
-                               &eval_metadata, &segmentation);
+        collected_events_t collected_events;
+        status =
+            receive_image(ctx, detections.data(), segmentations.data(),
+                          &eval_metadata, &segmentation, &collected_events);
         read_frame_count += 1;
 
         log_if_cl_err(status, "main.c could not enqueue image");
@@ -397,7 +399,12 @@ RETRY:
         last_image_timestamp = image_timestamp;
         image_data.image_timestamp = image_timestamp;
 
-        status = submit_image(ctx, codec_config, image_data, is_eval_frame);
+        int collected_frame_index;
+        bool codec_selected = false;
+        int64_t latency_offset_ms = 0;
+        status = submit_image(ctx, codec_config, image_data, is_eval_frame,
+                              codec_selected, latency_offset_ms,
+                              &collected_frame_index);
 
         frame_index += 1;
         printf("submitted image : %d\n", frame_index);

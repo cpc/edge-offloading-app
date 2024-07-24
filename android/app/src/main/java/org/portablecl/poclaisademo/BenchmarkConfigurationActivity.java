@@ -74,6 +74,9 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
     private final static String[] frameRates = {"0", "100", "200", "300", "400", "500", "600",
             "700", "800", "900", "1000", "1100", "1200", "2000"};
 
+    private Button mainActivityButton;
+    private ConfigStore configStore;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -83,6 +86,8 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
         ActivityBenchmarkConfigurationBinding binding =
                 ActivityBenchmarkConfigurationBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+
+        configStore = new ConfigStore(this);
 
         sharedPreferences = getPreferences(Context.MODE_PRIVATE);
 
@@ -134,6 +139,8 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
         framerateTextView.setAdapter(adapter);
         framerateTextView.setOnEditorActionListener(editorActionListener);
 
+        mainActivityButton = binding.mainActivityButton;
+        mainActivityButton.setOnClickListener(startMainActivityListener);
     }
 
     private final View.OnClickListener compressionListener = new View.OnClickListener() {
@@ -170,7 +177,8 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
             // https://developer.android.com/training/data-storage/shared/documents-files
             Intent fileIntent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             fileIntent.addCategory(Intent.CATEGORY_OPENABLE);
-            fileIntent.setType("video/mp4");
+//            fileIntent.setType("video/mp4");
+            fileIntent.setType("application/octet-stream");
 
             launcher.launch(fileIntent);
         }
@@ -217,6 +225,37 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
             }
         }
     }
+
+    private final View.OnClickListener startMainActivityListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+
+            if (DEBUGEXECUTION) {
+                Log.println(Log.INFO, "EXECUTIONFLOW", "started startBenchmarkButtonListener " +
+                        "callback");
+            }
+
+            // check if all files exist
+            boolean fileCheck = true;
+            for (int i = 0; i < TOTALBENCHMARKS; i++) {
+                fileCheck &= benchmarkFileExistsChecks[i];
+            }
+
+            if (!fileCheck) {
+                Toast.makeText(BenchmarkConfigurationActivity.this, "benchmark file doesn't exist",
+                        Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            configStore.setCalibrateVideoUri(benchmarkUris[0].toString());
+            configStore.flushSetting();
+
+            Intent i = new Intent(getApplicationContext(), MainActivity.class);
+            // pass everything passed to the benchmark configuration activity to the mainactivity
+            i.putExtras(bundle);
+            startActivity(i);
+        }
+    };
 
     /**
      * A listener that on the press of a button; checks input variables

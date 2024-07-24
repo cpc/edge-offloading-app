@@ -458,6 +458,8 @@ public class StartupActivity extends AppCompatActivity {
                 i = new Intent(getApplicationContext(), BenchmarkConfigurationActivity.class);
             } else if (v == startButton) {
                 i = new Intent(getApplicationContext(), MainActivity.class);
+                // wipe the calibration uri
+                configStore.setCalibrateVideoUri(null);
             } else {
                 Log.println(Log.ERROR, "startlistener", "unknown view type");
                 return;

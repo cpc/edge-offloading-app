@@ -455,10 +455,16 @@ public class MainActivity extends AppCompatActivity {
         boolean lockCodec = configStore.getLockCodecOption();
         int targetFPS = configStore.getTargetFPS();
         int pipelineLanes = configStore.getPipelineLanes();
+        Uri calibrateUri = null;
+        String configstoreUri = configStore.getCalibrateVideoUri();
+        if (null != configstoreUri) {
+            calibrateUri = Uri.parse(configstoreUri);
+        }
+
         poclImageProcessor = new PoclImageProcessor(this, captureSize, null, captureFormat,
                 imageAvailableLock, configFlags, counter, LOCAL_DEVICE,
-                segmentationSwitch.isChecked(), uris[0],
-                statLogger, enableQualityAlgorithm, runtimeEval, lockCodec, targetFPS, pipelineLanes);
+                segmentationSwitch.isChecked(), uris[0], statLogger, enableQualityAlgorithm,
+                runtimeEval, lockCodec, targetFPS, pipelineLanes, calibrateUri);
 
         // code to handle the quality input
         qualityText = binding.compressionEditText;

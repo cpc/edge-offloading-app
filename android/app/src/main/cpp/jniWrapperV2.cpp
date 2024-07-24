@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include "jni_utils.h"
 #include "platform.h"
+#include "RawImageReader.hpp"
 
 //
 // Created by rabijl on 5.3.2024.
@@ -27,6 +28,7 @@ extern "C" {
 
 pocl_image_processor_context *ctx = NULL;
 codec_select_state_t *state = NULL;
+RawImageReader *rawReader = nullptr;
 
 /**
  * Set codec config from the codec selection state and input parameters from the UI (rotation, do_segment)
@@ -60,7 +62,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(
                                                                                 jint do_algorithm,
                                                                                 jint runtime_eval,
                                                                                 jint lock_codec,
-                                                                                jstring service_name) {
+                                                                                jstring service_name,
+                                                                                jint calibrate_fd) {
 
     bool file_there = put_asset_in_local_storage(env, j_asset_manager, "yolov8n-seg.onnx");
     assert(file_there);
@@ -78,10 +81,16 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(
 
     free(codec_sources);
 
+    // TODO: don't init codec select if not using it
     init_codec_select(config_flags, fd, do_algorithm, lock_codec, &state);
 
     if (service_name != NULL)
         env->ReleaseStringUTFChars(service_name, _service_name);
+
+    if (calibrate_fd >= 0) {
+        rawReader = new RawImageReader(width, height, calibrate_fd);
+    }
+
     return status;
 
 }
@@ -91,6 +100,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_destroyPoclImageProcessor
                                                                                    jclass clazz) {
 
     destroy_codec_select(&state);
+    delete rawReader;
     return destroy_pocl_image_processor_context(&ctx);
 }
 
@@ -133,17 +143,30 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
                                                                           jlong image_timestamp) {
 
     assert(NULL != ctx);
+
     image_data_t image_data;
-    image_data.type = YUV_DATA_T;
-    image_data.data.yuv.planes[0] = (uint8_t *) env->GetDirectBufferAddress(plane0);
-    image_data.data.yuv.planes[1] = (uint8_t *) env->GetDirectBufferAddress(plane1);
-    image_data.data.yuv.planes[2] = (uint8_t *) env->GetDirectBufferAddress(plane2);
-    image_data.data.yuv.pixel_strides[0] = pixel_stride0;
-    image_data.data.yuv.pixel_strides[1] = pixel_stride1;
-    image_data.data.yuv.pixel_strides[2] = pixel_stride2;
-    image_data.data.yuv.row_strides[0] = row_stride0;
-    image_data.data.yuv.row_strides[1] = row_stride1;
-    image_data.data.yuv.row_strides[2] = row_stride2;
+    int isLastCalibrationFrame = -1;
+    // substitute the frame with one from a file when calibrating
+    if (nullptr != rawReader && state->is_calibrating) {
+        isLastCalibrationFrame = rawReader->readImage(&image_data);
+        // TODO: use the isLastCalibrationFrame to continue calibration
+        if (isLastCalibrationFrame == 1) {
+            rawReader->reset();
+        }
+        rotation = 0;
+    } else {
+        image_data.type = YUV_DATA_T;
+        image_data.data.yuv.planes[0] = (uint8_t *) env->GetDirectBufferAddress(plane0);
+        image_data.data.yuv.planes[1] = (uint8_t *) env->GetDirectBufferAddress(plane1);
+        image_data.data.yuv.planes[2] = (uint8_t *) env->GetDirectBufferAddress(plane2);
+        image_data.data.yuv.pixel_strides[0] = pixel_stride0;
+        image_data.data.yuv.pixel_strides[1] = pixel_stride1;
+        image_data.data.yuv.pixel_strides[2] = pixel_stride2;
+        image_data.data.yuv.row_strides[0] = row_stride0;
+        image_data.data.yuv.row_strides[1] = row_stride1;
+        image_data.data.yuv.row_strides[2] = row_stride2;
+    }
+
 
     int status;
     int is_eval_frame = 0;
@@ -151,6 +174,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
 
     // read the current config from the codec selection state
     codec_config_t codec_config;
+    // TODO: put in else statement of do_algorithm
     get_codec_config(rotation, do_segment, &codec_config);
 
     if (!do_algorithm) {

@@ -90,6 +90,8 @@ public class PoclImageProcessor {
     private int targetFPS;
     private int pipelineLanes;
 
+    private final Uri vidUri;
+
     /**
      * constructor for pocl image processor
      *
@@ -109,11 +111,12 @@ public class PoclImageProcessor {
                               int inferencingDevice, boolean doSegment,
                               Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm,
                               boolean runtimeEval, boolean lockCodec,
-                              int targetFPS, int pipelineLanes) {
+                              int targetFPS, int pipelineLanes, Uri vidUri) {
         this(null, context, captureSize, imageReader, imageFormat, imageAvailableLock,
                 configFlags,
                 fpsCounter, inferencingDevice, doSegment, uri, statLogger,
-                enableQualityAlgorithm, runtimeEval, lockCodec, targetFPS, pipelineLanes);
+                enableQualityAlgorithm, runtimeEval, lockCodec, targetFPS, pipelineLanes, vidUri);
+
     }
 
     /**
@@ -135,10 +138,11 @@ public class PoclImageProcessor {
                               int inferencingDevice, boolean doSegment,
                               Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm,
                               boolean runtimeEval, boolean lockCodec,
-                              int targetFPS, int pipelineLanes) {
+                              int targetFPS, int pipelineLanes, Uri vidUri) {
         this(activity, activity, captureSize, imageReader, imageFormat, imageAvailableLock,
                 configFlags, fpsCounter, inferencingDevice, doSegment, uri, statLogger,
-                enableQualityAlgorithm, runtimeEval, lockCodec, targetFPS, pipelineLanes);
+                enableQualityAlgorithm, runtimeEval, lockCodec, targetFPS, pipelineLanes, vidUri);
+
     }
 
     /**
@@ -161,7 +165,8 @@ public class PoclImageProcessor {
                                int inferencingDevice, boolean doSegment,
                                Uri uri, StatLogger statLogger, boolean enableQualityAlgorithm,
                                boolean runtimeEval, boolean lockCodec,
-                               int targetFPS, int pipelineLanes) {
+                               int targetFPS, int pipelineLanes, Uri vidUri) {
+
         this.activity = activity;
         this.context = context;
         this.captureSize = captureSize;
@@ -189,6 +194,7 @@ public class PoclImageProcessor {
 
         this.imageSubmitThread = null;
         this.receiverThread = null;
+        this.vidUri = vidUri;
 
         setTargetFPS(targetFPS);
         setPipelineLanes(pipelineLanes);
@@ -332,7 +338,8 @@ public class PoclImageProcessor {
 
         Image image = null;
 
-        ParcelFileDescriptor parcelFileDescriptor = null;
+        ParcelFileDescriptor logParcelFd = null;
+        ParcelFileDescriptor calibrateParcelFd = null;
 
         // used for frame limiting.
         // set a starting time that is definitely smaller
@@ -351,17 +358,30 @@ public class PoclImageProcessor {
                         "process loop");
             }
 
-            int nativeFd = -1;
+            int logFd = -1;
             if ((ENABLE_PROFILING & runtimeConfigFlags) > 0) {
                 try {
-                    parcelFileDescriptor = context.getContentResolver().openFileDescriptor(uri,
+                    logParcelFd = context.getContentResolver().openFileDescriptor(uri,
                             "wa");
                 } catch (FileNotFoundException e) {
                     Log.println(Log.WARN, "PoclImageProcessor.java:imageProcessLoop",
                             "could not open log filedescriptor");
                     return;
                 }
-                nativeFd = parcelFileDescriptor.getFd();
+                logFd = logParcelFd.getFd();
+            }
+            int calibrateFd = -1;
+            if (null != vidUri) {
+                try {
+                    calibrateParcelFd = context.getContentResolver().openFileDescriptor(vidUri,
+                            "r");
+                    calibrateFd = calibrateParcelFd.getFd();
+                } catch (Exception e) {
+                    Log.println(Log.ERROR, "PoclImageProcessor.java:imageProcessLoop",
+                            "could not open calibrate vid filedescriptor");
+                    e.printStackTrace();
+                    return;
+                }
             }
 
             try {
@@ -371,8 +391,10 @@ public class PoclImageProcessor {
                 runtime_eval = runtimeEval ? 1 : 0;
                 lock_codec = lockCodec ? 1 : 0;
                 status = initPoclImageProcessorV2(runtimeConfigFlags, assetManager,
-                        captureSize.getWidth(), captureSize.getHeight(), nativeFd,
-                        this.pipelineLanes, do_algorithm, runtime_eval, lock_codec, runtimeServiceName);
+                        captureSize.getWidth(), captureSize.getHeight(), logFd,
+                        this.pipelineLanes, do_algorithm, runtime_eval, lock_codec,
+                        runtimeServiceName, calibrateFd);
+
 
                 Log.println(Log.WARN, "temp ", " init return status: " + status);
                 switch (status) {
@@ -381,13 +403,9 @@ public class PoclImageProcessor {
                         if (ENABLEFALLBACK & !interrupted) {
                             runtimeConfigFlags = fallbackToLocal();
                             runtimeServiceName = null;
-                            if (null != parcelFileDescriptor) {
-                                try {
-                                    parcelFileDescriptor.close();
-                                } catch (IOException e) {
-                                    e.printStackTrace();
-                                }
-                            }
+                            closeParcelFd(logParcelFd);
+                            closeParcelFd(calibrateParcelFd);
+
                             // restart the whole process
                             continue;
                         }
@@ -581,13 +599,8 @@ public class PoclImageProcessor {
                 // always free pocl
                 destroyPoclImageProcessorV2();
 
-                if (null != parcelFileDescriptor) {
-                    try {
-                        parcelFileDescriptor.close();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
+                closeParcelFd(logParcelFd);
+                closeParcelFd(calibrateParcelFd);
 
                 if (DEBUGEXECUTION) {
                     Log.println(Log.INFO, "EXECUTIONFLOW", "finishing image process loop");
@@ -604,6 +617,16 @@ public class PoclImageProcessor {
 
         }
 
+    }
+
+    void closeParcelFd(ParcelFileDescriptor fd) {
+        if (null != fd) {
+            try {
+                fd.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
     }
 
     /**
