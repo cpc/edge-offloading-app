@@ -660,11 +660,11 @@ public class PoclImageProcessor {
     private void receiveResultLoop() {
 
         int MAX_DETECTIONS = 10;
-        int MASK_W = 160;
-        int MASK_H = 120;
+        int MASK_SZ1 = 160;
+        int MASK_SZ2 = 120;
 
         int detection_count = 1 + MAX_DETECTIONS * 6;
-        int seg_postprocess_count = 4 * MASK_W * MASK_H;
+        int seg_postprocess_count = 4 * MASK_SZ1 * MASK_SZ2;
 
         int[] detection_results = new int[detection_count];
         byte[] segmentation_results = new byte[seg_postprocess_count];
@@ -704,6 +704,7 @@ public class PoclImageProcessor {
             this.lastIou = poclGetLastIouV2();
 
             if (null != activity) {
+
                 activity.drawOverlay((int) dataExchange[0], detection_results, segmentation_results,
                         captureSize, orientationsSwapped);
 

@@ -327,7 +327,7 @@ cl_int init_eval_ctx(eval_pipeline_context_t **const ctx, int width, int height,
     CHECK_AND_RETURN(status, "failed to create tmp detection output buffer");
 
     out_ctx->tmp_buf_ctx.seg_post = clCreateBuffer(cl_ctx, CL_MEM_READ_WRITE,
-                                                   MASK_W * MASK_H * sizeof(cl_uchar), NULL,
+                                                   MASK_SZ1 * MASK_SZ2 * sizeof(cl_uchar), NULL,
                                                    &status);
     CHECK_AND_RETURN(status, "failed to create tmp segmentation postprocessing buffer");
 
@@ -1024,7 +1024,7 @@ cl_int get_compression_size(pipeline_context *pipeline_ctx, frame_metadata_t *fr
         CHECK_AND_RETURN(status, "failed to wait for sz read event");
     }
 
-    frame_metadata->size_bytes_rx = DETECTION_SIZE + MASK_W * MASK_H;
+    frame_metadata->size_bytes_rx = DETECTION_SIZE + MASK_SZ1 * MASK_SZ2;
 
     return CL_SUCCESS;
 }

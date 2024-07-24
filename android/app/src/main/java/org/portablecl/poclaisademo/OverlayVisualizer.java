@@ -101,10 +101,15 @@ public class OverlayVisualizer {
     public void drawOverlay(int do_segment, int[] detections, byte[] segmentations,
                             Size captureSize,
                             boolean rotated, SurfaceView surfaceView) {
+        // TODO: `rotated` is always true even if we have landscape-oriented input (data from video)
 
-        //int MAX_DETECTIONS = 10;
         int MASK_W = 160;
         int MASK_H = 120;
+
+        if (rotated) {
+            MASK_W = 120;
+            MASK_H = 160;
+        }
 
         try {
             int numDetections = detections[0];
@@ -136,6 +141,8 @@ public class OverlayVisualizer {
                         Bitmap.Config.ARGB_8888);
                 segmentation_bitmap.copyPixelsFromBuffer(segmentation_buf);
                 Rect src = new Rect(0, 0, MASK_W, MASK_H);
+                // TODO: The dimensions need to be fixed depending on whether the segmentation mask
+                // is landscape or portrait.
                 Rect dst = new Rect(0, 0, surfaceView.getWidth(), surfaceView.getHeight());
                 canvas.drawBitmap(segmentation_bitmap, src, dst, paint);
             }

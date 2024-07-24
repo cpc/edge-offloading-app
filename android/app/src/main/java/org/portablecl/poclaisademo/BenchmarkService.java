@@ -265,7 +265,7 @@ public class BenchmarkService extends Service {
                 enableSegmentation, uris[0], null, enableQualityAlgorithm, runtimeEval,
                 lockCodec, 30, 1, null);
 
-//        poclImageProcessor.setOrientation(true);
+        poclImageProcessor.setOrientation(false);
 
         // foreground apps only work on api version 26 and up
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
