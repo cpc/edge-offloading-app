@@ -18,7 +18,7 @@ int main() {
     int fd = open(vidPath, O_RDONLY);
     if (fd == -1) {
         cout << "open error: " << strerror(errno);
-        cout << " try setting VIDPATH to a raw yuv image \n";
+        cout << " try setting VIDPATH to a raw yuv I420 image \n";
         exit(-1);
     }
 
@@ -32,16 +32,16 @@ int main() {
 
     auto *yuv_buf = new uint8_t[width * height * 3 / 2];
 
-    // convert image to semi_planaer nv21, similar to what happens in the pipv2
+    // convert image to semi_planaer nv12, similar to what happens in the pipv2
     copy_yuv_to_arrayV2(width, height, input_image, NO_COMPRESSION, yuv_buf);
 
     // convert to rgb image similar to what happens in run_onnx_inference
     Mat yuvMat = Mat(height * 3 / 2, width, CV_8UC1, yuv_buf);
 
-    Mat rgbMat;
-    cvtColor(yuvMat, rgbMat, COLOR_YUV2RGB_NV21);
+    Mat bgrMat;
+    cvtColor(yuvMat, bgrMat, COLOR_YUV2BGR_NV12);
 
-    imshow("nv21 image", rgbMat);
+    imshow("brg image", bgrMat);
 
     waitKey();
 

@@ -31,7 +31,7 @@ const char *get_compression_name(const compression_t compression_id) {
 
 /**
  * function to copy raw buffers from the image to a local array and make sure the result is in
- * nv21 format.
+ * nv12 format.
  * @param width
  * @param height
  * @param image needs to be a yuv image
@@ -46,6 +46,8 @@ void copy_yuv_to_arrayV2(const int width, const int height, const image_data_t i
     // this will be optimized out by the compiler
     const int yrow_stride = image.data.yuv.row_strides[0];
     const uint8_t *y_ptr = image.data.yuv.planes[0];
+    // u and v are guaranteed to be in plane 1 and 2 respectively
+    // https://developer.android.com/reference/android/graphics/ImageFormat#YUV_420_888
     const uint8_t *u_ptr = image.data.yuv.planes[1];
     const uint8_t *v_ptr = image.data.yuv.planes[2];
     const int ypixel_stride = image.data.yuv.pixel_strides[0];
@@ -64,8 +66,8 @@ void copy_yuv_to_arrayV2(const int width, const int height, const image_data_t i
     // interleave u and v regardless of if planar or semiplanar
     // divided by 4 since u and v are subsampled by 2
     for (int i = 0; i < (height * width) / 4; i++) {
-        dest_buf[uv_start_index + 1 + 2 * i] = v_ptr[i * vpixel_stride];
         dest_buf[uv_start_index + 2 * i] = u_ptr[i * upixel_stride];
+        dest_buf[uv_start_index + 2 * i + 1] = v_ptr[i * vpixel_stride];
     }
 
 }

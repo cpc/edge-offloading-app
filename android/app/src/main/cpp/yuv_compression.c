@@ -112,7 +112,7 @@ init_yuv_context(yuv_codec_context_t *codec_context, cl_context cl_context, cl_d
     codec_context->uv_global_size[0] = (size_t) (codec_context->height / BLK_H) / 2;
     codec_context->uv_global_size[1] = (size_t) (codec_context->width / BLK_W) / 2;
 
-    codec_context->output_format = YUV_SEMI_PLANAR;
+    codec_context->output_format = YUV_NV12;
 
     codec_context->profile_compressed_size = profile_compression_size;
     codec_context->compressed_size = total_pixels * 3 / 2;

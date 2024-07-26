@@ -301,6 +301,7 @@ int main() {
     cv::cvtColor(inp_img, inp_img, cv::COLOR_RGB2YUV_YV12);
     free(inp_pixels);
 
+    // TODO: check whether this should be nv12 instead
     // Convert separate U/V planes into interleaved U/V planes
     uint8_t *inp_yuv420nv21 = (uint8_t *)(malloc(inp_w * inp_h * 3 / 2));
     memcpy(inp_yuv420nv21, inp_img.data, inp_w * inp_h);

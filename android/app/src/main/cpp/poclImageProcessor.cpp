@@ -974,7 +974,7 @@ enqueue_dnn_eval(const cl_event *wait_tmp_detect_copy_event,
     ZoneScoped;
     cl_int status;
 
-    cl_int inp_format = YUV_SEMI_PLANAR;
+    cl_int inp_format = YUV_NV12;
 
     status = clSetKernelArg(dnn_kernel, 0, sizeof(cl_mem), &eval_img_buf);
     status |= clSetKernelArg(dnn_kernel, 4, sizeof(cl_int), &inp_format);
@@ -1213,7 +1213,7 @@ poclProcessImage(codec_config_t config, int frame_index, int do_segment,
     if (NO_COMPRESSION == compression_type) {
         *size_bytes = img_buf_size;
         // normal execution
-        inp_format = YUV_SEMI_PLANAR;
+        inp_format = YUV_NV12;
         // copy the yuv image data over to the host_img_buf and make sure it's semiplanar.
         copy_yuv_to_array(image_data, compression_type, host_img_buf);
         status = clEnqueueWriteBuffer(commandQueue[device_index_copy], img_buf[device_index_copy],

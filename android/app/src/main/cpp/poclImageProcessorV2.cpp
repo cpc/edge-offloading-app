@@ -764,7 +764,7 @@ cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t conf
     // reached. There is also an assert to make sure of this.
     if (NO_COMPRESSION == compression_type) {
         // normal execution
-        inp_format = YUV_SEMI_PLANAR;
+        inp_format = YUV_NV12;
 
         status = write_buffer_dnn(ctx->dnn_context, config.device_type, ctx->host_inp_buf,
                                   ctx->host_inp_buf_size, ctx->inp_yuv_mem, NULL, ctx->event_array,

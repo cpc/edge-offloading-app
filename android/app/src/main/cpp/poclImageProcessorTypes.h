@@ -61,12 +61,13 @@ int supports_config_flags(const int input);
     (SOFTWARE_HEVC_COMPRESSION == inp)
 
 // 0 - RGB
-// 1 - YUV420 NV21 Android (interleaved U/V)
+// 1 - YUV420 NV12 Android (interleaved U/V)
 // 2 - YUV420 (U/V separate)
 typedef enum {
     RGB = 0,
-    YUV_SEMI_PLANAR,
-    YUV_PLANAR
+    YUV_NV12, // 8-bit Y plane followed by an interleaved U/V plane with 2x2 subsampling
+    YUV_PLANAR // TODO: investigate the proper use of this variable (is it I420 or yv12?)
+    // see https://gist.github.com/Jim-Bar/3cbba684a71d1a9d468a6711a6eddbeb
 } pixel_format_enum;
 
 /**
