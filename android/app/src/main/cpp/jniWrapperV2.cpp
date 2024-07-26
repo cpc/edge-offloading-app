@@ -81,13 +81,15 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(
 
     free(codec_sources);
 
+    bool has_video_input = calibrate_fd >= 0;
+
     // TODO: don't init codec select if not using it
-    init_codec_select(config_flags, fd, do_algorithm, lock_codec, &state);
+    init_codec_select(config_flags, fd, do_algorithm, lock_codec, has_video_input, &state);
 
     if (service_name != NULL)
         env->ReleaseStringUTFChars(service_name, _service_name);
 
-    if (calibrate_fd >= 0) {
+    if (has_video_input) {
         rawReader = new RawImageReader(width, height, calibrate_fd);
     }
 
@@ -144,16 +146,34 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
 
     assert(NULL != ctx);
 
+    bool use_playback_input = nullptr != rawReader;
+
+    if (use_playback_input) {
+        rotation = 0;
+    }
+
+    // read the current config from the codec selection state
+    codec_config_t codec_config;
+    // TODO: put in else statement of do_algorithm
+    get_codec_config(rotation, do_segment, &codec_config);
+
     image_data_t image_data;
-    int isLastCalibrationFrame = -1;
-    // substitute the frame with one from a file when calibrating
-    if (nullptr != rawReader && state->is_calibrating) {
-        isLastCalibrationFrame = rawReader->readImage(&image_data);
-        // TODO: use the isLastCalibrationFrame to continue calibration
-        if (isLastCalibrationFrame == 1) {
+    bool is_last_playback_frame = false;
+    if (use_playback_input) {
+        const int NUM_LOCAL_PLAYBACK_FRAMES = 10;  // run local device for only a few frames
+        const int NUM_REMOTE_PLAYBACK_FRAMES = 75; // set a very large number to play all
+
+        const int NUM_PLAYBACK_FRAMES =
+                codec_config.device_type == LOCAL_DEVICE ? NUM_LOCAL_PLAYBACK_FRAMES
+                                                         : NUM_REMOTE_PLAYBACK_FRAMES;
+
+        // substitute the frame with one from a file
+        is_last_playback_frame = rawReader->readImage(&image_data);
+        is_last_playback_frame |= rawReader->getCurrentFrameNum() >= NUM_PLAYBACK_FRAMES;
+
+        if (is_last_playback_frame) {
             rawReader->reset();
         }
-        rotation = 0;
     } else {
         image_data.type = YUV_DATA_T;
         image_data.data.yuv.planes[0] = (uint8_t *) env->GetDirectBufferAddress(plane0);
@@ -167,15 +187,13 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
         image_data.data.yuv.row_strides[2] = row_stride2;
     }
 
+    if (is_last_playback_frame) {
+        signal_last_frame(state);
+    }
 
     int status;
     int is_eval_frame = 0;
     int frame_index = -1;
-
-    // read the current config from the codec selection state
-    codec_config_t codec_config;
-    // TODO: put in else statement of do_algorithm
-    get_codec_config(rotation, do_segment, &codec_config);
 
     if (!do_algorithm) {
         // override the codec config with whatever the user set in the UI
@@ -189,12 +207,17 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
         CHECK_AND_RETURN(status, "could not check and submit eval frame");
     }
 
-    // submit the image for the actual encoding (needs to be submitted *before* the eval frame
+    // submit the image for the actual encoding (needs to be submitted *before* the eval frame)
     bool codec_selected = drain_codec_selected(state);
     int64_t latency_offset_ms = get_latency_offset_ms(state);
     status = submit_image(ctx, codec_config, image_data, is_eval_frame, codec_selected,
                           latency_offset_ms, &frame_index);
     CHECK_AND_RETURN(status, "could not submit frame");
+
+    if (state->enable_profiling) {
+        log_frame_int(state->fd, frame_index, "frame", "is_last_frame",
+                      is_last_playback_frame ? 1 : 0);
+    }
 
     if (is_eval_frame) {
         // submit the eval frame if appropriate

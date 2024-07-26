@@ -21,9 +21,11 @@ class RawImageReader {
 public:
     RawImageReader(int width, int height, int fd) noexcept(false);
 
-    int readImage(image_data_t *image) noexcept(false);
+    bool readImage(image_data_t *image) noexcept(false);
 
     [[nodiscard]] int getTotalFrames() const;
+
+    int getCurrentFrameNum() const;
 
     void reset();
 

@@ -727,7 +727,7 @@ static void collect_external_data(const codec_select_state_t *state, int frame_c
                     codec_nsamples = &data->ping_ms_nsamples[frame_codec_id];
                     avg_value = &stats->cur_avg_ping_ms;
                 }
-            } else if (amp != EMPTY_EXT_POW && volt != EMPTY_EXT_POW) {
+            } else if (amp != EMPTY_EXT_POW || volt != EMPTY_EXT_POW) {
                 value = pow_w;
                 alpha = EXT_POW_ALPHA;
                 if (state->is_calibrating) {
@@ -816,8 +816,9 @@ static void collect_external_data(const codec_select_state_t *state, int frame_c
     }
 }
 
-void init_codec_select(int config_flags, int fd, int do_algorithm, bool lock_codec,
-                       codec_select_state_t **state) {
+void
+init_codec_select(int config_flags, int fd, int do_algorithm, bool lock_codec, bool sync_with_input,
+                  codec_select_state_t **state) {
     codec_select_state_t *new_state = (codec_select_state_t *) calloc(1,
                                                                       sizeof(codec_select_state_t));
 
@@ -852,6 +853,7 @@ void init_codec_select(int config_flags, int fd, int do_algorithm, bool lock_cod
         new_state->is_dry_run = DRY_RUN;
         new_state->lock_codec = lock_codec;
     }
+    new_state->sync_with_input = sync_with_input;
     new_state->enable_profiling = ENABLE_PROFILING & config_flags;
     new_state->fd = fd;
 
@@ -1033,9 +1035,19 @@ void select_codec_auto(codec_select_state_t *state) {
     state->since_last_select_ms += (start_ns - state->last_timestamp_ns) / 1000000;
     state->last_timestamp_ns = start_ns;
 
-    if (state->since_last_select_ms < select_interval_ms) {
-        goto cleanup;
+    if (state->is_calibrating && state->sync_with_input) {
+        if (state->got_last_frame) {
+            SLOGI(SLOG_SELECT, "SELECT | Calibrating | Got last playback frame");
+            state->got_last_frame = false;
+        } else {
+            goto cleanup;
+        }
+    } else {
+        if (state->since_last_select_ms < select_interval_ms) {
+            goto cleanup;
+        }
     }
+
 
     state->since_last_select_ms = 0.0f;
 
@@ -1392,6 +1404,12 @@ void push_external_ping(codec_select_state_t *state, int64_t ts_ns, float ping_m
     data->ext_ping_ms[inext] = ping_ms;
     data->inext += 1;
 
+    pthread_mutex_unlock(&state->lock);
+}
+
+void signal_last_frame(codec_select_state_t *state) {
+    pthread_mutex_lock(&state->lock);
+    state->got_last_frame = true;
     pthread_mutex_unlock(&state->lock);
 }
 

@@ -57,7 +57,7 @@ RawImageReader::~RawImageReader() {
  * @param image used to wrap raw image buffer
  * @return returns true if this is the last image
  */
-int RawImageReader::readImage(image_data_t *image) noexcept(false) {
+bool RawImageReader::readImage(image_data_t *image) noexcept(false) {
 
     if (current_frame >= total_frames) {
         throw out_of_range("reached end of file");
@@ -92,6 +92,11 @@ int RawImageReader::readImage(image_data_t *image) noexcept(false) {
  * @return the total number of frames of the file
  */
 int RawImageReader::getTotalFrames() const { return total_frames; }
+
+/**
+ * @return the number of the next frame
+ */
+int RawImageReader::getCurrentFrameNum() const { return current_frame; }
 
 /**
  * set the reader back to the beginning of the file

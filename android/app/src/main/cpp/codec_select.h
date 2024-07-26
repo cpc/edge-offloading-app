@@ -253,6 +253,8 @@ typedef struct {
     bool is_dry_run;
     bool enable_profiling;
     bool lock_codec;  // after calibration, lock the selected codec and never change it
+    bool sync_with_input;
+    bool got_last_frame;
     int fd;  // file descriptor of a log file
     int last_frame_id;  // Frame index of the frame that is being or was last logged into the stats
     int id;  // the currently active codec; points at CONFIGS
@@ -282,8 +284,9 @@ typedef struct {
     float product;
 } indexed_metrics_t;
 
-void init_codec_select(int config_flags, int fd, int do_algorithm, bool lock_codec,
-                       codec_select_state_t **state);
+void
+init_codec_select(int config_flags, int fd, int do_algorithm, bool lock_codec, bool sync_with_input,
+                  codec_select_state_t **state);
 
 void destroy_codec_select(codec_select_state_t **state);
 
@@ -307,6 +310,8 @@ void signal_eval_finish(codec_select_state_t *state, float iou);
 
 void push_external_pow(codec_select_state_t *state, int64_t ts_ns, int amp, int volt);
 void push_external_ping(codec_select_state_t *state, int64_t ts_ns, float ping_ms);
+
+void signal_last_frame(codec_select_state_t *state);
 
 #ifdef __cplusplus
 }

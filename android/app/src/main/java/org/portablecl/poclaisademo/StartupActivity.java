@@ -450,11 +450,6 @@ public class StartupActivity extends AppCompatActivity {
 
             Intent i;
             if (v == benchmarkButton) {
-                if (!enableLogging) {
-                    enableLogging = true;
-                    enableLoggingSwitch.setChecked(true);
-                }
-
                 i = new Intent(getApplicationContext(), BenchmarkConfigurationActivity.class);
             } else if (v == startButton) {
                 i = new Intent(getApplicationContext(), MainActivity.class);
