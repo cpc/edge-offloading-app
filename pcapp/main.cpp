@@ -35,7 +35,7 @@ constexpr int SEGMENTATION_COUNT = MAX_DETECTIONS * MASK_W * MASK_H;
 constexpr int SEG_POSTPROCESS_COUNT = 4 * MASK_W * MASK_H; // RGBA image
 
 constexpr float FPS = 30.0f;
-//constexpr int NFRAMES = 100;
+// constexpr int NFRAMES = 100;
 constexpr int NFRAMES = 4;
 constexpr bool RETRY_ON_DISCONNECT = true;
 
@@ -204,8 +204,8 @@ void read_function(pocl_image_processor_context *ctx) {
             }
         }
 
-        detections[0] = 0;
         collected_events_t collected_events;
+        detections[0] = 0;
         status =
             receive_image(ctx, detections.data(), segmentations.data(),
                           &eval_metadata, &segmentation, &collected_events);
@@ -215,7 +215,7 @@ void read_function(pocl_image_processor_context *ctx) {
         printf("==== Frame %d, no. detections: %d ====\n", read_frame_count,
                detections[0]);
 
-        if(CL_SUCCESS != status) {
+        if (CL_SUCCESS != status) {
             error_state = true;
             continue;
         }
@@ -223,7 +223,6 @@ void read_function(pocl_image_processor_context *ctx) {
         cv::Mat seg_out(MASK_H, MASK_W, CV_8UC4, segmentations.data());
         cv::cvtColor(seg_out, seg_out, cv::COLOR_RGBA2RGB);
         cv::imwrite("seg_out.png", seg_out);
-
     }
 }
 
@@ -276,8 +275,8 @@ int main() {
 
     /* Settings */
     //    constexpr compression_t compression_type = YUV_COMPRESSION;
-    constexpr compression_t compression_type = NO_COMPRESSION;
-    //    constexpr compression_t compression_type = JPEG_COMPRESSION;
+//    constexpr compression_t compression_type = NO_COMPRESSION;
+        constexpr compression_t compression_type = JPEG_COMPRESSION;
     constexpr int config_flags =
         NO_COMPRESSION | ENABLE_PROFILING | compression_type;
 
@@ -289,7 +288,7 @@ int main() {
     constexpr int rotation = 0;
 
     /* Read input image, assumes app is in a build dir */
-    std::string inp_name = "../android/app/src/main/assets/bus_640x480.jpg";
+    std::string inp_name = "../../android/app/src/main/assets/bus_640x480.jpg";
 
     int inp_w, inp_h, nch;
     uint8_t *inp_pixels = stbi_load(inp_name.data(), &inp_w, &inp_h, &nch, 3);
@@ -340,9 +339,10 @@ int main() {
         perror("Cannot open file");
         return 1;
     }
-
+    // assuming build directory is pcapp/<cmake build dir>/pcapp
     std::vector<std::string> source_files = {
-        "../android/app/src/main/assets/kernels/copy.cl"};
+        "../../android/app/src/main/assets/kernels/copy.cl",
+        "../../android/app/src/main/assets/kernels/compress_seg.cl"};
     auto codec_sources = read_files(source_files);
     assert(codec_sources[0].length() > 0 && "could not open files");
 
@@ -370,9 +370,15 @@ RETRY:
 
     pocl_image_processor_context *ctx = NULL;
 
-    status = create_pocl_image_processor_context(
-        &ctx, 2, inp_w, inp_h, config_flags, codec_sources.at(0).c_str(),
-        codec_sources.at(0).size(), fd, NULL);
+    char const * source_strings[] = {codec_sources.at(0).c_str(),
+                                     codec_sources.at(1).c_str()};
+    size_t const source_sizes[] = {codec_sources.at(0).size(),
+                                    codec_sources.at(1).size()};
+
+    bool enable_eval = false;
+    status = create_pocl_image_processor_context(&ctx, 1, inp_w, inp_h,
+                                                 config_flags, source_strings,
+                                                 source_sizes, fd, enable_eval, NULL);
     assert(status == CL_SUCCESS);
     assert(ctx != NULL);
 

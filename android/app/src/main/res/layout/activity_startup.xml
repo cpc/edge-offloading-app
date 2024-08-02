@@ -233,14 +233,14 @@
         android:id="@+id/targetFPSText"
         android:layout_width="wrap_content"
         android:layout_height="22dp"
-        android:layout_marginEnd="8dp"
+        android:layout_marginEnd="12dp"
         android:gravity="center"
         android:text="Max FPS:"
         android:textAppearance="@style/TextAppearance.AppCompat.Body2"
         app:layout_constraintBottom_toBottomOf="@+id/targetFPS"
         app:layout_constraintEnd_toStartOf="@+id/targetFPS"
         app:layout_constraintTop_toTopOf="@+id/targetFPS"
-        app:layout_constraintVertical_bias="0.434" />
+        app:layout_constraintVertical_bias="0.608" />
 
     <org.portablecl.poclaisademo.DropEditText
         android:id="@+id/targetFPS"
@@ -286,7 +286,7 @@
         android:id="@+id/runtimeEvalSwitch"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:checked="true"
+        android:checked="false"
         android:text="Runtime Eval"
         app:layout_constraintBottom_toBottomOf="@+id/targetFPS"
         app:layout_constraintEnd_toEndOf="parent"
@@ -304,6 +304,15 @@
         app:layout_constraintHorizontal_bias="0.562"
         app:layout_constraintStart_toEndOf="@+id/pipelineLane"
         app:layout_constraintTop_toTopOf="@+id/pipelineLane" />
+
+    <Switch
+        android:id="@+id/seg4bSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Seg4b"
+        app:layout_constraintBottom_toBottomOf="@+id/targetFPS"
+        app:layout_constraintEnd_toStartOf="@+id/targetFPSText"
+        app:layout_constraintTop_toTopOf="@+id/targetFPS" />
 
 
 </androidx.constraintlayout.widget.ConstraintLayout>

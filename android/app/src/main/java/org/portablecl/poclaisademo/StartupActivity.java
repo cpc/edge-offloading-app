@@ -13,6 +13,7 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_COMPRESSION
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_ONLY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SEGMENT_4B;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.SOFTWARE_HEVC_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.YUV_COMPRESSION;
 import static org.portablecl.poclaisademo.PoclImageProcessor.sanitizePipelineLanes;
@@ -436,6 +437,9 @@ public class StartupActivity extends AppCompatActivity {
     };
     private Switch runtimeEvalSwitch;
     private Switch lockCodecSwitch;
+
+    private Switch seg4bSwitch;
+
     /**
      * A listener that on the press of a button; checks input variables
      * and starts the demo if they are valid.
@@ -627,6 +631,9 @@ public class StartupActivity extends AppCompatActivity {
         softwareHevcCompButton.setOnClickListener(softwareHevcCompButtonListener);
         softwareHevcCompButton.setChecked((SOFTWARE_HEVC_COMPRESSION & configFlags) > 0);
 
+        seg4bSwitch = binding.seg4bSwitch;
+        seg4bSwitch.setChecked((SEGMENT_4B & configFlags) > 0);
+
         // code to handle the camera JPEG quality input
         DropEditText qualityText = binding.jpegQualityEditText;
         qualityText.setOnEditorActionListener(loseFocusListener);
@@ -651,7 +658,6 @@ public class StartupActivity extends AppCompatActivity {
         if (configStore.getLockCodecOption()) {
             lockCodecSwitch.performClick();
         }
-
 
         targetFPS = configStore.getTargetFPS();
         DropEditText targetFPSField = binding.targetFPS;
@@ -717,6 +723,9 @@ public class StartupActivity extends AppCompatActivity {
         }
         if (disableRemote) {
             configFlag |= LOCAL_ONLY;
+        }
+        if (seg4bSwitch.isChecked()) {
+            configFlag |= SEGMENT_4B;
         }
 
         return configFlag;

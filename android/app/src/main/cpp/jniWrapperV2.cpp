@@ -68,18 +68,23 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(
     bool file_there = put_asset_in_local_storage(env, j_asset_manager, "yolov8n-seg.onnx");
     assert(file_there);
 
-    size_t src_size;
-    char *codec_sources = read_file(env, j_asset_manager, "kernels/copy.cl", &src_size);
+    size_t src_sizes[2];
+    char *codec_sources[2] = {
+            read_file(env, j_asset_manager, "kernels/copy.cl", &(src_sizes)[0]),
+            read_file(env, j_asset_manager, "kernels/compress_seg.cl", &(src_sizes)[1])
+    };
 
     char *_service_name = NULL;
     if (service_name != NULL)
         _service_name = (char *) env->GetStringUTFChars(service_name, 0);
 
     jint status = create_pocl_image_processor_context(&ctx, max_lanes, width, height, config_flags,
-                                                      codec_sources, src_size, fd, runtime_eval,
+                                                      (const char **) codec_sources,
+                                                      (const size_t *) src_sizes, fd, runtime_eval,
                                                       _service_name);
 
-    free(codec_sources);
+    free(codec_sources[0]);
+    free(codec_sources[1]);
 
     bool has_video_input = calibrate_fd >= 0;
 

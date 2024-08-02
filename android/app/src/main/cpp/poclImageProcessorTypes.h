@@ -37,6 +37,11 @@ enum {
     LOCAL_ONLY = (1 << 9)
 };
 
+typedef enum {
+    SEGMENT_4B = (1 << 12),
+    SEGMENT_RLE = (1 << 13),
+} seg_compression_t;
+
 /**
  * Host device timestamps (in nanoseconds) in the image processing loop. Should be ordered.
  */

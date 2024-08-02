@@ -53,7 +53,7 @@ option(DISABLE_HEVC "do not build hevc backend" ON)
 configure_file("${APP_DIR}/config.h.in.cmake" "config.h" ESCAPE_QUOTES)
 include_directories("${CMAKE_BINARY_DIR}")
 
-add_compile_options(-g -fno-omit-frame-pointer )
+#add_compile_options(-g -fno-omit-frame-pointer )
 
 find_package(OpenCV REQUIRED COMPONENTS core dnn imgcodecs imgproc highgui)
 
@@ -84,15 +84,16 @@ set(POCL_CMAKE_ARGS
         -DENABLE_TURBO_JPEG_DECOMPRESSION=YES
         -Dlibjpeg-turbo_DIR=${libjpeg-turbo_DIR}
         -DENABLE_FFMPEG_DECODE=NO
-        -DENABLE_LATEST_CXX_STD=NO
+        -DENABLE_LATEST_CXX_STD=YES
         -DTRACY_ENABLE=${TRACY_ENABLE}
         -DCMAKE_VERBOSE_MAKEFILE=${CMAKE_VERBOSE_MAKEFILE}
         -DENABLE_TSAN=${SANITIZE_THREADS}
+        -DENABLE_LTTNG=${ENABLE_LTTNG}
         )
 
 ExternalProject_Add(pocl
         SOURCE_DIR ${EXTERNAL_DIR}/pocl
-        CMAKE_GENERATOR "Unix Makefiles"
+        CMAKE_GENERATOR "Ninja"
         CMAKE_ARGS ${POCL_CMAKE_ARGS}
         BUILD_COMMAND cmake --build . --target all --config ${CMAKE_BUILD_TYPE} -- -j ${EXTERNAL_PROJECT_CORES}
         BUILD_ALWAYS True
@@ -115,6 +116,7 @@ target_include_directories(libpocl INTERFACE ${EXTERNAL_DIR}/tracy/public/tracy)
 add_executable(
         ${PROJECT_NAME}
         main.cpp
+        ${APP_DIR}/opencl_utils.cpp ${APP_DIR}/opencl_utils.hpp
         ${APP_DIR}/poclImageProcessor.h
         ${APP_DIR}/sharedUtils.h ${APP_DIR}/sharedUtils.c
         ${APP_DIR}/event_logger.c ${APP_DIR}/event_logger.h
@@ -123,6 +125,7 @@ add_executable(
         ${APP_DIR}/hevc_compression.c ${APP_DIR}/hevc_compression.h
         ${APP_DIR}/testapps.c ${APP_DIR}/testapps.h
         ${APP_DIR}/poclImageProcessorV2.cpp ${APP_DIR}/poclImageProcessorV2.h
+        ${APP_DIR}/segment_4b_compression.cpp ${APP_DIR}/segment_4b_compression.hpp
         ${APP_DIR}/dnn_stage.cpp ${APP_DIR}/dnn_stage.h
         ${APP_DIR}/eval.cpp ${APP_DIR}/eval.h
         ${APP_DIR}/codec_select.cpp ${APP_DIR}/codec_select.h
@@ -157,7 +160,6 @@ target_link_libraries(
         opencv_dnn
         opencv_imgproc
         opencv_imgcodecs
-        ${ORT_INSTALL_DIR}
         ${LTTNG_UST_LDFLAGS}
         Tracy::TracyClient
 )
@@ -167,3 +169,4 @@ target_compile_definitions(
                           CL_HPP_TARGET_OPENCL_VERSION=300)
 
 add_subdirectory(VideoReader)
+add_subdirectory(tests)

@@ -9,6 +9,7 @@
 #include <CL/cl.h>
 #include "event_logger.h"
 #include "poclImageProcessorTypes.h"
+#include "segment_4b_compression.hpp"
 
 #include <Tracy.hpp>
 #include <TracyOpenCL.hpp>
@@ -69,6 +70,10 @@ typedef struct {
     cl_kernel eval_kernel; // kernel that that calculates intersection over union
     cl_mem eval_buf; // used to read the iou
 //    float iou; // store the iou
+    int config_flags;
+    segment_4b_context_t *segment_4b_ctx;
+    cl_mem decompress_output_buf;
+
 } dnn_context_t;
 
 typedef struct {
@@ -81,8 +86,10 @@ typedef struct {
 
 dnn_context_t *create_dnn_context();
 
-int init_dnn_context(dnn_context_t *dnn_context, cl_context ocl_context, int width, int height,
-                     cl_device_id *dnn_device, cl_device_id *reconstruct_device, int enable_eval);
+int
+init_dnn_context(dnn_context_t *dnn_context, int config_flags, cl_context ocl_context, int width,
+                 int height, cl_device_id *dnn_device, cl_device_id *reconstruct_device,
+                 int enable_eval);
 
 cl_int
 write_buffer_dnn(const dnn_context_t *ctx, device_type_enum device_type, uint8_t *inp_host_buf,

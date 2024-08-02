@@ -21,10 +21,6 @@
 #include "TracyC.h"
 #include "TracyOpenCL.hpp"
 
-#include <opencv2/imgproc.hpp>
-#include <opencv2/imgcodecs.hpp>
-#include <opencv2/opencv.hpp>
-
 //#define DEBUG_SEMAPHORES
 
 #ifdef __cplusplus
@@ -127,14 +123,16 @@ int supports_config_flags(const int config_flags) {
  * @return opencl status
  */
 int setup_pipeline_context(pipeline_context *ctx, const int width, const int height,
-                           const int config_flags, const char *codec_sources, const size_t src_size,
+                           const int config_flags, const char **codec_sources,
+                           const size_t *src_size,
                            cl_context cl_ctx, cl_device_id *devices, cl_uint no_devs, int is_eval) {
     if (supports_config_flags(config_flags) != 0) {
         return -1;
     }
     assert(1 <= no_devs && "setup_pipeline_context requires atleast one device");
     if ((config_flags &
-         (YUV_COMPRESSION | HEVC_COMPRESSION | SOFTWARE_HEVC_COMPRESSION | JPEG_COMPRESSION)) &&
+         (YUV_COMPRESSION | HEVC_COMPRESSION | SOFTWARE_HEVC_COMPRESSION | JPEG_COMPRESSION |
+          SEGMENT_4B | SEGMENT_RLE)) &&
         no_devs <= 2) {
         CHECK_AND_RETURN(-100, "compression is not supported with one device");
     }
@@ -179,7 +177,7 @@ int setup_pipeline_context(pipeline_context *ctx, const int width, const int hei
         ctx->yuv_context->enc_queue = ctx->enq_queues[PASSTHRU_DEVICE];
         ctx->yuv_context->dec_queue = ctx->enq_queues[REMOTE_DEVICE];
         status = init_yuv_context(ctx->yuv_context, cl_ctx, devices[PASSTHRU_DEVICE],
-                                  devices[REMOTE_DEVICE], codec_sources, src_size, 1);
+                                  devices[REMOTE_DEVICE], codec_sources[0], src_size[0], 1);
 
         CHECK_AND_RETURN(status, "init of codec kernels failed");
     }
@@ -233,11 +231,33 @@ int setup_pipeline_context(pipeline_context *ctx, const int width, const int hei
     ctx->dnn_context->rotate_cw_degrees = 90;
 
     if (no_devs > 2) {
+
+        // TODO move this to a separate function once we have more compression types
+        if (config_flags & SEGMENT_4B) {
+            if (src_size[1] <= 0 || NULL == codec_sources[1]) {
+                CHECK_AND_RETURN(CL_INVALID_VALUE,
+                                 "source[1] is required when segment_4b is enabled");
+            }
+            // do some dependency injection and keep the constructor of the dnn from exploding in
+            // arguments
+            cl_device_id seg_devs[] = {devices[REMOTE_DEVICE], devices[PASSTHRU_DEVICE]};
+            ctx->dnn_context->segment_4b_ctx = init_segment_4b(cl_ctx,
+                                                               ctx->enq_queues[REMOTE_DEVICE],
+                                                               ctx->enq_queues[PASSTHRU_DEVICE],
+                                                               seg_devs,
+                                                               MASK_SZ1, MASK_SZ2, src_size[1],
+                                                               codec_sources[1],
+                                                               &status);
+            CHECK_AND_RETURN(status, "could not create segment compression");
+
+        }
+
         ctx->dnn_context->local_tracy_ctx = TracyCLContext(cl_ctx, devices[LOCAL_DEVICE]);
         ctx->dnn_context->remote_tracy_ctx = TracyCLContext(cl_ctx, devices[REMOTE_DEVICE]);
         ctx->dnn_context->remote_queue = ctx->enq_queues[REMOTE_DEVICE];
         ctx->dnn_context->local_queue = ctx->enq_queues[LOCAL_DEVICE];
-        status = init_dnn_context(ctx->dnn_context, cl_ctx, width, height, &devices[REMOTE_DEVICE],
+        status = init_dnn_context(ctx->dnn_context, config_flags, cl_ctx, width, height,
+                                  &devices[REMOTE_DEVICE],
                                   &devices[LOCAL_DEVICE], is_eval);
     } else {
         // setup local dnn
@@ -245,7 +265,8 @@ int setup_pipeline_context(pipeline_context *ctx, const int width, const int hei
         ctx->dnn_context->remote_tracy_ctx = ctx->dnn_context->local_tracy_ctx;
         ctx->dnn_context->remote_queue = ctx->enq_queues[LOCAL_DEVICE];
         ctx->dnn_context->local_queue = ctx->enq_queues[LOCAL_DEVICE];
-        status = init_dnn_context(ctx->dnn_context, cl_ctx, width, height, &devices[LOCAL_DEVICE],
+        status = init_dnn_context(ctx->dnn_context, config_flags, cl_ctx, width, height,
+                                  &devices[LOCAL_DEVICE],
                                   &devices[LOCAL_DEVICE], is_eval);
     }
     CHECK_AND_RETURN(status, "could not init dnn_context");
@@ -402,7 +423,7 @@ cl_int pick_device(cl_platform_id platform, cl_device_id *devices, cl_uint *devi
  */
 int create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, const int max_lanes,
                                         const int width, const int height, const int config_flags,
-                                        const char *codec_sources, const size_t src_size, int fd,
+                                        const char **codec_sources, const size_t *src_size, int fd,
                                         bool enable_eval, char *service_name) {
 
     if (supports_config_flags(config_flags) != 0) {

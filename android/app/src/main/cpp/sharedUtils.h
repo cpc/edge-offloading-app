@@ -26,6 +26,19 @@ extern "C" {
         return ret;                                                         \
     }
 
+/**
+ * when using this, don't forget to define LOGTAG before hand
+ */
+#define CHECK_AND_RETURN_NULL(status, ret, msg)                             \
+    do{                                                                     \
+    if(status != CL_SUCCESS) {                                              \
+        LOGE("ERROR: %s at %s:%d returned with %d\n",                       \
+             msg, __FILE__, __LINE__, status);                              \
+        *ret = status;                                                      \
+        return NULL;                                                        \
+    }                                                                       \
+}while(0)
+
 #define  PRINT_DIFF(diff, msg)                                              \
     LOGE("%s took this long: %lu ms, %lu ns\n",                           \
         msg, ((diff) / 1000000), (diff) % 1000000);                         \
@@ -42,7 +55,7 @@ extern "C" {
     if(NULL != kernel) { \
     clReleaseKernel(kernel); \
     kernel = NULL; \
-    } \
+    }
 
 #define COND_REL_QUEUE(queue) \
     if(NULL != queue) { \

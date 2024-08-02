@@ -31,6 +31,9 @@ public class JNIPoclImageProcessor {
     public final static int REMOTE_DEVICE = 2;
     public final static int REMOTE_DEVICE_2 = 3;
 
+    public final static int SEGMENT_4B = (1 << 12);
+    public final static int SEGMENT_RLE = (1 << 13);
+
     /**
      * function that maps a compression option to its string representation
      *
