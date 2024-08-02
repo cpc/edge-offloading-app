@@ -3,10 +3,10 @@
 //
 
 #include "jpeg_compression.h"
-#include "poclImageProcessor.h"
 #include "sharedUtils.h"
 #include <CL/cl_ext_pocl.h>
 #include <assert.h>
+#include "poclImageProcessorTypes.h"
 
 #include <TracyC.h>
 
@@ -209,7 +209,7 @@ cl_int write_buffer_jpeg(const jpeg_codec_context_t *ctx, uint8_t *inp_host_buf,
  * @return
  */
 cl_int
-enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, cl_event wait_event, cl_mem inp_buf,
+enqueue_jpeg_compression(jpeg_codec_context_t *cxt, cl_event wait_event, cl_mem inp_buf,
                          cl_mem out_buf, event_array_t *event_array, cl_event *result_event) {
 
     assert (0 <= cxt->quality && cxt->quality <= 100);

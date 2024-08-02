@@ -116,6 +116,9 @@ static bool is_within_constraint(float val, constraint_t constraint) {
             return val <= constraint.limit;
         case OPT_MAX:
             return val >= constraint.limit;
+        default:
+            assert(0 && "unknown constraint optimization");
+            return false;
     }
 }
 
@@ -323,6 +326,9 @@ static int cmp_vals(float cur_val, float best_val, optimization_t optimization) 
             return cur_val < best_val ? 1 : -1;
         case OPT_MAX:
             return cur_val > best_val ? 1 : -1;
+        default:
+            assert(0 && "unknown constraint optimization");
+            return false;
     }
 }
 

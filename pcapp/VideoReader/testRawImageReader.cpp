@@ -1,6 +1,11 @@
 //
 // Created by rabijl on 16.7.2024.
 //
+
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 300
+#endif
+
 #include "RawImageReader.hpp"
 #include "poclImageProcessorUtils.h"
 #include <cstdlib>

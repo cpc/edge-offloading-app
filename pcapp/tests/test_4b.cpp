@@ -1,12 +1,16 @@
 //
 // Created by rabijl on 3.7.2024.
 //
-#include "dnn_stage.h"
-#include "opencl_utils.hpp"
+
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 300
+#endif
+
 #include "rename_opencl.h"
+#include <CL/cl.h>
+#include "opencl_utils.hpp"
 #include "segment_4b_compression.hpp"
 #include "sharedUtils.h"
-#include <CL/cl.h>
 #include <cassert>
 #include <string>
 #include <vector>
@@ -14,6 +18,10 @@
 // uncomment these for some debug output
 //#define PRINT_COMPRESS_BUF
 //#define PRINT_SEGMENT_DATA
+
+#define TEST_MASK_SZ1 160
+#define TEST_MASK_SZ2 120
+#define TEST_DET_COUNT 61
 
 int main() {
     cl_int status;
@@ -53,14 +61,14 @@ int main() {
 
     cl_device_id segment_devs[] = {device_ids[0], device_ids[0]};
     segment_4b_context_t *segment_ctx =
-        init_segment_4b(context, queue, queue, segment_devs, MASK_SZ1, MASK_SZ2,
-                        source_size, source_string, &status);
+        init_segment_4b(context, queue, queue, segment_devs, TEST_MASK_SZ1,
+                        TEST_MASK_SZ2, source_size, source_string, &status);
     CHECK_AND_RETURN(status, "could not setup segment 4b context");
 
     size_t segment_size;
     unsigned char * const segment_data = (unsigned char *const)
         read_bin_file("data/segmentation.bin", &segment_size);
-    assert(segment_size == MASK_SZ1 * MASK_SZ2 * sizeof(cl_uchar));
+    assert(segment_size == TEST_MASK_SZ1 * TEST_MASK_SZ2 * sizeof(cl_uchar));
     if(nullptr == segment_data){
         exit(-2);
     }
@@ -74,7 +82,7 @@ int main() {
     size_t detect_size;
     int *detect_data = (int *)
         read_bin_file("data/detections.bin", &detect_size);
-    assert(detect_size == DET_COUNT*sizeof(cl_int));
+    assert(detect_size == TEST_DET_COUNT * sizeof(cl_int));
     if(nullptr == detect_data){
         exit(-2);
     }

@@ -3,12 +3,12 @@
 //
 
 #include "hevc_compression.h"
-#include "poclImageProcessor.h"
 #include "sharedUtils.h"
 #include <CL/cl_ext_pocl.h>
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
+#include "poclImageProcessorTypes.h"
 
 /**
  * allocate memory for the codec context and set pointers to NULL;

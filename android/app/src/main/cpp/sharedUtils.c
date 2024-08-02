@@ -49,6 +49,20 @@ compare_timespec(const struct timespec *const ts_a, const struct timespec *const
 
 }
 
+/**
+ * get the difference between two timespecs, substract the first from the second
+ * @param start the spec to substract with
+ * @param stop the spec to substract from
+ * @return signed difference
+ */
+int64_t get_diff_timespec(const struct timespec *const start,
+                          const struct timespec *const stop) {
+  int64_t diff = stop->tv_sec - start->tv_sec;
+  int64_t diff_ns = stop->tv_nsec - start->tv_nsec;
+
+  return diff * 1000000000 + diff_ns;
+}
+
 void log_frame_int(int fd, int frame_index, const char *tag, const char *parameter, int value) {
     dprintf(fd, "%d,%s,%s,%d\n", frame_index, tag, parameter, value);
 }

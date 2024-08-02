@@ -88,8 +88,8 @@ typedef struct {
  */
 static const codec_params_t CONFIGS[NUM_CONFIGS] = {
 
-        {.compression_type = NO_COMPRESSION, .device_type= LOCAL_DEVICE, .config = {NULL}},
-        {.compression_type = NO_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {NULL}},
+        {.compression_type = NO_COMPRESSION, .device_type= LOCAL_DEVICE, .config = {.jpeg = {.quality = 0}}},
+        {.compression_type = NO_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.jpeg = {.quality = 0}}},
         {.compression_type = JPEG_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.jpeg = {.quality = 99}}},
         {.compression_type = JPEG_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.jpeg = {.quality = 80}}},
         {.compression_type = JPEG_COMPRESSION, .device_type= REMOTE_DEVICE, .config = {.jpeg = {.quality = 20}}},

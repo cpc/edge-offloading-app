@@ -2,6 +2,10 @@
 #include <string>
 #include <vector>
 
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 300
+#endif
+
 #include <CL/cl.h>
 
 // Translate OpenCL error code to string, taken from:

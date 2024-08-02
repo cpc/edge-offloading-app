@@ -5,32 +5,22 @@
 #ifndef POCL_AISA_DEMO_POCLIMAGEPROCESSORV2_H
 #define POCL_AISA_DEMO_POCLIMAGEPROCESSORV2_H
 
-//#include "poclImageProcessor.h"
+#include "dnn_stage.hpp"
+#include "hevc_compression.h"
+#include "jpeg_compression.h"
 #include "poclImageProcessorTypes.h"
 #include "yuv_compression.h"
-#include "jpeg_compression.h"
-#include "hevc_compression.h"
-#include "dnn_stage.h"
 
 #include "testapps.h"
 #include <stdint.h>
 #include <semaphore.h>
 #include <time.h>
-
+#include <stdbool.h>
 #include <Tracy.hpp>
 #include <TracyOpenCL.hpp>
 
 #define CSV_HEADER "frame_id,tag,parameter,value\n"
 #define MAX_NUM_CL_DEVICES 4
-
-#define MAX_DETECTIONS 10
-#define MASK_SZ1 160
-#define MASK_SZ2 120
-
-#define DETECTION_SIZE     (1 + MAX_DETECTIONS * 6)
-#define SEGMENTATION_SIZE  (MAX_DETECTIONS * MASK_SZ1 * MASK_SZ2)
-#define RECONSTRUCTED_SIZE (MASK_SZ1 * MASK_SZ2 * 4) // RGBA image
-#define TOTAL_OUT_SIZE     (DETECTION_SIZE + SEGMENTATION_SIZE)
 
 #ifdef __cplusplus
 extern "C" {

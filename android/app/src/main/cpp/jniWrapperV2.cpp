@@ -4,7 +4,6 @@
 #include <assert.h>
 //#include <file_descriptor_jni.h>
 #include <jni.h>
-#include "poclImageProcessor.h"
 #include "poclImageProcessorV2.h"
 #include "codec_select.h"
 #include "eval.h"
@@ -17,6 +16,7 @@
 #include "jni_utils.h"
 #include "platform.h"
 #include "RawImageReader.hpp"
+#include "codec_select_wrapper.h"
 
 //
 // Created by rabijl on 5.3.2024.
@@ -26,29 +26,14 @@
 extern "C" {
 #endif
 
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 300
+#endif
+
+
 pocl_image_processor_context *ctx = NULL;
 codec_select_state_t *state = NULL;
 RawImageReader *rawReader = nullptr;
-
-/**
- * Set codec config from the codec selection state and input parameters from the UI (rotation, do_segment)
- */
-static void get_codec_config(int rotation, int do_segment, codec_config_t *codec_config) {
-    assert(NULL != state);
-    const codec_params_t params = get_codec_params(state);
-    const int codec_id = get_codec_id(state);
-    codec_config->compression_type = params.compression_type;
-    codec_config->device_type = params.device_type;
-    codec_config->rotation = rotation;
-    codec_config->do_segment = do_segment;
-    codec_config->id = codec_id;
-    if (codec_config->compression_type == JPEG_COMPRESSION) {
-        codec_config->config.jpeg = params.config.jpeg;
-    } else if (codec_config->compression_type == HEVC_COMPRESSION ||
-               codec_config->compression_type == SOFTWARE_HEVC_COMPRESSION) {
-        codec_config->config.hevc = params.config.hevc;
-    }
-}
 
 JNIEXPORT jint JNICALL
 Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_initPoclImageProcessorV2(JNIEnv *env,
@@ -151,33 +136,24 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
 
     assert(NULL != ctx);
 
-    bool use_playback_input = nullptr != rawReader;
-
-    if (use_playback_input) {
-        rotation = 0;
-    }
-
-    // read the current config from the codec selection state
-    codec_config_t codec_config;
-    // TODO: put in else statement of do_algorithm
-    get_codec_config(rotation, do_segment, &codec_config);
-
     image_data_t image_data;
-    bool is_last_playback_frame = false;
-    if (use_playback_input) {
+    if (nullptr != rawReader) {
         const int NUM_LOCAL_PLAYBACK_FRAMES = 10;  // run local device for only a few frames
         const int NUM_REMOTE_PLAYBACK_FRAMES = 75; // set a very large number to play all
 
         const int NUM_PLAYBACK_FRAMES =
-                codec_config.device_type == LOCAL_DEVICE ? NUM_LOCAL_PLAYBACK_FRAMES
+                device_index == LOCAL_DEVICE ? NUM_LOCAL_PLAYBACK_FRAMES
                                                          : NUM_REMOTE_PLAYBACK_FRAMES;
 
+        rotation = 0;
+
         // substitute the frame with one from a file
-        is_last_playback_frame = rawReader->readImage(&image_data);
+        bool is_last_playback_frame = rawReader->readImage(&image_data);
         is_last_playback_frame |= rawReader->getCurrentFrameNum() >= NUM_PLAYBACK_FRAMES;
 
         if (is_last_playback_frame) {
             rawReader->reset();
+            signal_last_frame(state);
         }
     } else {
         image_data.type = YUV_DATA_T;
@@ -192,43 +168,8 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
         image_data.data.yuv.row_strides[2] = row_stride2;
     }
 
-    if (is_last_playback_frame) {
-        signal_last_frame(state);
-    }
-
-    int status;
-    int is_eval_frame = 0;
-    int frame_index = -1;
-
-    if (!do_algorithm) {
-        // override the codec config with whatever the user set in the UI
-        select_codec_manual((device_type_enum) (device_index), do_segment,
-                            (compression_t) (compression_type), quality, rotation, &codec_config);
-    }
-
-    // check if we need to submit image to the eval pipeline
-    if (ctx->enable_eval || state->is_calibrating) {
-        status = check_eval(ctx->eval_ctx, state, codec_config, &is_eval_frame);
-        CHECK_AND_RETURN(status, "could not check and submit eval frame");
-    }
-
-    // submit the image for the actual encoding (needs to be submitted *before* the eval frame)
-    bool codec_selected = drain_codec_selected(state);
-    int64_t latency_offset_ms = get_latency_offset_ms(state);
-    status = submit_image(ctx, codec_config, image_data, is_eval_frame, codec_selected,
-                          latency_offset_ms, &frame_index);
-    CHECK_AND_RETURN(status, "could not submit frame");
-
-    if (state->enable_profiling) {
-        log_frame_int(state->fd, frame_index, "frame", "is_last_frame",
-                      is_last_playback_frame ? 1 : 0);
-    }
-
-    if (is_eval_frame) {
-        // submit the eval frame if appropriate
-        status = run_eval(ctx->eval_ctx, state, codec_config, frame_index, image_data);
-        CHECK_AND_RETURN(status, "could not submit eval frame");
-    }
+    int status = codec_select_submit_image(state, ctx, device_index, do_segment, compression_type,
+                                           quality, rotation, do_algorithm, &image_data);
 
     return status;
 }

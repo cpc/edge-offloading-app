@@ -7,8 +7,11 @@
 #include "sys/stat.h"
 #include "unistd.h"
 
-#include "rename_opencl.h"
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 300
+#endif
 
+#include "rename_opencl.h"
 #include <CL/cl.h>
 
 #include <opencv2/imgproc.hpp>
@@ -16,28 +19,213 @@
 
 #include "opencl_utils.hpp"
 #include "platform.h"
-#include "poclImageProcessor.h"
 #include "sharedUtils.h"
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-
+#include "codec_select_wrapper.h"
+#include "jpegReader.h"
 #include <Tracy.hpp>
-#include <poclImageProcessorV2.h>
 #include <thread>
 
-#define MAX_DETECTIONS 10
-#define MASK_W 160
-#define MASK_H 120
+/* forward declaration */
+cl_int test_pthread_bik();
+void read_function(pocl_image_processor_context *ctx, int *read_frame_count);
 
-constexpr int DETECTION_COUNT = 1 + MAX_DETECTIONS * 6;
-constexpr int SEGMENTATION_COUNT = MAX_DETECTIONS * MASK_W * MASK_H;
-constexpr int SEG_POSTPROCESS_COUNT = 4 * MASK_W * MASK_H; // RGBA image
-
-constexpr float FPS = 30.0f;
-// constexpr int NFRAMES = 100;
-constexpr int NFRAMES = 4;
+/* pcapp settings */
+constexpr float FPS = 3.0f;
+constexpr int NFRAMES = 10;
 constexpr bool RETRY_ON_DISCONNECT = true;
+
+/* runtime settings */
+constexpr int do_segment = 1;
+constexpr int quality = 80;
+constexpr int rotation = 0;
+constexpr compression_t compression_type = JPEG_COMPRESSION;
+constexpr int config_flags =
+    NO_COMPRESSION | ENABLE_PROFILING | compression_type;
+// can be changed due to retry_on_disconnect
+device_type_enum device_index = REMOTE_DEVICE;
+
+/* setup settings */
+constexpr int do_algorithm = 0;
+constexpr int lock_codec = 0;
+constexpr bool enable_eval = true;
+constexpr int max_lanes = 1;
+constexpr bool has_video_input = false;
+
+/* Read input image, assumes app is in a build dir */
+const char *inp_name = "../../android/app/src/main/assets/bus_640x480.jpg";
+
+int main() {
+    cl_int status;
+
+    image_data_t image_data;
+    JPEGReader jpegReader(inp_name);
+    auto [inp_w, inp_h] = jpegReader.getDimensions();
+    jpegReader.readImage(&image_data);
+
+    /* Init */
+    int fd =
+        open("profile.csv", O_WRONLY | O_CREAT | O_APPEND, S_IWRITE | S_IREAD);
+
+    if (fd == -1) {
+        perror("Cannot open file");
+        return 1;
+    }
+    // assuming build directory is pcapp/<cmake build dir>/pcapp
+    std::vector<std::string> source_files = {
+        "../../android/app/src/main/assets/kernels/copy.cl",
+        "../../android/app/src/main/assets/kernels/compress_seg.cl"};
+    auto codec_sources = read_files(source_files);
+    assert(codec_sources[0].length() > 0 && "could not open files");
+
+    event_array_t event_array;
+    event_array_t eval_event_array;
+
+    int frame_index = 0;
+    int is_eval_frame = 0;
+    int64_t last_image_timestamp = get_timestamp_ns();
+    float iou;
+    uint64_t size_bytes;
+    host_ts_ns_t host_ts_ns;
+    codec_config_t codec_config;
+
+    // used by the reader thread to figure out when to stop
+    int read_frame_count = 0;
+
+RETRY:
+
+    codec_config.rotation = rotation;
+    codec_config.do_segment = do_segment;
+    codec_config.compression_type = compression_type;
+    codec_config.device_type = device_index;
+    codec_config.config.jpeg.quality = quality;
+
+    pocl_image_processor_context *ctx = nullptr;
+
+    char const *source_strings[] = {codec_sources.at(0).c_str(),
+                                    codec_sources.at(1).c_str()};
+    size_t const source_sizes[] = {codec_sources.at(0).size(),
+                                   codec_sources.at(1).size()};
+
+    status = create_pocl_image_processor_context(
+        &ctx, max_lanes, inp_w, inp_h, config_flags, source_strings,
+        source_sizes, fd, enable_eval, nullptr);
+    assert(status == CL_SUCCESS);
+    assert(ctx != nullptr);
+
+    codec_select_state_t *state = nullptr;
+    init_codec_select(config_flags, fd, do_algorithm, lock_codec,
+                      has_video_input, &state);
+
+    // create read thread
+
+    std::thread thread(read_function, ctx, &read_frame_count);
+
+    /* Process */
+    while (frame_index < NFRAMES) {
+        int64_t image_timestamp = get_timestamp_ns();
+        auto since_last_frame_sec =
+            (float)(image_timestamp - last_image_timestamp) / 1e9f;
+
+        if (since_last_frame_sec < (1.0f / FPS)) {
+            continue;
+        }
+
+        FrameMark;
+        // set a long timeout so that the loop is at minimum
+        // 30 fps (see above code) and maximum as long as it takes
+        // for another frame
+        if (dequeue_spot(ctx, 20000, device_index) != 0) {
+            continue;
+        }
+
+        last_image_timestamp = image_timestamp;
+        image_data.image_timestamp = image_timestamp;
+
+        //        int collected_frame_index;
+        //        bool codec_selected = false;
+        //        int64_t latency_offset_ms = 0;
+        //        status = submit_image(ctx, codec_config, image_data,
+        //        is_eval_frame,
+        //                              codec_selected, latency_offset_ms,
+        //                              &collected_frame_index);
+
+        codec_select_submit_image(state, ctx, device_index, do_segment,
+                                  compression_type, quality, rotation,
+                                  do_algorithm, &image_data);
+
+        frame_index += 1;
+        printf("submitted image : %d\n", frame_index);
+
+        //        assert(status == CL_SUCCESS);
+        log_if_cl_err(status, "main.c could not submit image");
+        if (CL_SUCCESS != status) {
+            break;
+        }
+    }
+
+    // join the thread
+    thread.join();
+
+    status = destroy_pocl_image_processor_context(&ctx);
+
+    if (true == RETRY_ON_DISCONNECT && (frame_index < NFRAMES)) {
+        device_index = LOCAL_DEVICE;
+        goto RETRY;
+    }
+
+    assert(status == CL_SUCCESS);
+
+    close(fd);
+
+    return status;
+}
+
+/**
+ * The function that receives images continuously
+ * @param ctx image processor context
+ */
+void read_function(pocl_image_processor_context *ctx, int *read_frame_count) {
+
+    int segmentation = 0;
+    frame_metadata_t eval_metadata;
+    int status;
+    std::vector<int32_t> detections(DET_COUNT);
+    std::vector<uint8_t> segmentations(SEG_OUT_COUNT);
+
+    bool error_state = false;
+
+    while (*read_frame_count < NFRAMES) {
+
+        if (wait_image_available(ctx, 100) != 0) {
+            if (!error_state) {
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        collected_events_t collected_events;
+        detections[0] = 0;
+        status =
+            receive_image(ctx, detections.data(), segmentations.data(),
+                          &eval_metadata, &segmentation, &collected_events);
+        *read_frame_count += 1;
+
+        log_if_cl_err(status, "main.c could not enqueue image");
+        printf("==== Frame %d, no. detections: %d ====\n", *read_frame_count,
+               detections[0]);
+
+        if (CL_SUCCESS != status) {
+            error_state = true;
+            continue;
+        }
+
+        cv::Mat seg_out(MASK_SZ2, MASK_SZ1, CV_8UC4, segmentations.data());
+        cv::cvtColor(seg_out, seg_out, cv::COLOR_RGBA2RGB);
+        cv::imwrite("seg_out.png", seg_out);
+    }
+}
 
 cl_int test_pthread_bik() {
     ZoneScoped;
@@ -96,9 +284,10 @@ cl_int test_pthread_bik() {
     CHECK_AND_RETURN(status, "TMP building of program failed");
     LOGI("Created and built program");
 
-    cl_command_queue_properties cq_properties = CL_QUEUE_PROFILING_ENABLE;
-    cl_command_queue tmp_command_queue = clCreateCommandQueue(
-        context, devices[device_id], cq_properties, &status);
+    cl_command_queue_properties properties[] = {CL_QUEUE_PROPERTIES,
+                                                CL_QUEUE_PROFILING_ENABLE, 0};
+    cl_command_queue tmp_command_queue = clCreateCommandQueueWithProperties(
+        context, devices[device_id], properties, &status);
     CHECK_AND_RETURN(status, "TMP creating eval command queue failed");
     LOGI("Created CQ\n");
 
@@ -176,267 +365,4 @@ cl_int test_pthread_bik() {
 
     LOGI(">>>>> TMP SUCCESS <<<<<<\n");
     return CL_SUCCESS;
-}
-
-// keep track of how many image that have been read
-int read_frame_count;
-/**
- * The function that receives images continuously
- * @param ctx image processor context
- */
-void read_function(pocl_image_processor_context *ctx) {
-
-    int segmentation = 0;
-    frame_metadata_t eval_metadata;
-    int status;
-    std::vector<int32_t> detections(DETECTION_COUNT);
-    std::vector<uint8_t> segmentations(SEG_POSTPROCESS_COUNT);
-
-    bool error_state = false;
-
-    while (read_frame_count < NFRAMES) {
-
-        if (wait_image_available(ctx, 100) != 0) {
-            if (!error_state) {
-                continue;
-            } else {
-                break;
-            }
-        }
-
-        collected_events_t collected_events;
-        detections[0] = 0;
-        status =
-            receive_image(ctx, detections.data(), segmentations.data(),
-                          &eval_metadata, &segmentation, &collected_events);
-        read_frame_count += 1;
-
-        log_if_cl_err(status, "main.c could not enqueue image");
-        printf("==== Frame %d, no. detections: %d ====\n", read_frame_count,
-               detections[0]);
-
-        if (CL_SUCCESS != status) {
-            error_state = true;
-            continue;
-        }
-
-        cv::Mat seg_out(MASK_H, MASK_W, CV_8UC4, segmentations.data());
-        cv::cvtColor(seg_out, seg_out, cv::COLOR_RGBA2RGB);
-        cv::imwrite("seg_out.png", seg_out);
-    }
-}
-
-int main() {
-    cl_int status;
-
-    // Sanity check run:
-    // status = test_pthread_bik();
-    // CHECK_AND_RETURN(status, "Error running vector addition");
-
-    int platform_id = 0;
-    // int enc_device_id = 0; // on my machine pthread device
-    // int dec_device_id = 0; // on my machine pthread device
-    // int dnn_device_id = 0; // on my machine basic device
-
-    /* Find platforms */
-    cl_uint nplatforms = 0;
-    status = clGetPlatformIDs(0, NULL, &nplatforms);
-    log_if_cl_err(status, "clGetPlatformIDs query");
-    throw_if_zero(nplatforms, "No platforms found");
-
-    /* Fill in platforms */
-    std::vector<cl_platform_id> platforms;
-    platforms.resize(nplatforms);
-    status = clGetPlatformIDs(platforms.size(), platforms.data(), NULL);
-    log_if_cl_err(status, "clGetPlatformIDs fill in");
-
-    /* Print out some basic information about each platform */
-    status = print_platforms_info(platforms.data(), platforms.size());
-    log_if_cl_err(status, "Getting platform info");
-
-    /* Find devices */
-    cl_uint ndevices = 0;
-    cl_device_type device_types = CL_DEVICE_TYPE_GPU | CL_DEVICE_TYPE_CPU;
-    status = clGetDeviceIDs(platforms[platform_id], device_types, 0, NULL,
-                            &ndevices);
-    log_if_cl_err(status, "clGetDeviceIDs query");
-    throw_if_zero(ndevices, "No devices found");
-
-    /* Fill in devices */
-    std::vector<cl_device_id> devices;
-    devices.resize(ndevices);
-    status = clGetDeviceIDs(platforms[platform_id], device_types,
-                            devices.size(), devices.data(), NULL);
-    log_if_cl_err(status, "clGetDeviceIDs fill query");
-
-    /* Print out some basic information about each device */
-    status = print_devices_info(devices.data(), devices.size());
-    log_if_cl_err(status, "Getting device info");
-
-    /* Settings */
-    //    constexpr compression_t compression_type = YUV_COMPRESSION;
-//    constexpr compression_t compression_type = NO_COMPRESSION;
-        constexpr compression_t compression_type = JPEG_COMPRESSION;
-    constexpr int config_flags =
-        NO_COMPRESSION | ENABLE_PROFILING | compression_type;
-
-    device_type_enum device_index = REMOTE_DEVICE;
-    //  device_type_enum device_index = LOCAL_DEVICE;
-
-    constexpr int do_segment = 1;
-    constexpr int quality = 80;
-    constexpr int rotation = 0;
-
-    /* Read input image, assumes app is in a build dir */
-    std::string inp_name = "../../android/app/src/main/assets/bus_640x480.jpg";
-
-    int inp_w, inp_h, nch;
-    uint8_t *inp_pixels = stbi_load(inp_name.data(), &inp_w, &inp_h, &nch, 3);
-    throw_if_nullptr(inp_pixels, "Error opening input file");
-    printf("OpenCL: Opened file '%s', %dx%d\n", inp_name.c_str(), inp_w, inp_h);
-
-    // Convert inp image to YUV420 (U/V planes separate)
-    cv::Mat inp_img(inp_h, inp_w, CV_8UC3, (void *)(inp_pixels));
-    cv::cvtColor(inp_img, inp_img, cv::COLOR_RGB2YUV_YV12);
-    free(inp_pixels);
-
-    // TODO: check whether this should be nv12 instead
-    // Convert separate U/V planes into interleaved U/V planes
-    uint8_t *inp_yuv420nv21 = (uint8_t *)(malloc(inp_w * inp_h * 3 / 2));
-    memcpy(inp_yuv420nv21, inp_img.data, inp_w * inp_h);
-
-    for (int i = 0; i < inp_w * inp_h / 4; i += 1) {
-        inp_yuv420nv21[inp_w * inp_h + 2 * i] =
-            inp_img.data[inp_w * inp_h + inp_w * inp_h / 4 + i];
-        inp_yuv420nv21[inp_w * inp_h + 2 * i + 1] =
-            inp_img.data[inp_w * inp_h + i];
-    }
-
-    const int inp_count = inp_w * inp_h * 3 / 2;
-    const int enc_count = inp_count / 2;
-
-    uint8_t *y_ptr = inp_yuv420nv21;
-    uint8_t *v_ptr = y_ptr + inp_w * inp_h;
-    uint8_t *u_ptr = v_ptr + 1;
-
-    image_data_t image_data;
-    image_data.type = YUV_DATA_T;
-    image_data.data.yuv.planes[0] = y_ptr;
-    image_data.data.yuv.planes[1] = u_ptr;
-    image_data.data.yuv.planes[2] = v_ptr;
-    image_data.data.yuv.pixel_strides[0] = 1;
-    image_data.data.yuv.pixel_strides[1] = 2;
-    image_data.data.yuv.pixel_strides[2] = 2;
-    image_data.data.yuv.row_strides[0] = inp_w;
-    image_data.data.yuv.row_strides[1] = inp_w;
-    image_data.data.yuv.row_strides[2] = inp_w;
-
-    /* Init */
-    int fd =
-        open("profile.csv", O_WRONLY | O_CREAT | O_APPEND, S_IWRITE | S_IREAD);
-
-    if (fd == -1) {
-        perror("Cannot open file");
-        return 1;
-    }
-    // assuming build directory is pcapp/<cmake build dir>/pcapp
-    std::vector<std::string> source_files = {
-        "../../android/app/src/main/assets/kernels/copy.cl",
-        "../../android/app/src/main/assets/kernels/compress_seg.cl"};
-    auto codec_sources = read_files(source_files);
-    assert(codec_sources[0].length() > 0 && "could not open files");
-
-    event_array_t event_array;
-    event_array_t eval_event_array;
-
-    int frame_index = 0;
-    int is_eval_frame = 0;
-    int64_t last_image_timestamp = get_timestamp_ns();
-    float iou;
-    uint64_t size_bytes;
-    host_ts_ns_t host_ts_ns;
-    codec_config_t codec_config;
-
-    // used by the reader thread to figure out when to stop
-    read_frame_count = 0;
-
-RETRY:
-
-    codec_config.rotation = rotation;
-    codec_config.do_segment = do_segment;
-    codec_config.compression_type = compression_type;
-    codec_config.device_type = device_index;
-    codec_config.config.jpeg.quality = quality;
-
-    pocl_image_processor_context *ctx = NULL;
-
-    char const * source_strings[] = {codec_sources.at(0).c_str(),
-                                     codec_sources.at(1).c_str()};
-    size_t const source_sizes[] = {codec_sources.at(0).size(),
-                                    codec_sources.at(1).size()};
-
-    bool enable_eval = false;
-    status = create_pocl_image_processor_context(&ctx, 1, inp_w, inp_h,
-                                                 config_flags, source_strings,
-                                                 source_sizes, fd, enable_eval, NULL);
-    assert(status == CL_SUCCESS);
-    assert(ctx != NULL);
-
-    // create read thread
-    std::thread thread(read_function, ctx);
-
-    /* Process */
-    while (frame_index < NFRAMES) {
-        int64_t image_timestamp = get_timestamp_ns();
-        auto since_last_frame_sec =
-            (float)(image_timestamp - last_image_timestamp) / 1e9f;
-
-        if (since_last_frame_sec < (1.0f / FPS)) {
-            continue;
-        }
-
-        FrameMark;
-        // set a long timeout so that the loop is at minimum
-        // 30 fps (see above code) and maximum as long as it takes
-        // for another frame
-        if (dequeue_spot(ctx, 20000, device_index) != 0) {
-            continue;
-        }
-
-        last_image_timestamp = image_timestamp;
-        image_data.image_timestamp = image_timestamp;
-
-        int collected_frame_index;
-        bool codec_selected = false;
-        int64_t latency_offset_ms = 0;
-        status = submit_image(ctx, codec_config, image_data, is_eval_frame,
-                              codec_selected, latency_offset_ms,
-                              &collected_frame_index);
-
-        frame_index += 1;
-        printf("submitted image : %d\n", frame_index);
-
-        //        assert(status == CL_SUCCESS);
-        log_if_cl_err(status, "main.c could not submit image");
-        if (CL_SUCCESS != status) {
-            break;
-        }
-    }
-
-    // join the thread
-    thread.join();
-
-    status = destroy_pocl_image_processor_context(&ctx);
-
-    if (true == RETRY_ON_DISCONNECT && (frame_index < NFRAMES)) {
-        device_index = LOCAL_DEVICE;
-        goto RETRY;
-    }
-
-    assert(status == CL_SUCCESS);
-
-    close(fd);
-    free(inp_yuv420nv21);
-
-    return status;
 }

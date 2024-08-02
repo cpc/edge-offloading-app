@@ -2,8 +2,7 @@
 // Created by rabijl on 11/17/23.
 //
 
-#include "dnn_stage.h"
-#include "poclImageProcessor.h"
+#include "dnn_stage.hpp"
 #include "sharedUtils.h"
 #include <Tracy.hpp>
 #include <cassert>
@@ -24,10 +23,10 @@ dnn_context_t *create_dnn_context() {
 #define postprocess_kernel_name "pocl.dnn.segmentation.postprocess.u8"
 #define reconstruct_kernel_name "pocl.dnn.segmentation.reconstruct.u8"
 #define eval_kernel_name "pocl.dnn.eval.iou.f32"
-char *kernel_names = dnn_kernel_name ";"
-                     postprocess_kernel_name ";"
-                     reconstruct_kernel_name ";"
-                     eval_kernel_name;
+char const *kernel_names = dnn_kernel_name ";"
+                           postprocess_kernel_name ";"
+                           reconstruct_kernel_name ";"
+                           eval_kernel_name;
 
 /**
  * init the dnn context
@@ -83,7 +82,7 @@ init_dnn_context(dnn_context_t *dnn_context, int config_flags, cl_context ocl_co
     CHECK_AND_RETURN(status, "failed to create the segmentation mask buffer");
 
     dnn_context->postprocess_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
-                                                  MASK_W * MASK_H * sizeof(cl_uchar), NULL,
+                                                  MASK_SZ1 * MASK_SZ2 * sizeof(cl_uchar), NULL,
                                                   &status);
     CHECK_AND_RETURN(status, "failed to create the segmentation postprocessing buffer");
 
@@ -134,7 +133,7 @@ init_dnn_context(dnn_context_t *dnn_context, int config_flags, cl_context ocl_co
 
     if (dnn_context->config_flags & SEGMENT_4B) {
         dnn_context->decompress_output_buf = clCreateBuffer(ocl_context, CL_MEM_READ_WRITE,
-                                                            MASK_W * MASK_H * sizeof(cl_uchar),
+                                                            MASK_SZ1 * MASK_SZ2 * sizeof(cl_uchar),
                                                             NULL,
                                                             &status);
     }
@@ -265,7 +264,7 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
 
     if (tmp_buf_ctx != NULL) {
         // Save detections to a temporary buffer for the quality evaluation pipeline
-        size_t sz = DETECTION_SIZE * sizeof(cl_int);
+        size_t sz = DET_COUNT * sizeof(cl_int);
 
         cl_event copy_det_event;
         status = clEnqueueCopyBuffer(dnn_queue, ctx->detect_buf, tmp_buf_ctx->det, 0, 0, sz, 1,
@@ -296,7 +295,7 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
 
     if (tmp_buf_ctx != NULL) {
         // Save postprocessed segmentation to a temporary buffer for the quality evaluation pipeline
-        size_t sz = MASK_W * MASK_H * sizeof(cl_uchar);
+        size_t sz = MASK_SZ1 * MASK_SZ2 * sizeof(cl_uchar);
 
         cl_event copy_event_seg;
         status = clEnqueueCopyBuffer(dnn_queue, ctx->postprocess_buf, tmp_buf_ctx->seg_post, 0,

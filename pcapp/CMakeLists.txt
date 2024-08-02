@@ -123,13 +123,14 @@ add_executable(
         ${APP_DIR}/yuv_compression.c ${APP_DIR}/yuv_compression.h
         ${APP_DIR}/jpeg_compression.c ${APP_DIR}/jpeg_compression.h
         ${APP_DIR}/hevc_compression.c ${APP_DIR}/hevc_compression.h
-        ${APP_DIR}/testapps.c ${APP_DIR}/testapps.h
+        ${APP_DIR}/testapps.cpp ${APP_DIR}/testapps.h
         ${APP_DIR}/poclImageProcessorV2.cpp ${APP_DIR}/poclImageProcessorV2.h
         ${APP_DIR}/segment_4b_compression.cpp ${APP_DIR}/segment_4b_compression.hpp
-        ${APP_DIR}/dnn_stage.cpp ${APP_DIR}/dnn_stage.h
+        ${APP_DIR}/dnn_stage.cpp ${APP_DIR}/dnn_stage.hpp
         ${APP_DIR}/eval.cpp ${APP_DIR}/eval.h
         ${APP_DIR}/codec_select.cpp ${APP_DIR}/codec_select.h
         ${APP_DIR}/poclImageProcessorUtils.cpp ${APP_DIR}/poclImageProcessorUtils.cpp
+        ${APP_DIR}/jpegReader.cpp ${APP_DIR}/jpegReader.h
 )
 
 target_include_directories(

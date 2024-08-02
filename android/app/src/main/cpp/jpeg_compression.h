@@ -9,6 +9,10 @@
 extern "C" {
 #endif
 
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 300
+#endif
+
 #include <rename_opencl.h>
 #include <CL/cl.h>
 #include "event_logger.h"
@@ -68,7 +72,7 @@ write_buffer_jpeg(const jpeg_codec_context_t * ctx, uint8_t * inp_host_buf, size
                   cl_mem cl_buf, event_array_t *event_array, cl_event *result_event);
 
 cl_int
-enqueue_jpeg_compression(const jpeg_codec_context_t *cxt, cl_event wait_event, cl_mem inp_buf,
+enqueue_jpeg_compression(jpeg_codec_context_t *cxt, cl_event wait_event, cl_mem inp_buf,
                          cl_mem out_buf, event_array_t *event_array, cl_event *result_event);
 
 cl_int

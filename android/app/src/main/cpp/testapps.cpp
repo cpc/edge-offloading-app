@@ -6,7 +6,7 @@
 
 #include "testapps.h"
 #include "platform.h"
-#include "poclImageProcessor.h"
+#include "poclImageProcessorV2.h"
 #include "sharedUtils.h"
 
 int test_vec_add() {
@@ -54,10 +54,10 @@ int test_vec_add() {
     CHECK_AND_RETURN(status, "TMP building of program failed");
     LOGI("TMP Created and built program");
 
-    cl_command_queue_properties cq_properties = 0;
-    cl_command_queue tmp_command_queue = clCreateCommandQueue(tmp_context, devices[0],
-                                                              cq_properties,
-                                                              &status);
+    cl_command_queue_properties cq_properties[] = {0};
+    cl_command_queue tmp_command_queue = clCreateCommandQueueWithProperties(tmp_context, devices[0],
+                                                                            cq_properties,
+                                                                            &status);
     CHECK_AND_RETURN(status, "TMP creating eval command queue failed");
     LOGI("TMP Created CQ\n");
 

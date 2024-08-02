@@ -2,20 +2,20 @@
 // Created by rabijl on 27.2.2024.
 //
 
-#include <time.h>
-#include <errno.h>
-#include <assert.h>
 #include "poclImageProcessorV2.h"
-#include "platform.h"
-#include "sharedUtils.h"
-#include "poclImageProcessorUtils.h"
-#include <ctime>
-#include <stdlib.h>
-#include <cstring>
-#include <pthread.h>
 #include "config.h"
+#include "dnn_stage.hpp"
 #include "eval.h"
-#include "dnn_stage.h"
+#include "platform.h"
+#include "poclImageProcessorUtils.h"
+#include "sharedUtils.h"
+#include <assert.h>
+#include <cstring>
+#include <ctime>
+#include <errno.h>
+#include <pthread.h>
+#include <stdlib.h>
+#include <time.h>
 
 #include "Tracy.hpp"
 #include "TracyC.h"
@@ -27,7 +27,7 @@
 extern "C" {
 #endif
 
-#define MAX_EVENTS 99
+#define PIP_MAX_EVENTS 99
 
 /**
  * check that the code was built with the right features enables
@@ -142,7 +142,8 @@ int setup_pipeline_context(pipeline_context *ctx, const int width, const int hei
     ctx->config_flags = config_flags;
     ctx->width = width;
     ctx->height = height;
-    cl_command_queue_properties cq_properties = CL_QUEUE_PROFILING_ENABLE;
+    cl_command_queue_properties cq_properties[] = {CL_QUEUE_PROPERTIES,
+                                                   CL_QUEUE_PROFILING_ENABLE, 0};
 
     // current assumes that there are three devices
     // 1. a local compression device
@@ -151,7 +152,8 @@ int setup_pipeline_context(pipeline_context *ctx, const int width, const int hei
     ctx->queue_count = no_devs;
     ctx->enq_queues = (cl_command_queue *) calloc(no_devs, sizeof(cl_command_queue));
     for (unsigned i = 0; i < no_devs; ++i) {
-        ctx->enq_queues[i] = clCreateCommandQueue(cl_ctx, devices[i], cq_properties, &status);
+        ctx->enq_queues[i] = clCreateCommandQueueWithProperties(cl_ctx, devices[i], cq_properties,
+                                                                &status);
         CHECK_AND_RETURN(status, "creating command queue failed");
     }
 
@@ -271,7 +273,7 @@ int setup_pipeline_context(pipeline_context *ctx, const int width, const int hei
     }
     CHECK_AND_RETURN(status, "could not init dnn_context");
 
-    ctx->event_array = create_event_array_pointer(MAX_EVENTS);
+    ctx->event_array = create_event_array_pointer(PIP_MAX_EVENTS);
 
     ctx->state_mut = PTHREAD_MUTEX_INITIALIZER;
     ctx->state = LANE_READY;
@@ -341,10 +343,10 @@ cl_int init_eval_ctx(eval_pipeline_context_t **const ctx, int width, int height,
     out_ctx->is_eval_running = false;
     out_ctx->iou = -5.0f;
 
-    out_ctx->event_array = create_event_array_pointer(MAX_EVENTS);
+    out_ctx->event_array = create_event_array_pointer(PIP_MAX_EVENTS);
 
     out_ctx->tmp_buf_ctx.det = clCreateBuffer(cl_ctx, CL_MEM_READ_WRITE,
-                                              DETECTION_SIZE * sizeof(cl_int), NULL, &status);
+                                              DET_COUNT * sizeof(cl_int), NULL, &status);
     CHECK_AND_RETURN(status, "failed to create tmp detection output buffer");
 
     out_ctx->tmp_buf_ctx.seg_post = clCreateBuffer(cl_ctx, CL_MEM_READ_WRITE,
@@ -352,7 +354,7 @@ cl_int init_eval_ctx(eval_pipeline_context_t **const ctx, int width, int height,
                                                    &status);
     CHECK_AND_RETURN(status, "failed to create tmp segmentation postprocessing buffer");
 
-    out_ctx->tmp_buf_ctx.event_array = create_event_array_pointer(MAX_EVENTS);
+    out_ctx->tmp_buf_ctx.event_array = create_event_array_pointer(PIP_MAX_EVENTS);
 
     *ctx = out_ctx;
 
@@ -437,7 +439,9 @@ int create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, 
     cl_uint devices_found;
     cl_int status;
 
-    cl_command_queue_properties cq_properties = CL_QUEUE_PROFILING_ENABLE;
+//    cl_command_queue_properties cq_properties = CL_QUEUE_PROFILING_ENABLE;
+    cl_command_queue_properties cq_properties[] = {CL_QUEUE_PROPERTIES,
+                                                   CL_QUEUE_PROFILING_ENABLE, 0};
     cl_context_properties cps[3];
 
     TracyCLCtx *tracy_ctx;
@@ -507,7 +511,8 @@ int create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, 
                                         0);
         CATCH_AND_SET_STATUS(status, "could not create pipeline context ");
 
-        snprintf(ctx->pipeline_array[i].lane_name, 16, "lane: %d", i);
+        snprintf(ctx->pipeline_array[i].lane_name, sizeof(ctx->pipeline_array[i].lane_name),
+                 "lane: %hu", i);
 
         // Set names for tracy contexts
         char ctx_name[32];
@@ -527,20 +532,23 @@ int create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, 
     // create a queue used to receive images
     assert(1 <= devices_found && "expected at least 1 device, but not the case");
 
-    ctx->read_queue = clCreateCommandQueue(context, devices[LOCAL_DEVICE], cq_properties, &status);
+    ctx->read_queue = clCreateCommandQueueWithProperties(context, devices[LOCAL_DEVICE],
+                                                         cq_properties, &status);
     CATCH_AND_SET_STATUS(status, "creating read queue failed");
 
     if (devices_found > 2) {
         ping_fillbuffer_init(&(ctx->ping_context), context);
-        ctx->remote_queue = clCreateCommandQueue(context, devices[REMOTE_DEVICE], cq_properties,
-                                                 &status);
+
+        ctx->remote_queue = clCreateCommandQueueWithProperties(context, devices[REMOTE_DEVICE],
+                                                               cq_properties,
+                                                               &status);
         CATCH_AND_SET_STATUS(status, "creating remote queue failed");
 
         status = init_eval_ctx(&ctx->eval_ctx, width, height, context, &(devices[REMOTE_DEVICE]));
         CATCH_AND_SET_STATUS(status, "creating init eval ctx failed");
 
         // TODO: create a thread that waits on the eval queue
-        // for now read eval data when reading results
+        //  for now read eval data when reading results
     }
 
     for (int i = 0; i < MAX_NUM_CL_DEVICES; ++i) {
@@ -1045,7 +1053,7 @@ cl_int get_compression_size(pipeline_context *pipeline_ctx, frame_metadata_t *fr
         CHECK_AND_RETURN(status, "failed to wait for sz read event");
     }
 
-    frame_metadata->size_bytes_rx = DETECTION_SIZE + MASK_SZ1 * MASK_SZ2;
+    frame_metadata->size_bytes_rx = DET_COUNT + MASK_SZ1 * MASK_SZ2;
 
     return CL_SUCCESS;
 }
@@ -1065,7 +1073,7 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
     ZoneScoped;
 
     // variables used later, but need to be declared now for goto statement
-    char *markId = new char[16];
+    char markId[23];
 
     int index = ctx->frame_index_tail % ctx->lane_count;
     ctx->frame_index_tail += 1;
@@ -1197,10 +1205,9 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
         memcpy(return_metadata, &image_metadata, sizeof(frame_metadata_t));
     }
 
-    snprintf(markId, 16, "frame end: %i", ctx->frame_index_tail - 1);
+    snprintf(markId, sizeof(markId), "frame end: %d", ctx->frame_index_tail - 1);
     TracyMessage(markId, strlen(markId));
     TracyCFrameMarkEnd(pipeline->lane_name);
-
 
     FINISH:
 

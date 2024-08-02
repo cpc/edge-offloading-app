@@ -72,6 +72,9 @@ add_ns_to_time(struct timespec *const ts, const long increment);
 long
 compare_timespec(const struct timespec *const ts_a, const struct timespec *const ts_b);
 
+int64_t get_diff_timespec(const struct timespec *const start,
+                          const struct timespec *const stop);
+
 /** Helpers for logging values into a file **/
 
 void log_frame_int(int fd, int frame_index, const char* tag, const char* parameter, int value);

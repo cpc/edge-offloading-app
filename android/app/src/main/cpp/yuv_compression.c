@@ -3,9 +3,8 @@
 //
 
 #include "yuv_compression.h"
-#include "poclImageProcessor.h"
 #include "sharedUtils.h"
-
+#include "poclImageProcessorTypes.h"
 
 // todo: increase these values to match the values in dct.cl
 #define BLK_W 1

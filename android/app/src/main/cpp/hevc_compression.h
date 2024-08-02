@@ -9,6 +9,10 @@
 extern "C" {
 #endif
 
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 300
+#endif
+
 #include <rename_opencl.h>
 #include <CL/cl.h>
 #include "event_logger.h"

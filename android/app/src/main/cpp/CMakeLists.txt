@@ -192,23 +192,25 @@ include_directories("${CMAKE_BINARY_DIR}")
 add_library(poclnative
         SHARED
         sharedUtils.h sharedUtils.c
-#        poclImageProcessor.cpp
+        #        poclImageProcessor.cpp
         jni_utils.cpp jni_utils.h
-#        jniWrapper.cpp
+        #        jniWrapper.cpp
         event_logger.c event_logger.h
         yuv_compression.c yuv_compression.h
-		dnn_stage.cpp dnn_stage.h
+        dnn_stage.cpp dnn_stage.hpp
         jpeg_compression.c jpeg_compression.h
         hevc_compression.c hevc_compression.h
-		testapps.c testapps.h
-		poclImageProcessorTypes.h
-		poclImageProcessorUtils.cpp poclImageProcessorUtils.h
-		poclImageProcessorV2.cpp poclImageProcessorV2.h
-		jniWrapperV2.cpp
-		codec_select.cpp codec_select.h
-		eval.cpp eval.h
-		jni_discovery.cpp
-		RawImageReader.cpp RawImageReader.hpp
+        testapps.cpp testapps.h
+        poclImageProcessorTypes.h
+        poclImageProcessorUtils.cpp poclImageProcessorUtils.h
+        poclImageProcessorV2.cpp poclImageProcessorV2.h
+        codec_select_wrapper.h
+        jpegReader.cpp jpegReader.h
+        jniWrapperV2.cpp
+        codec_select.cpp codec_select.h
+        eval.cpp eval.h
+        jni_discovery.cpp
+        RawImageReader.cpp RawImageReader.hpp
 		segment_4b_compression.cpp segment_4b_compression.hpp
 		opencl_utils.cpp opencl_utils.hpp
         )

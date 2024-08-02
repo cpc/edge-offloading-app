@@ -10,11 +10,13 @@
 extern "C" {
 #endif
 
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 300
+#endif
+
 #include "rename_opencl.h"
 #include <CL/cl.h>
 #include <malloc.h>
-
-#define MAX_EVENTS 64
 
 typedef struct {
     cl_event event;
@@ -27,6 +29,8 @@ typedef struct {
     event_pair_t *array;
 } event_array_t;
 
+// TODO: see if this needs to be changed to match pip_max_events
+#define MAX_COLLECTED_EVENTS 64
 /**
  * Contains measured event times (in milliseconds) of each event in event_array_t.
  *
@@ -34,8 +38,8 @@ typedef struct {
  */
 typedef struct {
     int num_events;
-    const char *descriptions[MAX_EVENTS];
-    float end_start_ms[MAX_EVENTS];
+    const char *descriptions[MAX_COLLECTED_EVENTS];
+    float end_start_ms[MAX_COLLECTED_EVENTS];
 } collected_events_t;
 
 /**
