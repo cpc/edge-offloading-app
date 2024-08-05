@@ -901,8 +901,8 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
 
     int status;
     int index = ctx->frame_index_head % ctx->lane_count;
+    *frame_index = ctx->frame_index_head;
     ctx->frame_index_head += 1;
-    *frame_index = ctx->frame_index_head - 1;
 
     char *markId = new char[16];
     snprintf(markId, 16, "frame start: %i", *frame_index);
@@ -1111,6 +1111,7 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
 //        nanosleep(&ts, NULL);
 //    }
 
+    // TODO: is it required to collect data on every lane instead of the currently being used lane?
     for (int i = 0; i < ctx->lane_count; i++) {
         TracyCLCollect(ctx->pipeline_array[i].dnn_context->local_tracy_ctx);
         if (ctx->pipeline_array[i].dnn_context->local_tracy_ctx !=

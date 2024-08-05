@@ -28,11 +28,11 @@
 
 /* forward declaration */
 cl_int test_pthread_bik();
-void read_function(pocl_image_processor_context *ctx, int *read_frame_count);
+void read_function(pocl_image_processor_context *ctx, codec_select_state_t *state, int *read_frame_count);
 
 /* pcapp settings */
 constexpr float FPS = 3.0f;
-constexpr int NFRAMES = 10;
+constexpr int NFRAMES = 100;
 constexpr bool RETRY_ON_DISCONNECT = true;
 
 /* runtime settings */
@@ -119,7 +119,7 @@ RETRY:
 
     // create read thread
 
-    std::thread thread(read_function, ctx, &read_frame_count);
+    std::thread thread(read_function, ctx, state, &read_frame_count);
 
     /* Process */
     while (frame_index < NFRAMES) {
@@ -185,13 +185,12 @@ RETRY:
  * The function that receives images continuously
  * @param ctx image processor context
  */
-void read_function(pocl_image_processor_context *ctx, int *read_frame_count) {
+void read_function(pocl_image_processor_context *ctx, codec_select_state_t *state, int *read_frame_count) {
 
-    int segmentation = 0;
-    frame_metadata_t eval_metadata;
     int status;
     std::vector<int32_t> detections(DET_COUNT);
     std::vector<uint8_t> segmentations(SEG_OUT_COUNT);
+    int64_t metadata_array[2];
 
     bool error_state = false;
 
@@ -205,11 +204,11 @@ void read_function(pocl_image_processor_context *ctx, int *read_frame_count) {
             }
         }
 
-        collected_events_t collected_events;
         detections[0] = 0;
-        status =
-            receive_image(ctx, detections.data(), segmentations.data(),
-                          &eval_metadata, &segmentation, &collected_events);
+
+        status = codec_select_receive_image(state, ctx, detections.data(),
+                                            segmentations.data(), metadata_array);
+
         *read_frame_count += 1;
 
         log_if_cl_err(status, "main.c could not enqueue image");

@@ -137,6 +137,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
     assert(NULL != ctx);
 
     image_data_t image_data;
+    bool is_last_playback_frame = false;
     if (nullptr != rawReader) {
         const int NUM_LOCAL_PLAYBACK_FRAMES = 10;  // run local device for only a few frames
         const int NUM_REMOTE_PLAYBACK_FRAMES = 75; // set a very large number to play all
@@ -148,7 +149,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
         rotation = 0;
 
         // substitute the frame with one from a file
-        bool is_last_playback_frame = rawReader->readImage(&image_data);
+        is_last_playback_frame = rawReader->readImage(&image_data);
         is_last_playback_frame |= rawReader->getCurrentFrameNum() >= NUM_PLAYBACK_FRAMES;
 
         if (is_last_playback_frame) {
@@ -170,6 +171,11 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_poclSubmitYUVImage(JNIEnv
 
     int status = codec_select_submit_image(state, ctx, device_index, do_segment, compression_type,
                                            quality, rotation, do_algorithm, &image_data);
+
+    if (state->enable_profiling) {
+        log_frame_int(state->fd, ctx->frame_index_head - 1, "frame", "is_last_frame",
+                      is_last_playback_frame ? 1 : 0);
+    }
 
     return status;
 }
@@ -206,21 +212,7 @@ Java_org_portablecl_poclaisademo_JNIPoclImageProcessor_receiveImage(JNIEnv *env,
     int64_t *metadata_array = env->GetLongArrayElements(metadataExchange, JNI_FALSE);
 
     int status;
-    frame_metadata_t metadata;
-//    lane_state_t new_state;
-    status = receive_image(ctx, detection_array, segmentation_array, &metadata,
-                           (int32_t *) metadata_array, state->collected_events);
-
-    if (status == CL_SUCCESS) {
-        // log statistics to codec selection data
-        update_stats(&metadata, ctx->eval_ctx, state);
-    }
-
-    // not strictly necessary, just easier to debug without having old values lying around
-    reset_collected_events(state->collected_events);
-
-    // narrow down to micro seconds
-    metadata_array[1] = ((metadata.host_ts_ns.stop - metadata.host_ts_ns.start) / 1000);
+    status = codec_select_receive_image(state, ctx, detection_array, segmentation_array, metadata_array);
 
     // commit the results back
     env->ReleaseIntArrayElements(detection_result, detection_array, JNI_FALSE);

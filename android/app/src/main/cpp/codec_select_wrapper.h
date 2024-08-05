@@ -87,12 +87,6 @@ codec_select_submit_image(codec_select_state_t *state, pocl_image_processor_cont
                           latency_offset_ms, &frame_index);
     CHECK_AND_RETURN(status, "could not submit frame");
 
-    // TODO: see if this can be moved or is still needed
-//    if (state->enable_profiling) {
-//        log_frame_int(state->fd, frame_index, "frame", "is_last_frame",
-//                      is_last_playback_frame ? 1 : 0);
-//    }
-
     if (is_eval_frame) {
         // submit the eval frame if appropriate
         status = run_eval(ctx->eval_ctx, state, codec_config, frame_index, *image_data);
@@ -101,6 +95,30 @@ codec_select_submit_image(codec_select_state_t *state, pocl_image_processor_cont
 
     return status;
 
+}
+
+inline static int
+codec_select_receive_image(codec_select_state_t *state, pocl_image_processor_context *ctx,
+                           int32_t *detection_array, uint8_t *segmentation_array, int64_t *metadata_array) {
+
+    int status;
+    frame_metadata_t metadata;
+    //    lane_state_t new_state;
+    status = receive_image(ctx, detection_array, segmentation_array, &metadata,
+                           (int32_t *) metadata_array, state->collected_events);
+
+    if (status == CL_SUCCESS) {
+        // log statistics to codec selection data
+        update_stats(&metadata, ctx->eval_ctx, state);
+    }
+
+    // not strictly necessary, just easier to debug without having old values lying around
+    reset_collected_events(state->collected_events);
+
+    // narrow down to micro seconds
+    metadata_array[1] = ((metadata.host_ts_ns.stop - metadata.host_ts_ns.start) / 1000);
+
+    return status;
 }
 
 #ifdef __cplusplus
