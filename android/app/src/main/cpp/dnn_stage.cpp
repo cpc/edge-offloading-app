@@ -312,7 +312,7 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
         return CL_SUCCESS;
     }
 
-    cl_event reconstruct_wait_event;
+    cl_event reconstruct_wait_event = postprocess_event;
 
     if (ctx->config_flags & SEGMENT_4B) {
 
