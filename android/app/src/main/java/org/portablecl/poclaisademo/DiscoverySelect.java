@@ -173,17 +173,17 @@ public class DiscoverySelect {
         String deviceType;
         // 0:CL_DEVICE_TYPE_CPU , 1:CL_DEVICE_TYPE_GPU , 2:CL_DEVICE_TYPE_ACCELERATOR ,
         // 4:CL_DEVICE_TYPE_CUSTOM
-        switch (txt.substring(1, 2)) {
-            case "0":
+        switch (txt.charAt(0)) {
+            case '0':
                 deviceType = "CPU";
                 break;
-            case "1":
+            case '1':
                 deviceType = "GPU";
                 break;
-            case "2":
+            case '2':
                 deviceType = "Accelerator";
                 break;
-            case "4":
+            case '4':
                 deviceType = "Custom";
                 break;
             default:

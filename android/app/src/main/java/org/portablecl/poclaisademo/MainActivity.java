@@ -553,8 +553,9 @@ public class MainActivity extends AppCompatActivity {
                                 DSSelect.serviceMap.get(selectedServer);
                         Log.d("DISC", "Reconnect status: " + temp.reconnect);
                         poclImageProcessor.stop();
-                        Discovery.addDevice(selectedServer + "/0", (temp.reconnect ? 1 : 0));
-                        Discovery.addDevice(selectedServer + "/1", (temp.reconnect ? 1 : 0));
+                        //addDevice() takes mode, where add:1, re-add:0
+                        Discovery.addDevice(selectedServer + "/0", (temp.reconnect ? 0 : 1));
+                        Discovery.addDevice(selectedServer + "/1", (temp.reconnect ? 0 : 1));
                         temp.reconnect = true;
                         poclImageProcessor.start(temp.name);
                         pingMonitor.stop();

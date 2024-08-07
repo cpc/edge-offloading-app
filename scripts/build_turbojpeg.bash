@@ -4,7 +4,6 @@
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 TJDIR="${SCRIPT_DIR}/../external/libjpeg-turbo"
-INSTALL_DIR_PREFIX="${TJDIR}/libturbojpeg"
 
 cd "$TJDIR" || exit
 
