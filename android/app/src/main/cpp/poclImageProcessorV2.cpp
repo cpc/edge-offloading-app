@@ -939,7 +939,7 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
 
     // TODO PING: Don't run ping on each frame
     // run the ping buffer (needs to run also on local device to check if network improved)
-    if (ctx->devices_found > 5) {
+    if (ctx->devices_found > 2) {
         // todo: see if this should be run on every device
 //        image_metadata->host_ts_ns.before_fill = get_timestamp_ns();
         status = ping_fillbuffer_run(ctx->ping_context, ctx->remote_queue,
@@ -1133,7 +1133,7 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
 
     // TODO PING: Don't run ping on each frame
     image_metadata.host_ts_ns.fill_ping_duration_ms = 0;
-    if (ctx->devices_found <= 5) {
+    if (ctx->devices_found <= 2) {
         // Don't track networking latency if the only available device is local
         image_metadata.host_ts_ns.fill_ping_duration_ms = 0;
     } else {
