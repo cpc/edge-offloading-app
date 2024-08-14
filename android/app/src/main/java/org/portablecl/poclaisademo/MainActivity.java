@@ -2,14 +2,14 @@ package org.portablecl.poclaisademo;
 
 
 import static android.hardware.camera2.CameraMetadata.LENS_FACING_BACK;
-import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
-import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
 import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
 import static org.portablecl.poclaisademo.BundleKeys.TOTALLOGS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.JPEG_IMAGE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_DEVICE;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_ONLY;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.NO_COMPRESSION;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.REMOTE_DEVICE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.allCompressionOptions;
@@ -152,7 +152,6 @@ public class MainActivity extends AppCompatActivity {
     private Size previewSize;
 
     private String IPAddress;
-    private boolean disableRemote;
 
     private static OverlayVisualizer overlayVisualizer;
 
@@ -328,10 +327,8 @@ public class MainActivity extends AppCompatActivity {
         // get bundle with variables set during startup activity
         Bundle bundle = getIntent().getExtras();
 
-        disableRemote = bundle.getBoolean(DISABLEREMOTEKEY);
-
         try {
-            setLogging(bundle.getBoolean(ENABLELOGGINGKEY, false));
+            setLogging((ENABLE_PROFILING & configFlags) > 0);
         } catch (Exception e) {
             if (VERBOSITY >= 2) {
                 Log.println(Log.INFO, "mainactivity:logging", "could not read enablelogging");
@@ -419,7 +416,7 @@ public class MainActivity extends AppCompatActivity {
 
         DSSelect = new DiscoverySelect(this, discoverySpinner, discoverySpinnerListener);
 
-        if (disableRemote) {
+        if ((LOCAL_ONLY & configFlags) > 0) {
             // disable this switch when remote is disabled
             modeSwitch.setClickable(false);
             setNativeEnv("POCL_DEVICES", "pthread");
@@ -1100,8 +1097,6 @@ public class MainActivity extends AppCompatActivity {
                 applicationContext.getPackageManager().getLaunchIntentForPackage(
                         applicationContext.getPackageName());
         Intent restartIntent = Intent.makeRestartActivityTask(intent.getComponent());
-        restartIntent.putExtra(DISABLEREMOTEKEY, disableRemote);
-        restartIntent.putExtra(ENABLELOGGINGKEY, enablePoclLogging);
         applicationContext.startActivity(restartIntent);
         Runtime.getRuntime().exit(0);
 

@@ -5,15 +5,15 @@
 package org.portablecl.poclaisademo;
 
 import static org.portablecl.poclaisademo.BundleKeys.BENCHMARKVIDEOURI;
-import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLECOMPRESSIONKEY;
-import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
 import static org.portablecl.poclaisademo.BundleKeys.ENABLESEGMENTATIONKEY;
 import static org.portablecl.poclaisademo.BundleKeys.IMAGECAPTUREFRAMETIMEKEY;
 import static org.portablecl.poclaisademo.BundleKeys.LOGKEYS;
 import static org.portablecl.poclaisademo.BundleKeys.TOTALLOGS;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.ENABLE_PROFILING;
+import static org.portablecl.poclaisademo.JNIPoclImageProcessor.LOCAL_ONLY;
 import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 
 import android.app.Notification;
@@ -195,7 +195,7 @@ public class BenchmarkService extends Service {
         // get bundle with variables set during startup activity
         Bundle bundle = intent.getExtras();
         String IPAddress = configStore.getIpAddressText();
-        boolean disableRemote = bundle.getBoolean(DISABLEREMOTEKEY);
+        boolean disableRemote = (LOCAL_ONLY & configFlags) > 0;
         deviceIndex = disableRemote ? 0 : 2;
         boolean enableSegmentation = bundle.getBoolean(ENABLESEGMENTATIONKEY, true);
         boolean enableCompression = bundle.getBoolean(ENABLECOMPRESSIONKEY, false);
@@ -203,7 +203,7 @@ public class BenchmarkService extends Service {
 
         boolean enableLogging;
         try {
-            enableLogging = bundle.getBoolean(ENABLELOGGINGKEY, false);
+            enableLogging = (ENABLE_PROFILING & configFlags) > 0;
         } catch (Exception e) {
             if (VERBOSITY >= 2) {
                 Log.println(Log.INFO, "benchmarkService:logging", "could not read enablelogging");

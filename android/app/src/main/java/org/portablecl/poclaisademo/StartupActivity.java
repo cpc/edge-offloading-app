@@ -1,8 +1,6 @@
 package org.portablecl.poclaisademo;
 
 import static org.portablecl.poclaisademo.BundleKeys.CAMERALOGFILEURIKEY;
-import static org.portablecl.poclaisademo.BundleKeys.DISABLEREMOTEKEY;
-import static org.portablecl.poclaisademo.BundleKeys.ENABLELOGGINGKEY;
 import static org.portablecl.poclaisademo.BundleKeys.MONITORLOGFILEURIKEY;
 import static org.portablecl.poclaisademo.BundleKeys.POCLLOGFILEURIKEY;
 import static org.portablecl.poclaisademo.DevelopmentVariables.DEBUGEXECUTION;
@@ -110,14 +108,7 @@ public class StartupActivity extends AppCompatActivity {
      * textview where the user inputs the ip address
      */
     private AutoCompleteTextView IPAddressView;
-    /**
-     * a boolean that is passed to the main activity disable remote
-     */
-    private boolean disableRemote;
-    /**
-     * boolean to store user values
-     */
-    private boolean enableLogging;
+
     /**
      * A listener that on the press of a button, will enable logging.
      */
@@ -129,7 +120,6 @@ public class StartupActivity extends AppCompatActivity {
                 Log.println(Log.INFO, "EXECUTIONFLOW", "started urilistener callback");
             }
 
-            enableLogging = ((Switch) v).isChecked();
         }
     };
     /**
@@ -387,8 +377,6 @@ public class StartupActivity extends AppCompatActivity {
                 setCheckedAllCompButtons(false);
             }
 
-            disableRemote = ((Switch) v).isChecked();
-
         }
     };
     private Switch modeSwitch;
@@ -477,18 +465,13 @@ public class StartupActivity extends AppCompatActivity {
             Toast.makeText(StartupActivity.this, "Starting demo, please wait",
                     Toast.LENGTH_SHORT).show();
 
-            // pass ip to the main activity
-            // todo: store these values in the configstore instead
-            i.putExtra(DISABLEREMOTEKEY, disableRemote);
-            i.putExtra(ENABLELOGGINGKEY, enableLogging);
-
             int configFlag = genConfigFlags();
 
             LocalDateTime datetime = LocalDateTime.now();
             String datetimeText = datetime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T" +
                     "'HH_mm_ss"));
 
-            if (enableLogging) {
+            if (enableLoggingSwitch.isChecked()) {
                 String pocl_file = "pocl_log_" + datetimeText + ".csv";
                 Uri uri = createLogFile(pocl_file);
                 i.putExtra(POCLLOGFILEURIKEY, uri.toString());
@@ -572,8 +555,7 @@ public class StartupActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         configStore = new ConfigStore(this);
-
-        Bundle bundle = getIntent().getExtras();
+        int configFlags = configStore.getConfigFlags();
 
         startButton = binding.startButton;
         startButton.setOnClickListener(startListener);
@@ -590,24 +572,8 @@ public class StartupActivity extends AppCompatActivity {
         modeSwitch = binding.disableSwitch;
         modeSwitch.setOnClickListener(modeListener);
 
-        if (null != bundle && bundle.containsKey(DISABLEREMOTEKEY)) {
-            boolean state = bundle.getBoolean(DISABLEREMOTEKEY);
-            Log.println(Log.INFO, "startupactivity", "setting disableRemote to: " + state);
-            modeSwitch.setChecked(state);
-            disableRemote = state;
-        } else {
-            disableRemote = false;
-        }
-
         enableLoggingSwitch = binding.disableLoggingSwitch;
         enableLoggingSwitch.setOnClickListener(URIListener);
-
-        enableLogging =
-                (null != bundle && bundle.containsKey(ENABLELOGGINGKEY) && (bundle.getBoolean(ENABLELOGGINGKEY)));
-        Log.println(Log.INFO, "startupactivity", "setting logging to: " + enableLogging);
-        enableLoggingSwitch.setChecked(enableLogging);
-
-        int configFlags = configStore.getConfigFlags();
 
         yuvCompButton = binding.yuvCompButton;
         yuvCompButton.setOnClickListener(yuvCompButtonListener);
@@ -671,6 +637,14 @@ public class StartupActivity extends AppCompatActivity {
         pipelineLanesField.setOnEditorActionListener(loseFocusListener);
         pipelineLanesField.setOnFocusChangeListener(pipelineFocusListener);
 
+        // perform these clicks after all buttons have been initialized
+        if ((LOCAL_ONLY & configFlags) > 0) {
+            modeSwitch.performClick();
+        }
+        if ((ENABLE_PROFILING & configFlags) > 0) {
+            enableLoggingSwitch.performClick();
+        }
+
         Spinner discoverySpinner = binding.discoverySpinner;
         // Create a listener callback for the spinner object to use the selected server from the
         // list.
@@ -712,7 +686,7 @@ public class StartupActivity extends AppCompatActivity {
         if (jpegImageButton.isChecked()) {
             configFlag |= JPEG_IMAGE;
         }
-        if (enableLogging) {
+        if (enableLoggingSwitch.isChecked()) {
             configFlag |= ENABLE_PROFILING;
         }
         if (hevcCompButton.isChecked()) {
@@ -721,7 +695,7 @@ public class StartupActivity extends AppCompatActivity {
         if (softwareHevcCompButton.isChecked()) {
             configFlag |= SOFTWARE_HEVC_COMPRESSION;
         }
-        if (disableRemote) {
+        if (modeSwitch.isChecked()) {
             configFlag |= LOCAL_ONLY;
         }
         if (seg4bSwitch.isChecked()) {

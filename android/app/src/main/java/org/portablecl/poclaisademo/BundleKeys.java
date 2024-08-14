@@ -4,12 +4,6 @@ package org.portablecl.poclaisademo;
 public class BundleKeys {
 
     /**
-     * Key to pass the disableremote boolean around
-     */
-    public static final String DISABLEREMOTEKEY = "disableRemote";
-
-
-    /**
      * Key to pass the uri to the main activity
      */
     public static final String POCLLOGFILEURIKEY = "pocllogfileuri";
@@ -27,10 +21,7 @@ public class BundleKeys {
 
     public static final String VIDEOBENCHMARKKEY = "videobenchmarkkey";
 
-
     public static final String[] BENCHMARKKEYS = {VIDEOBENCHMARKKEY};
-
-    public static final String ENABLELOGGINGKEY = "enablelogging";
 
     public static final String BENCHMARKVIDEOURI = "benchmarkvideouri";
 
