@@ -1053,7 +1053,11 @@ cl_int get_compression_size(pipeline_context *pipeline_ctx, frame_metadata_t *fr
         CHECK_AND_RETURN(status, "failed to wait for sz read event");
     }
 
-    frame_metadata->size_bytes_rx = DET_COUNT + MASK_SZ1 * MASK_SZ2;
+    if (pipeline_ctx->config_flags | SEGMENT_4B) {
+        frame_metadata->size_bytes_rx = DET_COUNT + MASK_SZ1 * MASK_SZ2 / 2;
+    } else {
+        frame_metadata->size_bytes_rx = DET_COUNT + MASK_SZ1 * MASK_SZ2;
+    }
 
     return CL_SUCCESS;
 }

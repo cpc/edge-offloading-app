@@ -16,14 +16,15 @@ extern "C" {
 /** Different logging levels */
 #define SLOG_SELECT                (1 << 0)
 #define SLOG_SELECT_2              (1 << 1)
-#define SLOG_SELECT_DBG            (1 << 2)
-#define SLOG_CONSTR                (1 << 3)
-#define SLOG_UPDATE_DBG            (1 << 4)
-#define SLOG_COLLECT_LATENCY_DBG   (1 << 5)
-#define SLOG_COLLECT_EXTERNAL_DBG  (1 << 6)
-#define SLOG_EVAL                  (1 << 7)
-#define SLOG_EXTERNAL_POW          (1 << 8)
-#define SLOG_EXTERNAL_PING         (1 << 9)
+#define SLOG_SELECT_3              (1 << 2)
+#define SLOG_SELECT_DBG            (1 << 3)
+#define SLOG_CONSTR                (1 << 4)
+#define SLOG_UPDATE_DBG            (1 << 5)
+#define SLOG_COLLECT_LATENCY_DBG   (1 << 6)
+#define SLOG_COLLECT_EXTERNAL_DBG  (1 << 7)
+#define SLOG_EVAL                  (1 << 8)
+#define SLOG_EXTERNAL_POW          (1 << 9)
+#define SLOG_EXTERNAL_PING         (1 << 10)
 #define SLOG_DBG                   (1 << 31)
 
 /** Verbosity of messages printed from this file (0 turns them off) */
@@ -47,7 +48,7 @@ extern "C" {
 /**
  * How many constraints we are placing on variables driving the codec selection.
  */
-#define NUM_CONSTRAINTS 5
+#define NUM_CONSTRAINTS 6
 
 /**
  * How many metrics are considered per codec (should correspond to metric_t variants)
@@ -130,11 +131,11 @@ const char *const OPT_NAMES[2] = {"min", "max"};
  */
 typedef enum {
     CONSTR_HARD,  // Hard constraints need to fit below/over a certain limit, not counted into the metric product
-    CONSTR_HARD_VOLATILE,  // Same as hard + has a volatile, network-dependent part (e.g. latency)
+    CONSTR_VOLATILE,  // Can change after calibration and optionally has a volatile, network-dependent part (e.g. latency)
     CONSTR_SOFT,  // Soft constraints do not have a limit, they are used to calculate the product to select the best codec
 } constraint_type_t;
 
-const char *const CONSTR_TYPE_NAMES[3] = {"hard", "hard_volatile", "soft"};
+const char *const CONSTR_TYPE_NAMES[3] = {"hard", "volatile", "soft"};
 
 /**
  * Umbrella type for hard and soft constraints
@@ -201,6 +202,8 @@ typedef struct {
     float dec;
     float dnn;
     float postprocess;
+    float seg_enc;
+    float seg_dec;
     float reconstruct;
 } kernel_times_ms_t;
 

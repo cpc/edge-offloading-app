@@ -88,31 +88,23 @@ encode_segment_4b(segment_4b_context_t *ctx, const cl_event *wait_event,
     CHECK_AND_RETURN(status, "could not set decode kernel args");
 
     {
-#ifdef TRACY_ENABLE
-        TracyCLZone(dnn_ctx->remote_tracy_ctx, "seg_enc");
-#endif
+//        TracyCLZone(dnn_ctx->remote_tracy_ctx, "seg_enc");
         status = clEnqueueNDRangeKernel(ctx->encode_queue, ctx->encode_kernel, ctx->work_dim, NULL,
                                         ctx->global_size, ctx->local_size, 1, &seg_mig_event,
                                         &seg_enc_event);
         CHECK_AND_RETURN(status, "failed to enqueue ND range seg_enc kernel");
         append_to_event_array(event_array, seg_enc_event, VAR_NAME(seg_enc_event));
-#ifdef TRACY_ENABLE
-        TracyCLZoneSetEvent(seg_enc_event);
-#endif
+//        TracyCLZoneSetEvent(seg_enc_event);
     }
 
     {
-#ifdef TRACY_ENABLE
-        TracyCLZone(dnn_ctx->local_tracy_ctx, "reconstruct");
-#endif
+//        TracyCLZone(dnn_ctx->local_tracy_ctx, "reconstruct");
         status = clEnqueueNDRangeKernel(ctx->decode_queue, ctx->decode_kernel, ctx->work_dim, NULL,
                                         ctx->global_size, ctx->local_size, 1, &seg_enc_event,
                                         &seg_dec_event);
         CHECK_AND_RETURN(status, "failed to enqueue ND range seg_dec kernel");
         append_to_event_array(event_array, seg_dec_event, VAR_NAME(seg_dec_event));
-#ifdef TRACY_ENABLE
-        TracyCLZoneSetEvent(seg_dec_event);
-#endif
+//        TracyCLZoneSetEvent(seg_dec_event);
     }
 
     *event = seg_dec_event;

@@ -65,7 +65,13 @@ const STEPS_DEEP = [
 
 const STEPS_SHALLOW = [
     [time opts];
-    [45sec  [delay '15ms' '10ms' distribution normal rate 1mbit ]]
+    #[45sec  [delay '15ms' '10ms' distribution normal rate 1mbit ]]
+    [45sec  [rate 0.8mbit ]]
+]
+
+const STEPS_COMBI = [
+    [time opts];
+    [45sec [delay '10ms' '5ms' distribution normal loss random 5% rate 0.8mbit]]
 ]
 
 # Using Linux netem functionality to manipulate network latency/packet loss
@@ -74,5 +80,5 @@ const STEPS_SHALLOW = [
 # https://stackoverflow.com/a/615757
 # https://serverfault.com/questions/787006/how-to-add-latency-and-bandwidth-limit-interface-using-tc
 export def main [] {
-    run-rules $STEPS_SHALLOW 15sec
+    run-rules $STEPS_COMBI 15sec
 }

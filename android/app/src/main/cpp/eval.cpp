@@ -89,7 +89,6 @@ submit_eval_frame(eval_pipeline_context_t *eval_ctx, const codec_config_t codec_
     status = enqueue_eval_dnn_iou(eval_ctx, &codec_config, eval_ctx->eval_pipeline->event_array,
                                   &eval_ctx->iou);
     CHECK_AND_RETURN(status, "could not enqueue eval kernel");
-    LOGE("submitted eval image \n");
 
     return CL_SUCCESS;
 }

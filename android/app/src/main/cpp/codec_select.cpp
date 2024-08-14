@@ -39,7 +39,7 @@ static const int MIN_NSAMPLES = 2;
 
 // Empty initializers
 
-static const kernel_times_ms_t EMPTY_KERNEL_TIMES = {.enc = 0.0f, .dec = 0.0f, .dnn = 0.0f, .postprocess = 0.0f, .reconstruct = 0.0f,};
+static const kernel_times_ms_t EMPTY_KERNEL_TIMES = {.enc = 0.0f, .dec = 0.0f, .dnn = 0.0f, .postprocess = 0.0f, .seg_enc = 0.0f, .seg_dec = 0.0f, .reconstruct = 0.0f,};
 static const latency_data_t EMPTY_LATENCY_DATA = {.kernel_times_ms = EMPTY_KERNEL_TIMES, .total_ms = 0.0f, .latency_ms = 0.0f, .network_ms = 0.0f, .size_bytes = 0.0f, .size_bytes_log10 = 0.0f, .fps = 0.0f};
 static const int EMPTY_EXT_POW = -1;
 static const int EMPTY_EXT_PING = -1.0f;
@@ -199,7 +199,7 @@ static void metrics_product(const codec_select_state_t *const state, indexed_met
     return metrics_product_custom(state, state->constraints, metrics);
 }
 
-static float get_pow_variance(const external_data_t *data) {
+static float get_init_pow_variance(const external_data_t *data) {
     sum_data_t sum_data = data->init_pow_w_sum[data->min_pow_w_id];
     int nsamples = data->init_pow_w_nsamples[data->min_pow_w_id];
 
@@ -213,15 +213,15 @@ static float get_pow_variance(const external_data_t *data) {
     return var;
 }
 
-static float get_rel_pow_thr(const external_data_t *data) {
+static float get_init_rel_pow_thr(const external_data_t *data) {
     float min_pow_w = data->init_pow_w[data->min_pow_w_id];
-    float variance = get_pow_variance(data);
+    float variance = get_init_pow_variance(data);
 
     return min_pow_w + sqrtf(variance);
 }
 
 static float get_rel_pow(const external_data_t *data, float power_w) {
-    const float thr = get_rel_pow_thr(data);
+    const float thr = get_init_rel_pow_thr(data);
 
     float rel_pow = 1.0f;
     if (power_w > thr) {
@@ -374,7 +374,7 @@ static int select_codec(const codec_select_state_t *const state,
             const int id = metrics.codec_id;
 
             SLOGI(SLOG_SELECT_2,
-                  "SELECT | Select | Codec %2d, size: %7.0f B, latency: total %8.3f, network %8.3f, enc %8.3f, dec %8.3f, dnn %8.3f, postprocess %8.3f, reconstruct %8.3f",
+                  "SELECT | Select | Codec %2d, size: %7.0f B, latency: total %8.3f, network %8.3f, enc %8.3f, dec %8.3f, dnn %8.3f, postprocess %8.3f, seg_enc %8.3f, seg_dec %8.3f, reconstruct %8.3f",
                   id, state->stats.init_latency_data[id].size_bytes,
                   state->stats.init_latency_data[id].latency_ms,
                   state->stats.init_latency_data[id].network_ms,
@@ -382,17 +382,21 @@ static int select_codec(const codec_select_state_t *const state,
                   state->stats.init_latency_data[id].kernel_times_ms.dec,
                   state->stats.init_latency_data[id].kernel_times_ms.dnn,
                   state->stats.init_latency_data[id].kernel_times_ms.postprocess,
+                  state->stats.init_latency_data[id].kernel_times_ms.seg_enc,
+                  state->stats.init_latency_data[id].kernel_times_ms.seg_dec,
                   state->stats.init_latency_data[id].kernel_times_ms.reconstruct);
         }
     } else {
         SLOGI(SLOG_SELECT_2,
-              "SELECT | Select | Codec %2d, size: %7.0f B, latency: total %8.3f, network %8.3f, enc %8.3f, dec %8.3f, dnn %8.3f, postprocess %8.3f, reconstruct %8.3f",
+              "SELECT | Select | Codec %2d, size: %7.0f B, latency: total %8.3f, network %8.3f, enc %8.3f, dec %8.3f, dnn %8.3f, postprocess %8.3f, seg_enc %8.3f, seg_dec %8.3f, reconstruct %8.3f",
               old_id, state->stats.cur_latency_data.size_bytes,
               state->stats.cur_latency_data.latency_ms, state->stats.cur_latency_data.network_ms,
               state->stats.cur_latency_data.kernel_times_ms.enc,
               state->stats.cur_latency_data.kernel_times_ms.dec,
               state->stats.cur_latency_data.kernel_times_ms.dnn,
               state->stats.cur_latency_data.kernel_times_ms.postprocess,
+              state->stats.cur_latency_data.kernel_times_ms.seg_enc,
+              state->stats.cur_latency_data.kernel_times_ms.seg_dec,
               state->stats.cur_latency_data.kernel_times_ms.reconstruct);
     }
 
@@ -539,8 +543,8 @@ static int select_codec(const codec_select_state_t *const state,
     }
 
     if (state->enable_profiling) {
-        float thr = get_rel_pow_thr(state->stats.external_data);
-        float pow_var = get_pow_variance(state->stats.external_data);
+        float thr = get_init_rel_pow_thr(state->stats.external_data);
+        float pow_var = get_init_pow_variance(state->stats.external_data);
         log_frame_f(state->fd, state->last_frame_id, "cs_select", "rel_pow_thr", thr);
         log_frame_f(state->fd, state->last_frame_id, "cs_select", "pow_var", thr);
         log_frame_int(state->fd, state->last_frame_id, "cs_select", "new_codec_id", new_codec_id);
@@ -574,6 +578,8 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
     find_event_time("dec_event", state->collected_events, &kernel_times_ms.dec);
     find_event_time("dnn_event", state->collected_events, &kernel_times_ms.dnn);
     find_event_time("postprocess_event", state->collected_events, &kernel_times_ms.postprocess);
+    find_event_time("seg_enc_event", state->collected_events, &kernel_times_ms.seg_enc);
+    find_event_time("seg_dec_event", state->collected_events, &kernel_times_ms.seg_dec);
     find_event_time("reconstruct_event", state->collected_events, &kernel_times_ms.reconstruct);
 
     // const
@@ -587,18 +593,18 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
 
     if (!should_skip && !state->is_dry_run &&
         (frame_metadata->host_ts_ns.fill_ping_duration_ms != -1)) {
-        float *avg_ping_ms;
+        float *avg_fill_ping_ms;
 
         if (state->is_calibrating) {
-            avg_ping_ms = &stats->cur_init_avg_fill_ping_ms;
+            avg_fill_ping_ms = &stats->cur_init_avg_fill_ping_ms;
         } else {
-            avg_ping_ms = &stats->cur_avg_fill_ping_ms;
+            avg_fill_ping_ms = &stats->cur_avg_fill_ping_ms;
         }
 
-        if (*avg_ping_ms == 0.0f) {
-            *avg_ping_ms = fill_ping_ms;
+        if (*avg_fill_ping_ms == 0.0f) {
+            *avg_fill_ping_ms = fill_ping_ms;
         } else if (fill_ping_ms != 0.0f) {
-            ewma(EXT_PING_ALPHA, fill_ping_ms, avg_ping_ms);
+            ewma(EXT_PING_ALPHA, fill_ping_ms, avg_fill_ping_ms);
         }
     }
 
@@ -610,9 +616,10 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
 
     float network_ms = 0.0f;
     if (frame_metadata->codec.id != LOCAL_CODEC_ID) {
-        network_ms = fmax(0.0f, latency_ms - kernel_times_ms.enc - kernel_times_ms.dec -
-                                kernel_times_ms.dnn - kernel_times_ms.postprocess -
-                                kernel_times_ms.reconstruct);
+        network_ms = fmax(0.0f, latency_ms - kernel_times_ms.enc - kernel_times_ms.dec
+                                - kernel_times_ms.dnn - kernel_times_ms.postprocess
+                                - kernel_times_ms.seg_enc - kernel_times_ms.seg_dec
+                                - kernel_times_ms.reconstruct);
     }
 
     const float size_bytes = (float) (frame_metadata->size_bytes_tx +
@@ -637,6 +644,8 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
         incr_avg_noup(kernel_times_ms.dec, &data->kernel_times_ms.dec, *nsamples);
         incr_avg_noup(kernel_times_ms.dnn, &data->kernel_times_ms.dnn, *nsamples);
         incr_avg_noup(kernel_times_ms.postprocess, &data->kernel_times_ms.postprocess, *nsamples);
+        incr_avg_noup(kernel_times_ms.seg_enc, &data->kernel_times_ms.seg_enc, *nsamples);
+        incr_avg_noup(kernel_times_ms.seg_dec, &data->kernel_times_ms.seg_dec, *nsamples);
         incr_avg_noup(kernel_times_ms.reconstruct, &data->kernel_times_ms.reconstruct, *nsamples);
         incr_avg_noup(latency_ms, &data->latency_ms, *nsamples);
         incr_avg_noup(network_ms, &data->network_ms, *nsamples);
@@ -657,6 +666,10 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
                     kernel_times_ms.dnn);
         log_frame_f(state->fd, frame_index, "cs_update_latency", "kernel_postprocess_ms",
                     kernel_times_ms.postprocess);
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "kernel_enc_seg_ms",
+                    kernel_times_ms.seg_enc);
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "kernel_dec_seg_ms",
+                    kernel_times_ms.seg_dec);
         log_frame_f(state->fd, frame_index, "cs_update_latency", "kernel_reconstruct_ms",
                     kernel_times_ms.reconstruct);
         log_frame_f(state->fd, frame_index, "cs_update_latency", "frame_time_ms", frame_time_ms);
@@ -678,6 +691,10 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
                     data->kernel_times_ms.dnn);
         log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_postprocess_ms",
                     data->kernel_times_ms.postprocess);
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_enc_seg_ms",
+                    data->kernel_times_ms.seg_enc);
+        log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_dec_seg_ms",
+                    data->kernel_times_ms.seg_dec);
         log_frame_f(state->fd, frame_index, "cs_update_latency", "avg_kernel_reconstruct_ms",
                     data->kernel_times_ms.reconstruct);
         log_frame_f(state->fd, frame_index, "cs_update_latency", "total_ms", data->total_ms);
@@ -864,14 +881,16 @@ init_codec_select(int config_flags, int fd, int do_algorithm, bool lock_codec, b
     new_state->fd = fd;
 
     int nconstr = 0;
-    new_state->constraints[nconstr++] = {.metric = METRIC_LATENCY_MS, .optimization = OPT_MIN, .type = CONSTR_HARD_VOLATILE, .limit = LIMIT_LATENCY_MS, .scale = LATENCY_SCALE};
+    new_state->constraints[nconstr++] = {.metric = METRIC_LATENCY_MS, .optimization = OPT_MIN, .type = CONSTR_HARD, .limit = LIMIT_LATENCY_MS, .scale = LATENCY_SCALE};
     new_state->constraints[nconstr++] = {.metric = METRIC_IOU, .optimization = OPT_MAX, .type = CONSTR_HARD, .limit = LIMIT_IOU, .scale = IOU_SCALE};
+    new_state->constraints[nconstr++] = {.metric = METRIC_LATENCY_MS, .optimization = OPT_MIN, .type = CONSTR_VOLATILE, .limit = LIMIT_LATENCY_MS, .scale = LATENCY_SCALE};
     new_state->constraints[nconstr++] = {.metric = METRIC_LATENCY_MS, .optimization = OPT_MIN, .type = CONSTR_SOFT, .scale = LATENCY_SCALE};
 //    new_state->constraints[nconstr++] = {.metric = METRIC_SIZE_BYTES, .optimization = OPT_MIN, .type = CONSTR_SOFT, .scale = SIZE_SCALE};
 //    new_state->constraints[nconstr++] = {.metric = METRIC_SIZE_BYTES_LOG10, .optimization = OPT_MIN, .type = CONSTR_SOFT, .scale = SIZE_SCALE_LOG10};
 //    new_state->constraints[nconstr++] = {.metric = METRIC_POWER_W, .optimization = OPT_MIN, .type = CONSTR_SOFT, .scale = POWER_SCALE};
+    new_state->constraints[nconstr++] = {.metric = METRIC_IOU, .optimization = OPT_MAX, .type = CONSTR_VOLATILE, .scale = IOU_SCALE};
     new_state->constraints[nconstr++] = {.metric = METRIC_IOU, .optimization = OPT_MAX, .type = CONSTR_SOFT, .scale = IOU_SCALE};
-    new_state->constraints[nconstr++] = {.metric = METRIC_REL_POW, .optimization = OPT_MIN, .type = CONSTR_SOFT, .scale = REL_POWER_SCALE};
+//    new_state->constraints[nconstr++] = {.metric = METRIC_REL_POW, .optimization = OPT_MIN, .type = CONSTR_SOFT, .scale = REL_POWER_SCALE};
     assert(nconstr == NUM_CONSTRAINTS);
 
     new_state->stats.eval_data = eval_data;
@@ -941,12 +960,13 @@ void update_stats(const frame_metadata_t *frame_metadata, const eval_pipeline_co
             stats->external_data->ping_ms_nsamples[id] = 1;
         }
 
-        stats->cur_latency_data = EMPTY_LATENCY_DATA;
+        // initialize latency data with the init values to prevent latency etc. being zero for codec selection
+        stats->cur_latency_data = stats->init_latency_data[frame_codec_id];
         stats->cur_nsamples = 0;
     }
 
     // Collect latency (do not update averages if codec just changed)
-    collect_latency(state, frame_metadata, update_start_ns, should_skip | is_eval_frame, stats);
+    collect_latency(state, frame_metadata, update_start_ns, should_skip, stats);
 
     // Collect power
     collect_external_data(state, frame_codec_id, frame_stop_ts_ns, stats);
@@ -1167,73 +1187,96 @@ void select_codec_auto(codec_select_state_t *state) {
         indexed_metrics_t sorted_metrics[NUM_CONFIGS];
         float cur_vals[NUM_METRICS];
         float cur_vol_vals[NUM_METRICS];
-        float init_vals[NUM_METRICS];
         float init_vol_vals[NUM_METRICS];
-        float offsets[NUM_METRICS];
+        float ratios[NUM_METRICS];
 
         float cur_rel_pow = get_rel_pow(stats->external_data, stats->external_data->pow_w[old_id]);
         float init_rel_pow = get_rel_pow(stats->external_data,
                                          stats->external_data->init_pow_w[old_id]);
 
-        // TODO: Generalize volatile latency to all metric
+        // TODO: Generalize ratio to a more general projection function
         populate_vals(stats->cur_latency_data.latency_ms, stats->cur_latency_data.size_bytes,
                       stats->external_data->pow_w[old_id], stats->eval_data->iou[old_id],
                       cur_rel_pow, cur_vals);
-        populate_vals(stats->cur_latency_data.network_ms, 0.0f, 0.0f, 0.0f, 0.0f, cur_vol_vals);
-        populate_vals(stats->init_latency_data[old_id].latency_ms,
+        populate_vals(stats->cur_latency_data.network_ms, stats->cur_latency_data.size_bytes,
+                      stats->external_data->pow_w[old_id], stats->eval_data->iou[old_id],
+                      cur_rel_pow, cur_vol_vals);
+        populate_vals(stats->init_latency_data[old_id].network_ms,
                       stats->init_latency_data[old_id].size_bytes,
                       stats->external_data->init_pow_w[old_id], stats->eval_data->init_iou[old_id],
-                      init_rel_pow, init_vals);
-        populate_vals(stats->init_latency_data[old_id].network_ms, 0.0f, 0.0f, 0.0f, 0.0f,
-                      init_vol_vals);
+                      init_rel_pow, init_vol_vals);
 
         for (int metric_id = 0; metric_id < NUM_METRICS; ++metric_id) {
-            offsets[metric_id] = cur_vol_vals[metric_id] - init_vol_vals[metric_id];
-            log_frame_f(state->fd, state->last_frame_id, "cs_select_offset",
-                        METRIC_NAMES[metric_id], offsets[metric_id]);
-            SLOGI(SLOG_SELECT_2,
-                  "SELECT | Select | Metric  %16s (%d): cur vol %11.3f, init vol %11.3f, off %+11.3f",
-                  METRIC_NAMES[metric_id], metric_id, cur_vol_vals[metric_id],
-                  init_vol_vals[metric_id], offsets[metric_id]);
+            const float init_vol_val = init_vol_vals[metric_id];
+
+            if (init_vol_val == 0.0f) {
+                // local device => do not scale vol value
+                ratios[metric_id] = 1.0f;
+            } else {
+                ratios[metric_id] = cur_vol_vals[metric_id] / init_vol_val;
+            }
+
+            log_frame_f(state->fd, state->last_frame_id, "cs_select_ratio",
+                        METRIC_NAMES[metric_id], ratios[metric_id]);
+            SLOGI(SLOG_SELECT_3,
+                  "SELECT | Select | Metric  %16s (%d): cur vol %11.3f, init vol %11.3f, ratio %11.3f",
+                  METRIC_NAMES[metric_id], metric_id, cur_vol_vals[metric_id], init_vol_val,
+                  ratios[metric_id]);
         }
 
         for (int id = 0; id < NUM_CONFIGS; ++id) {
-            indexed_metrics_t new_init_metrics;
-            new_init_metrics.codec_id = id;
+            indexed_metrics_t proj_init_metrics;
+            proj_init_metrics.codec_id = id;
             float rel_pow = get_rel_pow(stats->external_data, stats->external_data->init_pow_w[id]);
+
             populate_vals(stats->init_latency_data[id].latency_ms,
                           stats->init_latency_data[id].size_bytes,
                           stats->external_data->init_pow_w[id], stats->eval_data->init_iou[id],
-                          rel_pow, new_init_metrics.vals);
-            populate_vals(stats->init_latency_data[id].network_ms, 0.0f, 0.0f, 0.0f, 0.0f,
-                          new_init_metrics.vol_vals);
+                          rel_pow, proj_init_metrics.vals);
+            populate_vals(stats->init_latency_data[id].network_ms,
+                          stats->init_latency_data[id].size_bytes,
+                          stats->external_data->init_pow_w[id], stats->eval_data->init_iou[id],
+                          rel_pow, proj_init_metrics.vol_vals);
 
             for (int constr_id = 0; constr_id < NUM_CONSTRAINTS; ++constr_id) {
                 const constraint_t constraint = state->constraints[constr_id];
-                const metric_t metric = constraint.metric;
+                if (constraint.type == CONSTR_VOLATILE) {
+                    const metric_t metric = constraint.metric;
+                    const float init_vol_val = proj_init_metrics.vol_vals[metric];
+                    float new_val = proj_init_metrics.vals[metric];
+                    float new_vol_val = proj_init_metrics.vol_vals[metric];
 
-                if (constraint.type == CONSTR_HARD_VOLATILE) {
-                    float new_val = new_init_metrics.vals[metric];
+                    if (id == old_id) {
+                        new_val = cur_vals[metric];
+                        new_vol_val = cur_vol_vals[metric];
+                    }
+
+                    const float static_val = new_val - new_vol_val;
 
                     if (id != LOCAL_CODEC_ID) {
                         // local-only mode doesn't have a network-volatile part
-                        new_val += offsets[metric];
+                        new_vol_val = init_vol_val * ratios[metric];
                     }
+
+                    new_val = static_val + new_vol_val;
 
                     if (metric == METRIC_IOU) {
                         // TODO: Abstract this away, putting min/max values of IoU to constraint_t
                         new_val = fmax(fmin(1.0f, new_val), 0.0f);
                     }
 
-                    SLOGI(SLOG_SELECT_DBG,
-                          "SELECT | Select | Codec %2d: Metric %d, init %11.3f, new val %11.3f, off %+11.3f",
-                          id, metric, new_init_metrics.vals[metric], new_val, offsets[metric]);
-                    new_init_metrics.vals[metric] = new_val;
+                    SLOGI(SLOG_SELECT_3,
+                          "SELECT | Select | Codec %2d: Metric %d, init %11.3f, new val %11.3f, vol val %11.3f, off %+11.3f",
+                          id, metric, proj_init_metrics.vals[metric], new_val, new_vol_val,
+                          new_val - proj_init_metrics.vals[metric]);
+
+                    proj_init_metrics.vol_vals[metric] = new_vol_val;
+                    proj_init_metrics.vals[metric] = new_val;
                 }
             }
 
-            metrics_product(state, &new_init_metrics);
-            sorted_metrics[id] = new_init_metrics;
+            metrics_product(state, &proj_init_metrics);
+            sorted_metrics[id] = proj_init_metrics;
         }
 
         print_constraints(state->constraints);

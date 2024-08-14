@@ -284,6 +284,7 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
 
     {
         // postprocess
+        ZoneScopedN("enq postprocess");
         TracyCLZone(dnn_tracy_ctx, "postprocess");
         status = clEnqueueNDRangeKernel(dnn_queue, ctx->postprocess_kernel, ctx->work_dim, NULL,
                                         (ctx->global_size), (ctx->local_size), 1,
@@ -294,6 +295,8 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
     }
 
     if (tmp_buf_ctx != NULL) {
+        ZoneScopedN("enq tmp copy");
+        TracyCLZone(dnn_tracy_ctx, "tmp copy");
         // Save postprocessed segmentation to a temporary buffer for the quality evaluation pipeline
         size_t sz = MASK_SZ1 * MASK_SZ2 * sizeof(cl_uchar);
 
@@ -304,6 +307,7 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
         append_to_event_array(tmp_buf_ctx->event_array, copy_event_seg,
                               VAR_NAME(copy_seg_event));
         tmp_buf_ctx->copy_event_seg_post = copy_event_seg;
+        TracyCLZoneSetEvent(copy_event_seg);
     }
 
     // no reconstruction needed, so early exit
@@ -314,8 +318,8 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
 
     cl_event reconstruct_wait_event = postprocess_event;
 
-    if (ctx->config_flags & SEGMENT_4B) {
-
+    if ((ctx->config_flags & SEGMENT_4B) && (config.device_type != LOCAL_DEVICE)) {
+        ZoneScopedN("enq seg4b");
         status = encode_segment_4b(ctx->segment_4b_ctx, &postprocess_event, ctx->postprocess_buf,
                                    ctx->detect_buf,
                                    ctx->decompress_output_buf, event_array,
@@ -327,6 +331,7 @@ enqueue_dnn(const dnn_context_t *ctx, const cl_event *wait_event, const codec_co
 
     {
         // reconstruct postprocessed data to RGBA segmentation mask
+        ZoneScopedN("enq reconstruct");
         TracyCLZone(ctx->local_tracy_ctx, "reconstruct");
         status = clEnqueueNDRangeKernel(ctx->local_queue, ctx->reconstruct_kernel,
                                         ctx->work_dim, NULL, ctx->global_size,
