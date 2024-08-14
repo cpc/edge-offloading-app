@@ -66,8 +66,6 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
             "org.portablecl.poclaisademo.benchmark.enablesegmentation"
     };
 
-    private Bundle bundle;
-
     /**
      * default options for the framerate
      */
@@ -80,8 +78,6 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        bundle = getIntent().getExtras();
 
         ActivityBenchmarkConfigurationBinding binding =
                 ActivityBenchmarkConfigurationBinding.inflate(getLayoutInflater());
@@ -251,8 +247,6 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
             configStore.flushSetting();
 
             Intent i = new Intent(getApplicationContext(), MainActivity.class);
-            // pass everything passed to the benchmark configuration activity to the mainactivity
-            i.putExtras(bundle);
             startActivity(i);
         }
     };
@@ -304,7 +298,6 @@ public class BenchmarkConfigurationActivity extends AppCompatActivity {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 Intent serviceIntent = new Intent(getApplicationContext(), BenchmarkService.class);
 
-                serviceIntent.putExtras(bundle);
                 serviceIntent.putExtra(BENCHMARKVIDEOURI, benchmarkUris[0].toString());
                 serviceIntent.putExtra(ENABLECOMPRESSIONKEY, enableCompression);
                 serviceIntent.putExtra(ENABLESEGMENTATIONKEY, enableSegmentation);
