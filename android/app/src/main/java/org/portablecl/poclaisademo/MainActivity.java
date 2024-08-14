@@ -293,6 +293,12 @@ public class MainActivity extends AppCompatActivity {
     private ArrayAdapter<String> compressionEntries;
     final boolean[] discoveryReconnectCheck = {true};
 
+    /**
+     * used to make sure that the codec config only updates when it is different
+     */
+    CodecConfig globalConfig;
+
+
     void setLogging(boolean enableLoggingInGeneral) {
         enablePoclLogging = enableLoggingInGeneral;
         // camera and monitor logs are currently unused and therefore disabled
@@ -491,6 +497,9 @@ public class MainActivity extends AppCompatActivity {
             modeSwitch.setClickable(false);
             qualityText.setClickable(false);
         }
+        // bogus values so that the first time the values get updated by the codec
+        // select, it is updated.
+        globalConfig = new CodecConfig(-1, -1, -1, -1, -1);
 
     }
 
@@ -982,6 +991,12 @@ public class MainActivity extends AppCompatActivity {
      */
     public void setButtonsFromJNI(CodecConfig config) {
 
+        // early exit that would happen in most cases
+        if (CodecConfig.configsSame(globalConfig, config)) {
+            return;
+        }
+
+        globalConfig = config;
         runOnUiThread(() -> {
 
             // show if we are using remote or not
