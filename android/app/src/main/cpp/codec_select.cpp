@@ -934,7 +934,7 @@ void update_stats(const frame_metadata_t *frame_metadata, const eval_pipeline_co
 
     codec_stats_t *stats = &state->stats;
     const bool should_skip = stats->prev_frame_codec_id != frame_codec_id;
-    const bool is_eval_frame = frame_metadata->is_eval_frame;
+    const bool is_eval_frame = frame_metadata->run_args.is_eval_frame;
 
     if (state->enable_profiling) {
         log_frame_int(state->fd, frame_index, "cs_update", "frame_codec_id", frame_codec_id);
@@ -944,12 +944,12 @@ void update_stats(const frame_metadata_t *frame_metadata, const eval_pipeline_co
         log_frame_int(state->fd, frame_index, "cs_update", "is_dry_run", state->is_dry_run ? 1 : 0);
         log_frame_int(state->fd, frame_index, "cs_update", "skip", should_skip);
         log_frame_int(state->fd, frame_index, "cs_update", "codec_selected",
-                      frame_metadata->codec_selected);
+                      frame_metadata->run_args.codec_selected);
         log_frame_i64(state->fd, frame_index, "cs_update", "latency_offset_ms",
-                      frame_metadata->latency_offset_ms);
+                      frame_metadata->run_args.latency_offset_ms);
     }
 
-    if (frame_metadata->codec_selected) {
+    if (frame_metadata->run_args.codec_selected) {
         // reset statistics because this frame is the first after a new codec selection
         for (int id = 0; id < NUM_CONFIGS; ++id) {
             stats->eval_data->iou_nsamples[id] = 1;

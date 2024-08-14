@@ -894,8 +894,7 @@ cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t conf
  * @return opencl status
  */
 int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
-                 image_data_t image_data, int is_eval_frame, bool codec_selected,
-                 int64_t latency_offset_ms, int *frame_index) {
+                 image_data_t image_data, meta_run_arg_t run_args, int *frame_index) {
     // this function should be called when dequeue_spot acquired a semaphore,
     ZoneScoped;
 
@@ -907,13 +906,10 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     char *markId = new char[16];
     snprintf(markId, 16, "frame start: %i", *frame_index);
     TracyMessage(markId, strlen(markId));
-//    LOGI("submit_image index: %d\n", index);
 
     // store metadata
     frame_metadata_t *image_metadata = &(ctx->metadata_array[index]);
-    image_metadata->is_eval_frame = is_eval_frame;
-    image_metadata->codec_selected = codec_selected ? 1 : 0;
-    image_metadata->latency_offset_ms = latency_offset_ms;
+    image_metadata->run_args = run_args;
 
     dnn_results *collected_result = &(ctx->collected_results[index]);
 
@@ -925,7 +921,7 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     }
 
     tmp_buf_ctx_t *tmp_buf_ctx = NULL;
-    if (is_eval_frame) {
+    if (run_args.is_eval_frame) {
         tmp_buf_ctx = &ctx->eval_ctx->tmp_buf_ctx;
     }
 
@@ -943,7 +939,7 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
 
     // TODO PING: Don't run ping on each frame
     // run the ping buffer (needs to run also on local device to check if network improved)
-    if (ctx->devices_found > 2) {
+    if (ctx->devices_found > 5) {
         // todo: see if this should be run on every device
 //        image_metadata->host_ts_ns.before_fill = get_timestamp_ns();
         status = ping_fillbuffer_run(ctx->ping_context, ctx->remote_queue,
@@ -959,6 +955,8 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     image_metadata->image_timestamp = image_data.image_timestamp;
     image_metadata->codec = codec_config;
     image_metadata->event_array = ctx->pipeline_array[index].event_array;
+    // pass on bool to indicate that local semaphore needs to be released
+    image_metadata->run_args.release_local_sem |= codec_config.device_type == LOCAL_DEVICE;
 
     // do some logging
     if (ENABLE_PROFILING & ctx->pipeline_array[index].config_flags) {
@@ -966,15 +964,14 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
         dprintf(ctx->file_descriptor, "%d,frame,timestamp,%ld\n", image_metadata->frame_index,
                 image_data.image_timestamp);  // this should match device timestamp in camera log
         dprintf(ctx->file_descriptor, "%d,frame,is_eval,%d\n", image_metadata->frame_index,
-                image_metadata->is_eval_frame);
+                run_args.is_eval_frame);
         log_codec_config(ctx->file_descriptor, image_metadata->frame_index, codec_config);
     }
 
     FINISH:
 
-    // FIXME release all but one
-
 #ifdef DEBUG_SEMAPHORES
+    LOGE("submit_image %d (%d), type : %d", *frame_index, index, image_metadata->codec.device_type);
     int sem_value;
     sem_getvalue(&(ctx->image_sem), &sem_value);
     LOGW("submit_image incremented image sem to: %d \n", sem_value + 1);
@@ -1081,7 +1078,6 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
 
     int index = ctx->frame_index_tail % ctx->lane_count;
     ctx->frame_index_tail += 1;
-//    LOGI("receive_image index: %d\n", index);
 
     dnn_results results = ctx->collected_results[index];
     frame_metadata_t image_metadata = ctx->metadata_array[index];
@@ -1137,7 +1133,7 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
 
     // TODO PING: Don't run ping on each frame
     image_metadata.host_ts_ns.fill_ping_duration_ms = 0;
-    if (ctx->devices_found <= 2) {
+    if (ctx->devices_found <= 5) {
         // Don't track networking latency if the only available device is local
         image_metadata.host_ts_ns.fill_ping_duration_ms = 0;
     } else {
@@ -1221,12 +1217,11 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
 
 SET_CTX_STATE(pipeline, LANE_ERROR, new_state)
 
-    if (image_metadata.is_eval_frame) {
-        SET_CTX_STATE(ctx->eval_ctx->eval_pipeline, LANE_BUSY, new_state)
-    }
 
 #ifdef DEBUG_SEMAPHORES
     {
+        LOGE("receive_image %d (%d), type : %d", ctx->frame_index_tail - 1, index,
+         image_metadata.codec.device_type);
         int sem_value;
         sem_getvalue(&(ctx->pipe_sem), &sem_value);
         LOGW("receive_image incremented pipe sem to: %d \n", sem_value + 1);
@@ -1235,7 +1230,7 @@ SET_CTX_STATE(pipeline, LANE_ERROR, new_state)
     // finally release the semaphore
     sem_post(&(ctx->pipe_sem));
 
-    if (LOCAL_DEVICE == image_metadata.codec.device_type) {
+    if (image_metadata.run_args.release_local_sem) {
 
 #ifdef DEBUG_SEMAPHORES
         {

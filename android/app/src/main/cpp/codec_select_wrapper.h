@@ -59,8 +59,9 @@ codec_select_submit_image(codec_select_state_t *state, pocl_image_processor_cont
                           int do_algorithm, image_data_t *image_data) {
 
     int status;
-    int is_eval_frame = 0;
     int frame_index = -1;
+
+    meta_run_arg_t run_args = {};
 
     // read the current config from the codec selection state
     codec_config_t codec_config;
@@ -76,18 +77,21 @@ codec_select_submit_image(codec_select_state_t *state, pocl_image_processor_cont
     // check if we need to submit image to the eval pipeline
     if (ctx->enable_eval || state->is_calibrating) {
         // TODO: see if this is taking a lot of time
-        status = check_eval(ctx->eval_ctx, state, codec_config, &is_eval_frame);
+        status = check_eval(ctx->eval_ctx, state, codec_config, &run_args.is_eval_frame);
         CHECK_AND_RETURN(status, "could not check and submit eval frame");
     }
 
     // submit the image for the actual encoding (needs to be submitted *before* the eval frame)
-    bool codec_selected = drain_codec_selected(state);
-    int64_t latency_offset_ms = get_latency_offset_ms(state);
-    status = submit_image(ctx, codec_config, *image_data, is_eval_frame, codec_selected,
-                          latency_offset_ms, &frame_index);
+    run_args.codec_selected = drain_codec_selected(state);
+    run_args.latency_offset_ms = get_latency_offset_ms(state);
+    // if the codec select changes the device from local to remote, we need to also release
+    // the local sem since it was acquired java side
+    run_args.release_local_sem =
+            device_index == LOCAL_DEVICE & device_index != codec_config.device_type;
+    status = submit_image(ctx, codec_config, *image_data, run_args, &frame_index);
     CHECK_AND_RETURN(status, "could not submit frame");
 
-    if (is_eval_frame) {
+    if (run_args.is_eval_frame) {
         // submit the eval frame if appropriate
         status = run_eval(ctx->eval_ctx, state, codec_config, frame_index, *image_data);
         CHECK_AND_RETURN(status, "could not submit eval frame");

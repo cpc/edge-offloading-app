@@ -87,18 +87,11 @@ int main() {
     float iou;
     uint64_t size_bytes;
     host_ts_ns_t host_ts_ns;
-    codec_config_t codec_config;
 
     // used by the reader thread to figure out when to stop
     int read_frame_count = 0;
 
 RETRY:
-
-    codec_config.rotation = rotation;
-    codec_config.do_segment = do_segment;
-    codec_config.compression_type = compression_type;
-    codec_config.device_type = device_index;
-    codec_config.config.jpeg.quality = quality;
 
     pocl_image_processor_context *ctx = nullptr;
 
@@ -141,14 +134,6 @@ RETRY:
 
         last_image_timestamp = image_timestamp;
         image_data.image_timestamp = image_timestamp;
-
-        //        int collected_frame_index;
-        //        bool codec_selected = false;
-        //        int64_t latency_offset_ms = 0;
-        //        status = submit_image(ctx, codec_config, image_data,
-        //        is_eval_frame,
-        //                              codec_selected, latency_offset_ms,
-        //                              &collected_frame_index);
 
         codec_select_submit_image(state, ctx, device_index, do_segment,
                                   compression_type, quality, rotation,

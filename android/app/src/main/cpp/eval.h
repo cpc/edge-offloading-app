@@ -16,7 +16,7 @@ extern "C" {
 #endif
 
 cl_int check_eval(eval_pipeline_context_t *eval_ctx, codec_select_state_t *state,
-                  const codec_config_t codec_config, int *is_eval_frame);
+                  const codec_config_t codec_config, bool *is_eval_frame);
 
 cl_int run_eval(eval_pipeline_context_t *eval_ctx, codec_select_state_t *state,
                 const codec_config_t codec_config, int frame_index, const image_data_t image_data);

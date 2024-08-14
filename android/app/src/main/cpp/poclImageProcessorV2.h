@@ -88,6 +88,26 @@ typedef struct {
 } eval_pipeline_context_t;
 
 typedef struct {
+    bool is_eval_frame;
+    bool codec_selected;
+    bool release_local_sem;
+    int64_t latency_offset_ms; // artificial extra time to spend sleeping in this frame (0 disables it)
+} meta_run_arg_t;
+
+typedef struct {
+    event_array_t *event_array;
+    float iou;
+    uint64_t size_bytes_tx;  // number of transmitted bytes (encoded frame size)
+    uint64_t size_bytes_rx;  // number of received bytes (postprocessed segmentations and/or detections)
+    host_ts_ns_t host_ts_ns;
+    int frame_index;
+    long image_timestamp;
+    codec_config_t codec;
+    int release_local_sem;
+    meta_run_arg_t run_args;
+} frame_metadata_t;
+
+typedef struct {
     // unless mentioned, these arrays act like loop buffers
     frame_metadata_t *metadata_array; // metadata on images used for
     pipeline_context *pipeline_array; // collection of pipelines that can run independently from each other
@@ -132,8 +152,7 @@ cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t conf
                                 tmp_buf_ctx_t *tmp_buf_ctx);
 
 int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
-                 image_data_t image_data, int is_eval_frame, bool codec_selected,
-                 int64_t latency_offset_ms, int *frame_index);
+                 image_data_t image_data, meta_run_arg_t run_args, int *frame_index);
 
 int wait_image_available(pocl_image_processor_context *ctx, int timeout);
 

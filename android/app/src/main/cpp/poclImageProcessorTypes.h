@@ -141,20 +141,6 @@ typedef struct {
 //    host_ts_ns_t host_ts_ns;
 //} image_metadata_t;
 
-typedef struct {
-    event_array_t *event_array;
-    float iou;
-    uint64_t size_bytes_tx;  // number of transmitted bytes (encoded frame size)
-    uint64_t size_bytes_rx;  // number of received bytes (postprocessed segmentations and/or detections)
-    host_ts_ns_t host_ts_ns;
-    int frame_index;
-    long image_timestamp;
-    int is_eval_frame;
-    int codec_selected;
-    int64_t latency_offset_ms;  // artificial extra time to spend sleeping in this frame (0 disables it)
-    codec_config_t codec;
-} frame_metadata_t;
-
 #ifdef __cplusplus
 }
 #endif

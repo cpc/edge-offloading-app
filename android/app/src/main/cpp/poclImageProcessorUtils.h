@@ -5,6 +5,7 @@
 #ifndef POCL_AISA_DEMO_POCLIMAGEPROCESSORUTILS_H
 #define POCL_AISA_DEMO_POCLIMAGEPROCESSORUTILS_H
 
+#include "poclImageProcessorV2.h"
 #include "poclImageProcessorTypes.h"
 
 #ifdef __cplusplus
