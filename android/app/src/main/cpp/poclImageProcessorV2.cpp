@@ -338,8 +338,7 @@ cl_int init_eval_ctx(eval_pipeline_context_t **const ctx, int width, int height,
     CHECK_AND_RETURN(status, "could not init eval pipeline \n");
 
     clock_gettime(CLOCK_MONOTONIC, &out_ctx->next_eval_ts);
-    // start eval 4 seconds after starting
-    out_ctx->next_eval_ts.tv_sec += 4;
+    out_ctx->next_eval_ts.tv_sec += EVAL_START_SEC;
     out_ctx->is_eval_running = false;
     out_ctx->iou = -5.0f;
 
@@ -887,6 +886,10 @@ cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t conf
     return status;
 }
 
+int get_frame_index(const pocl_image_processor_context *const ctx) {
+    return ctx->frame_index_head;
+}
+
 /**
  * submit an image to the processor
  * @param ctx
@@ -897,17 +900,17 @@ cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t conf
  * @return opencl status
  */
 int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
-                 image_data_t image_data, meta_run_arg_t run_args, int *frame_index) {
+                 image_data_t image_data, meta_run_arg_t run_args) {
     // this function should be called when dequeue_spot acquired a semaphore,
     ZoneScoped;
 
     int status;
     int index = ctx->frame_index_head % ctx->lane_count;
-    *frame_index = ctx->frame_index_head;
+    int frame_index = get_frame_index(ctx);
     ctx->frame_index_head += 1;
 
     char *markId = new char[16];
-    snprintf(markId, 16, "frame start: %i", *frame_index);
+    snprintf(markId, 16, "frame start: %i", frame_index);
     TracyMessage(markId, strlen(markId));
 
     // store metadata
@@ -951,7 +954,7 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     collected_result->event_list_size = 1;
 
     // populate the metadata
-    image_metadata->frame_index = *frame_index;
+    image_metadata->frame_index = frame_index;
     image_metadata->image_timestamp = image_data.image_timestamp;
     image_metadata->codec = codec_config;
     image_metadata->event_array = ctx->pipeline_array[index].event_array;
@@ -971,7 +974,7 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     FINISH:
 
 #ifdef DEBUG_SEMAPHORES
-    LOGE("submit_image %d (%d), type : %d", *frame_index, index, image_metadata->codec.device_type);
+    LOGE("submit_image %d (%d), type : %d", frame_index, index, image_metadata->codec.device_type);
     int sem_value;
     sem_getvalue(&(ctx->image_sem), &sem_value);
     LOGW("submit_image incremented image sem to: %d \n", sem_value + 1);

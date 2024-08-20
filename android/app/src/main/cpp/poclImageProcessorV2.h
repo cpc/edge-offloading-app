@@ -85,6 +85,7 @@ typedef struct {
     tmp_buf_ctx_t tmp_buf_ctx;
     event_array_t *event_array;
     struct timespec next_eval_ts;
+    int next_eval_frame_id;
     float iou;
 } eval_pipeline_context_t;
 
@@ -153,8 +154,10 @@ cl_int submit_image_to_pipeline(pipeline_context *ctx, const codec_config_t conf
                                 frame_metadata_t *metadata, dnn_results *output,
                                 tmp_buf_ctx_t *tmp_buf_ctx);
 
+int get_frame_index(const pocl_image_processor_context *const ctx);
+
 int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
-                 image_data_t image_data, meta_run_arg_t run_args, int *frame_index);
+                 image_data_t image_data, meta_run_arg_t run_args);
 
 int wait_image_available(pocl_image_processor_context *ctx, int timeout);
 

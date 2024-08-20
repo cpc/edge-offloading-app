@@ -9,6 +9,7 @@
 #include "codec_select.h"
 
 #define EVAL_VERBOSITY 0
+#define EVAL_START_SEC 4     // how long to wait before the first eval
 #define EVAL_INTERVAL_SEC 2  // how often to run the quality eval in seconds
 
 #ifdef __cplusplus
@@ -16,7 +17,8 @@ extern "C" {
 #endif
 
 cl_int check_eval(eval_pipeline_context_t *eval_ctx, codec_select_state_t *state,
-                  const codec_config_t codec_config, bool *is_eval_frame);
+                  const codec_config_t codec_config, const bool eval_every_frame,
+                  bool *is_eval_frame);
 
 cl_int run_eval(eval_pipeline_context_t *eval_ctx, codec_select_state_t *state,
                 const codec_config_t codec_config, int frame_index, const image_data_t image_data);

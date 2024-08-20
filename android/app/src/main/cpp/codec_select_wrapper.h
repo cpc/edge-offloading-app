@@ -59,7 +59,8 @@ codec_select_submit_image(codec_select_state_t *state, pocl_image_processor_cont
                           int do_algorithm, image_data_t *image_data) {
 
     int status;
-    int frame_index = -1;
+    const int frame_index = get_frame_index(ctx);
+    const bool eval_every_frame = state->stage == STAGE_CALIB_IOU_ONLY;
 
     meta_run_arg_t run_args = {};
 
@@ -75,9 +76,10 @@ codec_select_submit_image(codec_select_state_t *state, pocl_image_processor_cont
     }
 
     // check if we need to submit image to the eval pipeline
-    if (ctx->enable_eval || state->is_calibrating) {
+    if (ctx->enable_eval || state->stage == STAGE_CALIB_IOU_ONLY) {
         // TODO: see if this is taking a lot of time
-        status = check_eval(ctx->eval_ctx, state, codec_config, &run_args.is_eval_frame);
+        status = check_eval(ctx->eval_ctx, state, codec_config, eval_every_frame,
+                            &run_args.is_eval_frame);
         CHECK_AND_RETURN(status, "could not check and submit eval frame");
     }
 
@@ -88,7 +90,7 @@ codec_select_submit_image(codec_select_state_t *state, pocl_image_processor_cont
     // the local sem since it was acquired java side
     run_args.release_local_sem =
             device_index == LOCAL_DEVICE & device_index != codec_config.device_type;
-    status = submit_image(ctx, codec_config, *image_data, run_args, &frame_index);
+    status = submit_image(ctx, codec_config, *image_data, run_args);
     CHECK_AND_RETURN(status, "could not submit frame");
 
     if (run_args.is_eval_frame) {

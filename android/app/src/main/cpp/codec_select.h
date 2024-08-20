@@ -60,6 +60,11 @@ extern "C" {
  */
 #define LOCAL_CODEC_ID 0
 
+/**
+ * How many stages to run
+ */
+#define NUM_STAGES 5
+
 // scaling values to multiply metrics when calculating product (to bring the values into some normal range)
 const float LATENCY_SCALE = 1.0f / 1e3f;
 const float POWER_SCALE = 1.0f;
@@ -67,6 +72,24 @@ const float IOU_SCALE = 1.0f;
 const float REL_POWER_SCALE = 1.0f;
 const float SIZE_SCALE = 1.0f / 1e6f;
 const float SIZE_SCALE_LOG10 = 1.0f / 1e3f;
+
+/**
+ * What is currently running
+ */
+typedef enum {
+    STAGE_CALIB_DRY,       // nothing, just a warm-up
+    STAGE_CALIB_IOU_ONLY,  // collecting only IoU samples (combine with running eval pipeline every frame)
+    STAGE_CALIB_NO_IOU,    // collecting all metrics except IoU
+    STAGE_RUNNING,         // normal runtime (must be the last stage)
+} stage_t;
+
+const char* const STAGE_NAMES[4] = {"calib_dry", "calib_iou", "calib_no_iou", "run"};
+
+/**
+ * Which stages to run
+ */
+const stage_t STAGES[NUM_STAGES] = {STAGE_CALIB_DRY, STAGE_CALIB_IOU_ONLY, STAGE_CALIB_NO_IOU,
+                                    STAGE_CALIB_NO_IOU, STAGE_RUNNING};
 
 /**
  * Codec parameters relevant for codec selection.
@@ -252,8 +275,10 @@ typedef struct {
     collected_events_t *collected_events;
     codec_stats_t stats;
     bool local_only;
-    bool is_calibrating;
-    bool is_dry_run;
+    stage_t stage;
+    int stage_id;
+//    bool is_calibrating;
+//    bool is_dry_run;
     bool enable_profiling;
     bool lock_codec;  // after calibration, lock the selected codec and never change it
     bool sync_with_input;
@@ -286,6 +311,8 @@ typedef struct {
     int codec_id;
     float product;
 } indexed_metrics_t;
+
+bool is_calibrating(const codec_select_state_t *const state);
 
 void
 init_codec_select(int config_flags, int fd, int do_algorithm, bool lock_codec, bool sync_with_input,

@@ -21,7 +21,7 @@ static const int64_t SELECT_INTERVAL_MS = 2000;
 static const int64_t CALIB_SELECT_INTERVAL_MS = 6500;
 
 // Whether or not to run the first calibration run without collecting statistics
-static const bool DRY_RUN = true;
+//static const bool DRY_RUN = true;
 
 // Smoothing factors (higher means smoother)
 static const float EXT_PING_ALPHA = 7.0f / 8.0f; // TCP RTT estimator = 0.875
@@ -350,6 +350,10 @@ static void set_min_pow_id(external_data_t *data) {
     data->min_pow_w_id = min_pow_w_id;
 }
 
+bool is_calibrating(const codec_select_state_t *const state) {
+    return state->stage != STAGE_RUNNING;
+}
+
 static int select_codec(const codec_select_state_t *const state,
                         const constraint_t constraints[NUM_CONSTRAINTS],
                         const indexed_metrics_t sorted_metrics[NUM_CONFIGS]) {
@@ -368,7 +372,7 @@ static int select_codec(const codec_select_state_t *const state,
           state->stats.cur_remote_avg_ping_ms);
 
     // print kernel time breakdowns
-    if (state->is_calibrating) {
+    if (is_calibrating(state)) {
         for (int sort_id = 0; sort_id < NUM_CONFIGS; ++sort_id) {
             const indexed_metrics_t metrics = sorted_metrics[sort_id];
             const int id = metrics.codec_id;
@@ -416,7 +420,7 @@ static int select_codec(const codec_select_state_t *const state,
 
         some_fit_constraints |= fits_constraints;
 
-        if (state->is_calibrating) {
+        if (is_calibrating(state)) {
             SLOGI(SLOG_SELECT_2,
                   "SELECT | Select | Codec %2d, nsamples: %3d, size %7.0f B, avg fps %5.1f, latency %6.1f ms, iou %5.3f, pow %5.3f W, allowed: %d, fits: %d, prod %8.5f",
                   id, state->stats.init_nsamples[id], state->stats.init_latency_data[id].size_bytes,
@@ -591,11 +595,12 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
     // fill ping
     float fill_ping_ms = (float) (frame_metadata->host_ts_ns.fill_ping_duration_ms) / 1e6f;
 
-    if (!should_skip && !state->is_dry_run &&
+    if (!should_skip && (state->stage != STAGE_CALIB_DRY) &&
+        (state->stage != STAGE_CALIB_IOU_ONLY) &&
         (frame_metadata->host_ts_ns.fill_ping_duration_ms != -1)) {
         float *avg_fill_ping_ms;
 
-        if (state->is_calibrating) {
+        if (is_calibrating(state)) {
             avg_fill_ping_ms = &stats->cur_init_avg_fill_ping_ms;
         } else {
             avg_fill_ping_ms = &stats->cur_avg_fill_ping_ms;
@@ -631,7 +636,7 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
     latency_data_t *data;
     int *nsamples;
 
-    if (state->is_calibrating) {
+    if (is_calibrating(state)) {
         data = &stats->init_latency_data[frame_metadata->codec.id];
         nsamples = &stats->init_nsamples[frame_metadata->codec.id];
     } else {
@@ -639,7 +644,8 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
         nsamples = &stats->cur_nsamples;
     }
 
-    if (!should_skip && !state->is_dry_run) {
+    if (!should_skip && (state->stage != STAGE_CALIB_DRY) &&
+        (state->stage != STAGE_CALIB_IOU_ONLY)) {
         incr_avg_noup(kernel_times_ms.enc, &data->kernel_times_ms.enc, *nsamples);
         incr_avg_noup(kernel_times_ms.dec, &data->kernel_times_ms.dec, *nsamples);
         incr_avg_noup(kernel_times_ms.dnn, &data->kernel_times_ms.dnn, *nsamples);
@@ -657,7 +663,8 @@ collect_latency(const codec_select_state_t *state, const frame_metadata_t *frame
     }
 
 
-    if (state->enable_profiling && !state->is_dry_run) {
+    if (state->enable_profiling && (state->stage != STAGE_CALIB_DRY) &&
+        (state->stage != STAGE_CALIB_IOU_ONLY)) {
         log_frame_f(state->fd, frame_index, "cs_update_latency", "kernel_enc_ms",
                     kernel_times_ms.enc);
         log_frame_f(state->fd, frame_index, "cs_update_latency", "kernel_dec_ms",
@@ -741,7 +748,7 @@ static void collect_external_data(const codec_select_state_t *state, int frame_c
             if (ping_ms != EMPTY_EXT_PING) {
                 value = ping_ms;
                 alpha = EXT_PING_ALPHA;
-                if (state->is_calibrating) {
+                if (is_calibrating(state)) {
                     avg_codec_value = &data->init_ping_ms[frame_codec_id];
                     codec_nsamples = &data->init_ping_ms_nsamples[frame_codec_id];
                     avg_value = &stats->cur_init_avg_ping_ms;
@@ -753,7 +760,7 @@ static void collect_external_data(const codec_select_state_t *state, int frame_c
             } else if (amp != EMPTY_EXT_POW || volt != EMPTY_EXT_POW) {
                 value = pow_w;
                 alpha = EXT_POW_ALPHA;
-                if (state->is_calibrating) {
+                if (is_calibrating(state)) {
                     avg_codec_value = &data->init_pow_w[frame_codec_id];
                     codec_nsamples = &data->init_pow_w_nsamples[frame_codec_id];
                     avg_value = &stats->cur_init_avg_pow_w;
@@ -770,7 +777,7 @@ static void collect_external_data(const codec_select_state_t *state, int frame_c
                 continue;
             }
 
-            if (!state->is_dry_run) {
+            if ((state->stage != STAGE_CALIB_DRY) && (state->stage != STAGE_CALIB_IOU_ONLY)) {
                 if (ts_ns >= data->prev_frame_stop_ts_ns && ts_ns <= frame_stop_ts_ns) {
                     incr_avg(value, avg_codec_value, codec_nsamples);
                 }
@@ -778,7 +785,7 @@ static void collect_external_data(const codec_select_state_t *state, int frame_c
                 if (amp != EMPTY_EXT_POW && volt != EMPTY_EXT_POW) {
                     sum_data_t *sum_data;
 
-                    if (state->is_calibrating) {
+                    if (is_calibrating(state)) {
                         sum_data = &data->init_pow_w_sum[frame_codec_id];
                     } else {
                         sum_data = &data->pow_w_sum[frame_codec_id];
@@ -815,7 +822,7 @@ static void collect_external_data(const codec_select_state_t *state, int frame_c
                               ts_ns);
                 log_frame_f(state->fd, state->last_frame_id, "cs_update_external", param_val,
                             value);
-                if (!state->is_dry_run) {
+                if ((state->stage != STAGE_CALIB_DRY) && (state->stage != STAGE_CALIB_IOU_ONLY)) {
                     log_frame_f(state->fd, state->last_frame_id, "cs_update_external",
                                 param_avg_val, *avg_codec_value);
                     log_frame_int(state->fd, state->last_frame_id, "cs_update_external",
@@ -868,14 +875,21 @@ init_codec_select(int config_flags, int fd, int do_algorithm, bool lock_codec, b
         new_state->is_allowed[id] = !new_state->local_only;
     }
     if (do_algorithm == 0) {
-        new_state->is_calibrating = false;
-        new_state->is_dry_run = false;
+        new_state->stage = STAGE_RUNNING;
+        new_state->stage_id = NUM_STAGES - 1;
         new_state->lock_codec = true;
     } else {
-        new_state->is_calibrating = !new_state->local_only; // there is nothing to calibrate in local-only
-        new_state->is_dry_run = DRY_RUN;
+        if (new_state->local_only) {
+            // there is nothing to calibrate in local-only
+            new_state->stage = STAGE_RUNNING;
+            new_state->stage_id = NUM_STAGES - 1;
+        } else {
+            new_state->stage = STAGES[0];
+            new_state->stage_id = 0;
+        }
         new_state->lock_codec = lock_codec;
     }
+    assert(new_state->stage_id < NUM_STAGES);
     new_state->sync_with_input = sync_with_input;
     new_state->enable_profiling = ENABLE_PROFILING & config_flags;
     new_state->fd = fd;
@@ -899,6 +913,9 @@ init_codec_select(int config_flags, int fd, int do_algorithm, bool lock_codec, b
     // local-only always max. quality
     new_state->stats.eval_data->init_iou[LOCAL_CODEC_ID] = 1.0f;
     new_state->stats.eval_data->iou[LOCAL_CODEC_ID] = 1.0f;
+    for (int id = 0; id < NUM_CONFIGS; ++id) {
+        new_state->stats.init_nruns[id] = -1;
+    }
     // ... the rest of new_state should be zeros
 
     log_constraints(new_state, new_state->constraints, -1);
@@ -940,8 +957,10 @@ void update_stats(const frame_metadata_t *frame_metadata, const eval_pipeline_co
         log_frame_int(state->fd, frame_index, "cs_update", "frame_codec_id", frame_codec_id);
         log_frame_i64(state->fd, frame_index, "cs_update", "start_ns", update_start_ns);
         log_frame_int(state->fd, frame_index, "cs_update", "is_calibrating",
-                      state->is_calibrating ? 1 : 0);
-        log_frame_int(state->fd, frame_index, "cs_update", "is_dry_run", state->is_dry_run ? 1 : 0);
+                      state->stage == STAGE_RUNNING ? 0 : 1);
+        log_frame_int(state->fd, frame_index, "cs_update", "is_dry_run",
+                      state->stage == STAGE_CALIB_DRY ? 1 : 0);
+        log_frame_str(state->fd, frame_index, "cs_update", "stage", STAGE_NAMES[state->stage]);
         log_frame_int(state->fd, frame_index, "cs_update", "skip", should_skip);
         log_frame_int(state->fd, frame_index, "cs_update", "codec_selected",
                       frame_metadata->run_args.codec_selected);
@@ -971,7 +990,7 @@ void update_stats(const frame_metadata_t *frame_metadata, const eval_pipeline_co
     // Collect power
     collect_external_data(state, frame_codec_id, frame_stop_ts_ns, stats);
 
-    if ((stats->prev_frame_codec_id != frame_codec_id) && state->is_calibrating) {
+    if ((stats->prev_frame_codec_id != frame_codec_id) && is_calibrating(state)) {
         stats->init_nruns[stats->prev_frame_codec_id] += 1;
     }
 
@@ -981,7 +1000,7 @@ void update_stats(const frame_metadata_t *frame_metadata, const eval_pipeline_co
 //        goto cleanup;
 //    }
 
-    if (state->is_calibrating) {
+    if (is_calibrating(state)) {
         int total_nsamples = 0;
         for (int i = 0; i < NUM_CONFIGS; ++i) {
             total_nsamples += stats->init_nsamples[i];
@@ -998,11 +1017,10 @@ void update_stats(const frame_metadata_t *frame_metadata, const eval_pipeline_co
         SLOGI(SLOG_UPDATE_DBG,
               "SELECT | Update | Frame %3d, codec %2d, ping: %6.1f ms, latency: %6.1f ms, pow %5.3f W",
               frame_index, frame_codec_id, stats->external_data->ping_ms[frame_codec_id],
-              stats->init_latency_data[frame_codec_id].latency_ms,
+              stats->cur_latency_data.latency_ms,
               stats->external_data->pow_w[frame_codec_id]);
     }
 
-//    cleanup:
     state->stats.last_received_image_ts_ns = update_start_ns;
     stats->external_data->prev_frame_stop_ts_ns = frame_stop_ts_ns;
     stats->prev_frame_codec_id = frame_codec_id;
@@ -1048,7 +1066,7 @@ void select_codec_auto(codec_select_state_t *state) {
     codec_stats_t *stats = &state->stats;
 
     int64_t select_interval_ms = SELECT_INTERVAL_MS;
-    if (state->is_calibrating && !state->is_dry_run) {
+    if (is_calibrating(state) && (state->stage != STAGE_CALIB_DRY)) {
         select_interval_ms = CALIB_SELECT_INTERVAL_MS;
     }
 
@@ -1061,7 +1079,7 @@ void select_codec_auto(codec_select_state_t *state) {
     state->since_last_select_ms += (start_ns - state->last_timestamp_ns) / 1000000;
     state->last_timestamp_ns = start_ns;
 
-    if (state->is_calibrating && state->sync_with_input) {
+    if (is_calibrating(state) && state->sync_with_input) {
         if (state->got_last_frame) {
             SLOGI(SLOG_SELECT, "SELECT | Calibrating | Got last playback frame");
             state->got_last_frame = false;
@@ -1077,40 +1095,32 @@ void select_codec_auto(codec_select_state_t *state) {
 
     state->since_last_select_ms = 0.0f;
 
-    if (state->is_calibrating) {
+    if (is_calibrating(state)) {
         // works on init data which are updated only during calibration
         set_min_pow_id(stats->external_data);
 
-        if (state->is_dry_run) {
-            bool should_still_be_dry = false;
-            for (int id = 0; id < NUM_CONFIGS; ++id) {
-                if (stats->init_nruns[id] < 1) {
-                    should_still_be_dry = true;
-                    break;
-                }
-            }
-            state->is_dry_run = should_still_be_dry;
-        }
-
-        bool should_still_calibrate = false;
-
+        bool stay_in_stage = false;
         for (int id = 0; id < NUM_CONFIGS; ++id) {
-            if (stats->init_nruns[id] < NUM_CALIB_RUNS) {
-                should_still_calibrate = true;
-                break;
-            }
-
-            if (id > 0 && stats->eval_data->init_iou_nsamples[id] < NUM_CALIB_IOU_SAMPLES) {
-                should_still_calibrate = true;
+            if (stats->init_nruns[id] < state->stage_id) {
+                stay_in_stage = true;
                 break;
             }
         }
+
+        if (!stay_in_stage) {
+            state->stage_id += 1;
+            assert(state->stage_id < NUM_STAGES);
+            state->stage = STAGES[state->stage_id];
+        }
+
+        bool should_still_calibrate = state->stage != STAGE_RUNNING;
 
         if (should_still_calibrate) {
             // TODO: Shuffle configs to ensure every run runs each codec once
 //            state->id = rand() % NUM_CONFIGS;
 
-            if (state->is_dry_run ||
+            if ((state->stage == STAGE_CALIB_DRY) ||
+                (state->stage == STAGE_CALIB_IOU_ONLY) ||
                 (stats->init_nsamples[old_id] > stats->init_nsamples_prev[old_id])) {
                 state->id = (old_id + 1) % NUM_CONFIGS;
             }
@@ -1159,7 +1169,6 @@ void select_codec_auto(codec_select_state_t *state) {
                 stats->external_data->ping_ms[id] = stats->external_data->init_ping_ms[id];
             }
 
-            state->is_calibrating = false;
             state->calib_end_ns = get_timestamp_ns();
             SLOGI(SLOG_SELECT, "SELECT | Calibrating | End | (%2d -> %2d)", old_id, state->id);
         }
@@ -1381,8 +1390,8 @@ void signal_eval_finish(codec_select_state_t *state, float iou) {
     int *iou_nsamples;
     float *iou_avg;
 
-    if (!state->is_dry_run) {
-        if (state->is_calibrating) {
+    if (state->stage != STAGE_CALIB_DRY && state->stage != STAGE_CALIB_NO_IOU) {
+        if (is_calibrating(state)) {
             iou_nsamples = &eval_data->init_iou_nsamples[codec_id];
             iou_avg = &eval_data->init_iou[codec_id];
         } else {
@@ -1391,27 +1400,26 @@ void signal_eval_finish(codec_select_state_t *state, float iou) {
         }
 
         if (iou >= 0.0f) {
-            if (state->is_calibrating) {
+            if (is_calibrating(state)) {
                 incr_avg(iou, iou_avg, iou_nsamples);
             } else {
                 ewma(IOU_ALPHA, iou, iou_avg);
             }
         }
+
+        SLOGI(SLOG_EVAL,
+              "SELECT | Signal Eval | Finish | Codec %2d, iou %5.3f, avg iou %5.3f, %d samples",
+              codec_id, iou, *iou_avg, *iou_nsamples);
     }
 
     if (state->enable_profiling) {
         const int64_t eval_ts_ns = get_timestamp_ns();
         log_frame_i64(state->fd, eval_data->frame_id, "cs_eval", "ts_ns", eval_ts_ns);
         log_frame_f(state->fd, eval_data->frame_id, "cs_eval", "iou", iou);
-        if (!state->is_dry_run) {
+        if (state->stage != STAGE_CALIB_DRY && state->stage != STAGE_CALIB_NO_IOU) {
             log_frame_f(state->fd, eval_data->frame_id, "cs_eval", "avg_iou", *iou_avg);
         }
     }
-
-
-    SLOGI(SLOG_EVAL,
-          "SELECT | Signal Eval | Finish | Codec %2d, iou %5.3f, avg iou %5.3f, %d samples",
-          codec_id, iou, *iou_avg, *iou_nsamples);
 
     pthread_mutex_unlock(&state->lock);
 }

@@ -11,11 +11,17 @@ static bool is_eval_running(const eval_pipeline_context_t *eval_ctx) {
 }
 
 static bool
-should_run_eval(const eval_pipeline_context_t *eval_ctx, const codec_config_t *codec_config) {
-    timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (compare_timespec(&ts, &(eval_ctx->next_eval_ts)) > 0 &&
-            REMOTE_DEVICE == codec_config->device_type);
+should_run_eval(const eval_pipeline_context_t *eval_ctx, const bool eval_every_frame,
+                const codec_config_t *codec_config) {
+    if (LOCAL_DEVICE == codec_config->device_type) {
+        return false;
+    } else if (eval_every_frame) {
+        return true;
+    } else {
+        timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        return (compare_timespec(&ts, &(eval_ctx->next_eval_ts)) > 0 && !eval_ctx->is_eval_running);
+    }
 }
 
 static cl_int enqueue_eval_dnn_iou(eval_pipeline_context_t *eval_ctx, const codec_config_t *config,
@@ -94,9 +100,11 @@ submit_eval_frame(eval_pipeline_context_t *eval_ctx, const codec_config_t codec_
 }
 
 cl_int check_eval(eval_pipeline_context_t *eval_ctx, codec_select_state_t *state,
-                  const codec_config_t codec_config, bool *is_eval_frame) {
+                  const codec_config_t codec_config, const bool eval_every_frame,
+                  bool *is_eval_frame) {
+    ZoneScoped;
     cl_int status;
-    *is_eval_frame = 0;
+    *is_eval_frame = false;
 
     if (eval_ctx == NULL) {
         // local only
@@ -112,7 +120,7 @@ cl_int check_eval(eval_pipeline_context_t *eval_ctx, codec_select_state_t *state
                                 sizeof(cl_int), &eval_status, NULL);
         CHECK_AND_RETURN(status, "could not get eval event info");
 
-        if (eval_status == CL_COMPLETE) {
+        if (eval_status == CL_COMPLETE || eval_every_frame) {
             ZoneScopedN("eval poll complete");
 
             // make sure we're synchronized
@@ -142,16 +150,14 @@ cl_int check_eval(eval_pipeline_context_t *eval_ctx, codec_select_state_t *state
                 LOGI("=== EVAL IOU: still running... event status %d\n", eval_status);
             }
         }
-    } else if (should_run_eval(eval_ctx, &codec_config)) {
+    }
+
+    if (should_run_eval(eval_ctx, eval_every_frame, &codec_config)) {
         if (EVAL_VERBOSITY >= 1) {
             LOGI("=== EVAL IOU: signaling to start\n");
         }
 
-        *is_eval_frame = 1;
-    } else {
-        if (EVAL_VERBOSITY >= 1) {
-            LOGI("=== EVAL IOU: nothing\n");
-        }
+        *is_eval_frame = true;
     }
 
     return CL_SUCCESS;
