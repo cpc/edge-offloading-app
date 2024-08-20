@@ -15,8 +15,10 @@ import static org.portablecl.poclaisademo.JNIPoclImageProcessor.REMOTE_DEVICE;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.allCompressionOptions;
 import static org.portablecl.poclaisademo.JNIPoclImageProcessor.getCompressionString;
 import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
+import static java.lang.Float.min;
 
 import android.Manifest;
+import android.app.ActionBar;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -24,7 +26,6 @@ import android.content.res.Configuration;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.Point;
-import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -92,6 +93,8 @@ public class MainActivity extends AppCompatActivity {
      * the camera device that will be used to capture images
      */
     private CameraDevice chosenCamera;
+
+    private int sensorOrientation;
 
     /**
      * used to create capture requests for the camera
@@ -702,7 +705,7 @@ public class MainActivity extends AppCompatActivity {
                 Log.println(Log.INFO, "previewfeed",
                         "callback with these params:" + width + "x" + height);
             }
-            configureTransform(width, height);
+            configureTransform();
             // it is possible that the preview is created before the resize takes effect,
             // making the feed warped, therefore, create preview again.
             try {
@@ -901,12 +904,17 @@ public class MainActivity extends AppCompatActivity {
                 if (pingMonitor != null) {
                     pingMonitor.tick();
                 }
-                String formatString = "FPS: %3.1f (%4.0fms) AVG: %3.1f (%4.0fms)\n" +
-                        "pow: %02.2f (%02.2f) W | EPF: %02.2f (%02.2f) J\n" +
-                        new String(Character.toChars(0x1F50B)) + "time left:%3dm:%2ds |avg " +
-                        "latency:%4.0f ms\n" +
-                        "bandwidth: ∇ %s | ∆ %s\n" +
-                        "ping: %5.1fms AVG: %5.1fms | IoU: %6.4f\n";
+                String formatString = "FPS: %3.1f (%4.0fms) \n" +
+                        "FPS AVG: %3.1f (%4.0fms)\n" +
+                        "POW: %02.2f (%02.2f) W \n" +
+                        "EPF: %02.2f (%02.2f) J\n" +
+                        new String(Character.toChars(0x1F50B)) + "time left:%3dm:%2ds \n" +
+                        "Latency AVG: %4.0f ms\n" +
+                        "Bandwidth: \n" +
+                        "   ∇ %s\n" +
+                        "   ∆ %s\n" +
+                        "ping: %5.1fms AVG: %5.1fms \n" +
+                        "IoU: %6.4f\n";
 
                 float fps = counter.getEMAFPSTimespan();
                 // fallback to the emafps for lower values since it captures it better
@@ -1298,7 +1306,7 @@ public class MainActivity extends AppCompatActivity {
         CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
 
         int displayOrientation = getWindowManager().getDefaultDisplay().getRotation();
-        int sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+        sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
 
         switch (displayOrientation) {
             case Surface.ROTATION_0:
@@ -1368,17 +1376,17 @@ public class MainActivity extends AppCompatActivity {
             }
             previewView.setAspectRatio(previewSize.getHeight(), previewSize.getWidth());
         }
-        configureTransform(width, height);
+        configureTransform();
 
     }
 
     /**
      * set up a transformation for when the device is rotated.
-     *
-     * @param width  width of surface
-     * @param height height of surface
+     * <p>
+     * see https://developer.android.com/media/camera/camera2/camera-preview#relative_rotation
+     * and https://developer.android.com/codelabs/android-camera2-preview#0
      */
-    private void configureTransform(int width, int height) {
+    private void configureTransform() {
         if (DEBUGEXECUTION) {
             Log.println(Log.INFO, "EXECUTIONFLOW", "started configureTransform method");
         }
@@ -1386,49 +1394,62 @@ public class MainActivity extends AppCompatActivity {
         assert previewView != null;
         assert previewSize != null;
 
-        int rotation = getWindowManager().getDefaultDisplay().getRotation();
+        // rotation is in increments of 90 degrees
+        int phoneRotationDegrees = getWindowManager().getDefaultDisplay().getRotation() * 90;
+        Size viewSize = new Size(previewView.getWidth(), previewView.getHeight());
+
+        int relativeRotation = (sensorOrientation - (phoneRotationDegrees) + 360) % 360;
+        // the camera feed is automatically rotated so that it fits the longest side of the phone
+        boolean autoRotationOccurred = relativeRotation % 180 != 0;
+
+        float scaleX = 1f;
+        float scaleY = 1f;
+
+        if (sensorOrientation == 0) {
+            if (autoRotationOccurred) {
+                scaleX = (float) viewSize.getWidth() / previewSize.getWidth();
+                scaleY = (float) viewSize.getHeight() / previewSize.getHeight();
+            } else {
+                scaleX = (float) viewSize.getWidth() / previewSize.getHeight();
+                scaleY = (float) viewSize.getHeight() / previewSize.getWidth();
+            }
+        } else {
+            if (autoRotationOccurred) {
+                scaleX = (float) viewSize.getWidth() / previewSize.getHeight();
+                scaleY = (float) viewSize.getHeight() / previewSize.getWidth();
+            } else {
+                scaleX = (float) viewSize.getWidth() / previewSize.getWidth();
+                scaleY = (float) viewSize.getHeight() / previewSize.getHeight();
+            }
+        }
+
+        // find the smaller scale where the image fits
+        // setting this to max will
+        float finalScale = min(scaleX, scaleY);
+        float centerX = viewSize.getWidth() / 2f;
+        float centerY = viewSize.getHeight() / 2f;
 
         Matrix transformMatrix = new Matrix();
-        RectF viewRect = new RectF(0, 0, width, height);
-        RectF bufferRect = new RectF(0, 0, previewSize.getHeight(), previewSize.getWidth());
-
-        float centerX = viewRect.centerX();
-        float centerY = viewRect.centerY();
-
-        if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
-
-            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY());
-            // todo: check that src and dst should not be switched around
-            transformMatrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.CENTER);
-
-            float transformScale = Math.max(
-                    (float) height / previewSize.getHeight(),
-                    (float) width / previewSize.getWidth()
+        if (autoRotationOccurred) {
+            // the camerafeed has the same rotation as the view, so now scale it so that it fits
+            // and is not warped
+            transformMatrix.setScale(
+                    1 / scaleX * finalScale,
+                    1 / scaleY * finalScale,
+                    centerX,
+                    centerY
             );
-            transformMatrix.postScale(transformScale, transformScale, centerX, centerY);
-            transformMatrix.postRotate(90 * (rotation - 2), centerX, centerY);
-
-            if (VERBOSITY >= 2) {
-                Log.println(Log.INFO, "MainActivity.java:configureTransform", "in rotated surface" +
-                        " with scale: " + transformScale);
-            }
-
-            previewView.setTransform(transformMatrix);
-
-        } else if (rotation == Surface.ROTATION_180) {
-            transformMatrix.postRotate(180, centerX, centerY);
-
-            if (VERBOSITY >= 2) {
-                Log.println(Log.INFO, "MainActivity.java:configureTransform", "in rotated 180 " +
-                        "with scale: ");
-            }
-
-            previewView.setTransform(transformMatrix);
+        } else {
+            // first resize the input image to have the same dimensions as the view
+            transformMatrix.setScale(
+                    (float) viewSize.getHeight() / viewSize.getWidth() / scaleY * finalScale,
+                    (float) viewSize.getWidth() / viewSize.getHeight() / scaleX * finalScale,
+                    centerX,
+                    centerY
+            );
         }
-
-        if (DEBUGEXECUTION) {
-            Log.println(Log.INFO, "EXECUTIONFLOW", "setting transform now");
-        }
+        // then rotate the image the right direction
+        transformMatrix.postRotate((float) -phoneRotationDegrees, centerX, centerY);
 
         previewView.setTransform(transformMatrix);
     }
@@ -1574,6 +1595,7 @@ public class MainActivity extends AppCompatActivity {
 
             SurfaceTexture previewTexture = previewView.getSurfaceTexture();
             assert previewTexture != null;
+
 
             previewTexture.setDefaultBufferSize(previewSize.getWidth(), previewSize.getHeight());
             Surface previewSurface = new Surface(previewTexture);

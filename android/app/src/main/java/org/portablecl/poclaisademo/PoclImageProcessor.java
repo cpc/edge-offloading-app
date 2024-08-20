@@ -709,6 +709,7 @@ public class PoclImageProcessor {
                         captureSize, orientationsSwapped);
 
                 if (enableQualityAlgorithm) {
+                    // TODO: move outside loop so that pip.java also works on non activity objects
                     // Decide which codec to use for the next frame
                     poclSelectCodecAuto();
 

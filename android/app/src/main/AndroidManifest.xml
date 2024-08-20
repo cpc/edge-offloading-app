@@ -30,7 +30,8 @@
         tools:targetApi="31">
         <activity
             android:name=".BenchmarkConfigurationActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:screenOrientation="portrait"/>
 
         <service
             android:name=".BenchmarkService"
@@ -49,8 +50,9 @@
         </activity>
         <activity
             android:name=".MainActivity"
-            android:screenOrientation="portrait"
-            android:exported="true">
+            android:screenOrientation="landscape"
+            android:exported="true"
+            android:theme="@style/Theme.AppCompat.NoActionBar">
         </activity> <!-- set required="true" to force apk to only install on devices that have a local OpenCL library -->
         <uses-native-library
             android:name="libOpenCL.so"

@@ -8,27 +8,32 @@
 
     <org.portablecl.poclaisademo.AutoFitTextureView
         android:id="@+id/cameraFeed"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginStart="300dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.0" />
 
     <TextureView
         android:id="@+id/segmentationOverlay"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        app:layout_constraintBottom_toBottomOf="@id/cameraFeed"
+        app:layout_constraintEnd_toEndOf="@id/cameraFeed"
         app:layout_constraintStart_toStartOf="@+id/cameraFeed"
         app:layout_constraintTop_toTopOf="@+id/cameraFeed" />
 
     <TextView
         android:id="@+id/cl_output"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:fontFamily="monospace"
         android:includeFontPadding="false"
         android:shadowRadius="3"
+        app:layout_constraintEnd_toStartOf="@+id/cameraFeed"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         tools:text="from OpenCL" />
@@ -48,63 +53,70 @@
         android:id="@+id/modeSwitch"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="25dp"
-        android:layout_marginBottom="10dp"
+        android:layout_marginTop="8dp"
         android:checked="false"
         android:showText="true"
         android:text="Mode"
         android:textOff="Local"
         android:textOn="Remote"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintEnd_toEndOf="@+id/segmentSwitch"
+        app:layout_constraintStart_toStartOf="@+id/segmentSwitch"
+        app:layout_constraintTop_toBottomOf="@+id/discoverySpinner" />
 
     <Switch
         android:id="@+id/segmentSwitch"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginEnd="25dp"
-        android:layout_marginBottom="10dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"
         android:checked="true"
         android:showText="true"
         android:text="Segmentation"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toEndOf="@+id/modeSwitch" />
+        app:layout_constraintEnd_toStartOf="@+id/cameraFeed"
+        app:layout_constraintHorizontal_bias="0.5"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/modeSwitch"
+        app:layout_constraintVertical_bias="0.111" />
+
+    <Spinner
+        android:id="@+id/discoverySpinner"
+        android:layout_width="47dp"
+        android:layout_height="42dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="8dp"
+        android:background="@android:drawable/btn_dropdown"
+        android:spinnerMode="dialog"
+        app:layout_constraintBottom_toTopOf="@+id/modeSwitch"
+        app:layout_constraintEnd_toStartOf="@+id/cameraFeed" />
 
     <org.portablecl.poclaisademo.DropEditText
         android:id="@+id/compressionEditText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="5dp"
-        android:layout_marginBottom="25dp"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="8dp"
         android:ems="3"
         android:inputType="number"
         android:selectAllOnFocus="true"
         android:text="80"
         android:textAlignment="textEnd"
         app:layout_constraintBottom_toTopOf="@+id/modeSwitch"
+        app:layout_constraintEnd_toStartOf="@+id/compressionSpinner"
         app:layout_constraintStart_toStartOf="parent" />
-
-    <Spinner
-        android:id="@+id/discoverySpinner"
-        android:layout_width="47dp"
-        android:layout_height="42dp"
-        android:layout_marginEnd="24dp"
-        android:layout_marginBottom="24dp"
-        android:background="@android:drawable/btn_dropdown"
-        android:spinnerMode="dialog"
-        app:layout_constraintBottom_toTopOf="@+id/modeSwitch"
-        app:layout_constraintEnd_toEndOf="parent" />
 
     <Spinner
         android:id="@+id/compressionSpinner"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
-        android:layout_marginBottom="24dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="8dp"
         android:text="comp: "
         app:layout_constraintBottom_toTopOf="@+id/modeSwitch"
         app:layout_constraintEnd_toStartOf="@+id/discoverySpinner"
+        app:layout_constraintHorizontal_bias="0.5"
         app:layout_constraintStart_toEndOf="@+id/compressionEditText" />
 
 
