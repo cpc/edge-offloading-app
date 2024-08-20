@@ -10,6 +10,7 @@
 #include "jpeg_compression.h"
 #include "poclImageProcessorTypes.h"
 #include "yuv_compression.h"
+#include "PingThread.h"
 
 #include "testapps.h"
 #include <stdint.h>
@@ -121,8 +122,9 @@ typedef struct {
     sem_t image_sem; // keep track of how many images are available
     int file_descriptor; // used to log info
 
-    ping_fillbuffer_context_t *ping_context; // used to measure pings
+    // TODO: see if this should be moved to pingThread
     cl_command_queue remote_queue; // used to run the ping
+    PingThread *ping_thread; // used to schedule pings
 
     cl_command_queue read_queue; // queue to read the collected results
 

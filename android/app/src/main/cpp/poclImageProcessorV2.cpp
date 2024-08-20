@@ -537,7 +537,6 @@ int create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, 
     CATCH_AND_SET_STATUS(status, "creating read queue failed");
 
     if (devices_found > 2) {
-        ping_fillbuffer_init(&(ctx->ping_context), context);
 
         ctx->remote_queue = clCreateCommandQueueWithProperties(context, devices[REMOTE_DEVICE],
                                                                cq_properties,
@@ -549,6 +548,8 @@ int create_pocl_image_processor_context(pocl_image_processor_context **ret_ctx, 
 
         // TODO: create a thread that waits on the eval queue
         //  for now read eval data when reading results
+
+        ctx->ping_thread = new PingThread(context);
     }
 
     for (int i = 0; i < MAX_NUM_CL_DEVICES; ++i) {
@@ -641,7 +642,6 @@ int destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr)
             destroy_pipeline_context(ctx->pipeline_array[i]);
         }
     }
-    ping_fillbuffer_destroy(&(ctx->ping_context));
 
     free(ctx->collected_results);
 
@@ -655,6 +655,9 @@ int destroy_pocl_image_processor_context(pocl_image_processor_context **ctx_ptr)
     if (ctx->eval_ctx != NULL) {
         destroy_eval_context(&ctx->eval_ctx);
     }
+
+    delete ctx->ping_thread;
+    ctx->ping_thread = nullptr;
 
     // FIXME release global hevc configs
 
@@ -941,10 +944,7 @@ int submit_image(pocl_image_processor_context *ctx, codec_config_t codec_config,
     // run the ping buffer (needs to run also on local device to check if network improved)
     if (ctx->devices_found > 2) {
         // todo: see if this should be run on every device
-//        image_metadata->host_ts_ns.before_fill = get_timestamp_ns();
-        status = ping_fillbuffer_run(ctx->ping_context, ctx->remote_queue,
-                                     ctx->pipeline_array[index].event_array);
-        CHECK_AND_CATCH_NO_STATE(status, "could not ping remote");
+        ctx->ping_thread->ping(ctx->remote_queue);
     }
 
     collected_result->event_list[1] = NULL;
@@ -1137,38 +1137,8 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
         // Don't track networking latency if the only available device is local
         image_metadata.host_ts_ns.fill_ping_duration_ms = 0;
     } else {
-        cl_int fill_status;
-        status = clGetEventInfo(ctx->ping_context->event, CL_EVENT_COMMAND_EXECUTION_STATUS,
-                                sizeof(cl_int),
-                                &fill_status, NULL);
-        CHECK_AND_CATCH(status, "could not get fill event info", new_state);
-
-        if (fill_status == CL_COMPLETE) {
-            // make sure we're synchronized
-            {
-                ZoneScopedN("fill ping wait");
-                clWaitForEvents(1, &ctx->ping_context->event);
-            }
-
-            // Fill ping completed sooner than the rest of the loop
-            cl_ulong start_time_ns, end_time_ns;
-            status = clGetEventProfilingInfo(ctx->ping_context->event, CL_PROFILING_COMMAND_START,
-                                             sizeof(cl_ulong), &start_time_ns, NULL);
-
-            CHECK_AND_CATCH(status, "could not get fill event start\n", new_state);
-
-            status = clGetEventProfilingInfo(ctx->ping_context->event, CL_PROFILING_COMMAND_END,
-                                             sizeof(cl_ulong),
-                                             &end_time_ns, NULL);
-
-            CHECK_AND_CATCH(status, "could not get fill event end \n", new_state);
-
-            image_metadata.host_ts_ns.fill_ping_duration_ms =
-                    (int64_t) (end_time_ns) - (int64_t) (start_time_ns);
-        } else {
-            // Fill ping still not complete, don't wait for it and use a negative value to indicate this
-            image_metadata.host_ts_ns.fill_ping_duration_ms = -1;
-        }
+        image_metadata.host_ts_ns.fill_ping_duration_ms = ctx->ping_thread->getPing();
+        LOGE("ping duration %ld \n", image_metadata.host_ts_ns.fill_ping_duration_ms);
     }
 
 //    if (image_metadata.latency_offset_ms > 0) {

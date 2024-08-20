@@ -169,7 +169,8 @@ int ping_fillbuffer_destroy(ping_fillbuffer_context_t **ctx) {
 
     if (ctx != NULL && *ctx != NULL) {
         COND_REL_MEM((*ctx)->buf);
-        free((*ctx)->buf);
+        free(*ctx);
+        *ctx = nullptr;
     }
 
     return status;

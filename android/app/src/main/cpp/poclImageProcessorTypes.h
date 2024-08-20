@@ -52,6 +52,7 @@ typedef struct {
     int64_t before_wait;
     int64_t after_wait;
     int64_t stop;
+    // TODO: change name to ns
     int64_t fill_ping_duration_ms;
 } host_ts_ns_t;
 

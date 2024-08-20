@@ -213,6 +213,7 @@ add_library(poclnative
         RawImageReader.cpp RawImageReader.hpp
 		segment_4b_compression.cpp segment_4b_compression.hpp
 		opencl_utils.cpp opencl_utils.hpp
+		PingThread.cpp PingThread.h
         )
 
 add_library(libpocl_pthread_add_i8 SHARED IMPORTED)
