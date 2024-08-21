@@ -18,7 +18,6 @@ import static org.portablecl.poclaisademo.JNIutils.setNativeEnv;
 import static java.lang.Float.min;
 
 import android.Manifest;
-import android.app.ActionBar;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -258,11 +257,6 @@ public class MainActivity extends AppCompatActivity {
      * needed to stop the stat logging thread
      */
     private ScheduledFuture statLoggerFuture;
-
-    /**
-     * needed to stop the ping pushing thread
-     */
-    private ScheduledFuture pingPusherFuture;
 
     private CameraLogger cameraLogger;
 
@@ -836,10 +830,6 @@ public class MainActivity extends AppCompatActivity {
                     statUpdateScheduler.scheduleAtFixedRate(statLogger,
                             1000, 20, TimeUnit.MILLISECONDS);
 
-            // Pushing ping to the codec_select at a higher rate than UI updates
-            pingPusherFuture = statUpdateScheduler.scheduleAtFixedRate(pingPusher,
-                            1000, 200, TimeUnit.MILLISECONDS);
-
             setupCamera();
             poclImageProcessor.start();
 
@@ -901,9 +891,7 @@ public class MainActivity extends AppCompatActivity {
 
                 energyMonitor.tick();
                 trafficMonitor.tick();
-                if (pingMonitor != null) {
-                    pingMonitor.tick();
-                }
+
                 String formatString = "FPS: %3.1f (%4.0fms) \n" +
                         "FPS AVG: %3.1f (%4.0fms)\n" +
                         "POW: %02.2f (%02.2f) W \n" +
@@ -934,20 +922,6 @@ public class MainActivity extends AppCompatActivity {
                 float iou = poclImageProcessor.getLastIou();
                 float emaLatency = counter.getEmaLatency() / 1000;
 
-                // pingMonitor can be null because the pingreader is started when the mode switch
-                // is pressed
-                float ping = 0.0f;
-                float ping_avg = 0.0f;
-                if (pingMonitor != null && !pingMonitor.isReaderNull()) {
-                    ping = pingMonitor.getPing();
-                    ping_avg = pingMonitor.getAveragePing();
-                }
-
-                // get ping from fill buffer
-//                Stats stats = getStats();
-//                float ping = stats.pingMs;
-//                float ping_avg = stats.pingMsAvg;
-
                 String statString = String.format(Locale.US, formatString,
                         fps, fpssecs,
                         avgfps, avgfpssecs,
@@ -975,15 +949,6 @@ public class MainActivity extends AppCompatActivity {
                 e.printStackTrace();
             }
 
-        }
-    };
-
-    private final Runnable pingPusher = new Runnable() {
-        @Override
-        public void run() {
-            if (pingMonitor != null) {
-                pingMonitor.tick();
-            }
         }
     };
 
@@ -1033,19 +998,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Statistics from the image processing loop that we might be interested in displaying in the UI
-     */
-    static class Stats {
-        public final float pingMs;
-        public final float pingMsAvg;
-
-        public Stats(float pingMs, float pingMsAvg) {
-            this.pingMs = pingMs;
-            this.pingMsAvg = pingMsAvg;
-        }
-    }
-
-    /**
      * enable or disable the mode switch. when disabling it, also set the switch to not checked
      *
      * @param value true to allow users to use the mode switch otherwise disable it
@@ -1082,11 +1034,6 @@ public class MainActivity extends AppCompatActivity {
         if (null != statLoggerFuture) {
             statLoggerFuture.cancel(true);
             statLoggerFuture = null;
-        }
-
-        if (null != pingPusherFuture) {
-            pingPusherFuture.cancel(true);
-            pingPusherFuture = null;
         }
 
         if(null != pingMonitor) {

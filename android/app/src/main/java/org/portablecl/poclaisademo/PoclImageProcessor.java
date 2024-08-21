@@ -368,6 +368,7 @@ public class PoclImageProcessor {
                             "could not open log filedescriptor");
                     return;
                 }
+                assert logParcelFd != null;
                 logFd = logParcelFd.getFd();
             }
             int calibrateFd = -1;
@@ -375,6 +376,7 @@ public class PoclImageProcessor {
                 try {
                     calibrateParcelFd = context.getContentResolver().openFileDescriptor(vidUri,
                             "r");
+                    assert calibrateParcelFd != null;
                     calibrateFd = calibrateParcelFd.getFd();
                 } catch (Exception e) {
                     Log.println(Log.ERROR, "PoclImageProcessor.java:imageProcessLoop",
@@ -504,7 +506,6 @@ public class PoclImageProcessor {
 
                     // check that the image is supported
                     assert checkImageFormat(image);
-                    energy = statLogger.getCurrentEnergy();
 
                     ByteBuffer Y = planes[0].getBuffer();
                     YPixelStride = planes[0].getPixelStride();

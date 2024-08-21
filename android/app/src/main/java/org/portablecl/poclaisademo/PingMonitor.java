@@ -1,7 +1,6 @@
 package org.portablecl.poclaisademo;
 
 import static org.portablecl.poclaisademo.DevelopmentVariables.VERBOSITY;
-import static org.portablecl.poclaisademo.JNIPoclImageProcessor.pushExternalPing;
 
 import android.util.Log;
 
