@@ -1141,7 +1141,6 @@ int receive_image(pocl_image_processor_context *const ctx, int32_t *detection_ar
         image_metadata.host_ts_ns.fill_ping_duration_ms = 0;
     } else {
         image_metadata.host_ts_ns.fill_ping_duration_ms = ctx->ping_thread->getPing();
-        LOGE("ping duration %ld \n", image_metadata.host_ts_ns.fill_ping_duration_ms);
     }
 
 //    if (image_metadata.latency_offset_ms > 0) {
