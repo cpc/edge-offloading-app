@@ -1,6 +1,8 @@
 # Open Software Stack for Compression-Aware Adaptive Edge Offloading
 
-This is the official repository of the paper "Open Software Stack for Compression-Aware Adaptive Edge Offloading" accepted for the WCNC 2025 conference.
+Edge offloading of semantic segmentation with dynamically selectable compression and local/remote processing. Includes remote server discovery.
+
+This repository was used to produce results for the paper _Jakub Žádník, Robin Bijl, Jan Solanti, Erno Joensuu, Markku Mäkitalo, Pekka Jääskeläinen, **"Open Software Stack for Compression-Aware Adaptive Edge Offloading"**, in Proc. WCNC 2025._
 
 ## Cloning the Repository
 
