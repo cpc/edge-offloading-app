@@ -1,15 +1,8 @@
-# AISA demo
+# Open Software Stack for Compression-Aware Adaptive Edge Offloading
 
-This repo is the basis for the PoCL AISA demo and contains code to run an android application with OpenCL.
+This is the official repository of the paper "Open Software Stack for Compression-Aware Adaptive Edge Offloading" accepted for the WCNC 2025 conference.
 
-## Useful Links
-
-### Wiki
-
-* Android-related topics: https://wiki.eduuni.fi/display/tutcpc/Android+Related
-* Topics related to AISA offloading demonstrator: https://wiki.eduuni.fi/display/tutcpc/AISA+Related
-
-## Cloning Repo
+## Cloning the Repository
 
 clone the repo with its submodules with the following command:
 
@@ -43,8 +36,11 @@ Android constantly updates packages and libraries that can break with newer vers
 
 ## Installation
 
+### pocl
 
-## Check that phone exposes the OpenCL library
+This project depends on a custom fork of https://github.com/pocl/pocl, included in the `external/pocl` directory. To build the server, use the attached `build/run_pocl_remote.sh` scripts (make sure to modify the paths as necessary).
+
+### Check that phone exposes the OpenCL library
 Some phones provide a OpenCL library that can be used in C. This library needs to be whitelisted by the vendor. This can be checked like so:
 1. adb into the phone
 2. run:
@@ -112,10 +108,6 @@ make sure you built OpenCV and PoCL while having the `LD_LIBRARY_PATH` environme
 /usr/local/cuda-11.7/lib64:/lib/x86_64-linux-gnu
 ```
 in that order
-
-## Usage
-
-### TO BE ADDED
 
 ## Development notes
 
