@@ -1,0 +1,7 @@
+To run the CLBlast tests using pocl:
+
+1) Install a BLAS that the CLBlast's tests can compare the
+runs against, e.g. "apt install libblas-dev".
+
+2) Reconfigure pocl and run make prepare_examples, which
+clones CLBlast, builds it and enables it as a stest suite.

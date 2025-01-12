@@ -1,0 +1,90 @@
+This file tries to list all the people contributed code, documentation, test
+cases, etc. to the pocl project in the chronological order of their first
+contribution. Please tell if we missed your name (sorry in advance).
+
+Carlos Sánchez de La Lama
+Pekka Jääskeläinen
+Erik Schnetter
+Heikki Kultala
+Vladimír Guzma
+Kalle Raiskila
+Vincent Danjean
+Timo Viitanen
+Cyril Roelandt
+Victor Oliveira
+Jesse Towner
+Brandon Surmanski
+Bryan Bell
+Andreas Klöckner
+Oliver Hartmann
+Ville Korhonen
+Giuseppe Bilotta
+Peter Colberg
+Mikael Lepistö
+Clément Léger
+Logan Chien
+Richard Sandiford (Scalarizer.cpp)
+Michal Babej
+Kristian Mört
+Felix Bytow
+Matias Koskela
+Martin Stumpf
+James Price
+Lars-Dominik Braun
+Daniel Sanders
+Lee Ki-ju
+Krishnaraj Bhat
+Martin Hauke
+Volkan Keleş
+Lassi Koskinen
+Hugo van der Wijst <hugwijst@gmail.com>
+Mateusz Szpakowski <matszpk@interia.pl>
+Lars Buitinck (larsmans)
+Chen Chou-chuan <ccchen@pllab.cs.nthu.edu.tw>
+Shao-chung Wang <scwang@pllab.cs.nthu.edu.tw>
+Pavan Yalamanchili <pavan@arrayfire.com>
+Romaric Jodin <rjodin@kalray.eu>
+Masataro Asai <guicho2.71828@gmail.com>
+Richard Crowder <riccro@gmail.com>
+Matthias Noack <ma.noack.pr@gmail.com>
+Sam McKelvie <sammck@gmail.com>
+Tom Gall <tom_gall@mac.com>
+Arda Coskunses <ardacoskunses@yahoo.com>
+Minh Quan HO <mqho@kalray.eu>
+Matt Wala <wala1@illinois.edu>
+Jonas Hahnfeld <Hahnfeld@itc.rwth-aachen.de>
+Ronan Keryell <ronan.keryell@xilinx.com>
+Rodrigo Tobar <rtobar@icrar.org>
+Martin Krastev <blu.dark@gmail.com>
+Tom Stellard <tstellar@redhat.com>
+Nick Curtis <nicholas.curtis@uconn.edu>
+Konstantin Bakanov <kostik_b@zoho.com>
+Andreas Beckmann <anbe@debian.org>
+Isuru Fernando <isuruf@gmail.com>
+Jeff Hammond <jeff.science@gmail.com>
+Julius Ikkala <julius.ikkala@tut.fi>
+Steve Holland <sdh4@iastate.edu>
+Wilfried Holzke <github@holzke.net>
+Maxim Eremenko <moeryomenko@gmail.com>
+Andrew Gozillon <andrew.gozillon@yahoo.com>
+Jan Solanti <jan.solanti@tuni.fi>
+Stefan Brüns <stefan.bruens@rwth-aachen.de>
+Tobias Baumann <t.baumann@agdsn.de>
+Alberto Cerato <alberto.cerato@fcagroup.com>
+Simon Branford <s.j.branford@bham.ac.uk>
+Alexandru Fikl <alexfikl@gmail.com>
+Matthias Diener <mdiener@illinois.edu>
+Mauri Mustonen <mauri_mustonen@hotmail.com>
+Lars Herschke <lhersch@dssgmbh.de>
+Roman Rusyaev <rusyaev.rm@gmail.com>
+Väinö Liukko <vaino.liukko@gmail.com>
+Nia Alarie <nia@NetBSD.org>
+fn ⌃ ⌥ (FnControlOption)
+Tom Rix <trix@redhat.com>
+Joachim Meyer <joachim@joameyer.de>
+Alexandre Ghiti <alexandre.ghiti@canonical.com>
+Michel Migdal
+Nicholas Christensen
+Sergei Barannikov <barannikov88@gmail.com>
+Ben Ashbaugh <ben.ashbaugh@intel.com>
+Vincent A. Arcila <vincent.arcila@bsc.es>

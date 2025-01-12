@@ -1,0 +1,13 @@
+--- a/rodinia_3.1/opencl/leukocyte/OpenCL/Makefile	2015-12-19 19:13:31.078863235 +0100
++++ b/rodinia_3.1/opencl/leukocyte/OpenCL/Makefile	2015-12-19 19:15:37.812197722 +0100
+@@ -22,8 +22,8 @@
+ leukocyte: detect_main.o avilib.o find_ellipse.o find_ellipse_opencl.o track_ellipse.o track_ellipse_opencl.o misc_math.o OpenCL_helper_library.o $(MATRIX_DIR)/meschach.a
+ 	$(CC) $(CC_FLAGS) -lm avilib.o find_ellipse.o find_ellipse_opencl.o track_ellipse.o track_ellipse_opencl.o misc_math.o OpenCL_helper_library.o detect_main.o -o leukocyte $(MATRIX_DIR)/meschach.a -L$(OPENCL_LIB) -lm -lOpenCL
+ 
+-%.o: %.[ch]
+-	$(CC) $(OUTPUT) $(CC_FLAGS) $< -c
++%.o: %.c
++	$(CC) $(OUTPUT) $(CC_FLAGS) -o $@ -c $<
+ 
+ detect_main.o: detect_main.c find_ellipse.h track_ellipse.h avilib.h
+ 
