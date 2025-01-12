@@ -1,6 +1,6 @@
 [submodule "external/libopencl-stub"]
 	path = external/libopencl-stub
-	url = git@github.com:krrishnarraj/libopencl-stub.git
+	url = https://github.com/krrishnarraj/libopencl-stub.git
 [submodule "external/opencv"]
 	path = external/opencv
 	url = https://github.com/opencv/opencv
