@@ -36,11 +36,21 @@ Android constantly updates packages and libraries that can break with newer vers
 | C++                           | 17                      | android/app/build.gradle > cppFlags '-std=c++\<version\>'              |
 
 
-## Installation
+## Installation and Requirements
+
+The smartphone application can be found in the `android/` directory. Open and install it with Android Studio.
+You should be able to run the semantic segmentation locally.
+For remote inference, you need to build the server separately (see below) and add its IP address into the application.
+
+The project requires installation of libraries inside the `external` directory.
+The Tracy profiler in `external/tracy` is not required unless you plan to profile the application.
 
 ### pocl
 
-This project depends on a custom fork of https://github.com/pocl/pocl, included in the `external/pocl` directory. To build the server, use the attached `build/run_pocl_remote.sh` scripts (make sure to modify the paths as necessary).
+This project depends on a custom fork of an OpeCL implementation [pocl](https://github.com/pocl/pocl), included in the `external/pocl` directory.
+To build the server, use the attached `build_pocl_remote.sh` script (make sure to modify the paths as necessary).
+To run the server, use `run_pocl_remote.sh` (again adapting paths as necessary).
+When the server is running, it is possible to offload computation to it by adding its IP address to the smartphone application.
 
 ### Check that phone exposes the OpenCL library
 Some phones provide a OpenCL library that can be used in C. This library needs to be whitelisted by the vendor. This can be checked like so:
