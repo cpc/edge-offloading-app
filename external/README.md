@@ -2,4 +2,4 @@
 
 ## libjpeg-turbo
 
-Build with `build_turbojpeg.bash` and copy the "libturbojpeg" folder to "/home/admtuni" on Verne Global server.
+Build with `scripts/build_turbojpeg.bash` and set up the installation directory inside `external/pocl/build_pocl_remote.sh` (default it `$HOME`).
