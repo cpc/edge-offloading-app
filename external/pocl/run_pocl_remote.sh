@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
 # Copy .onnx models to the expected /tmp directory. The yolov8n-seg.onnx (found
-# in android/app/src/main/assets) is required.
-cp ~/models/*.onnx /tmp
+# in android/app/src/main/assets) is required. Other YOLOv8 models can be used 
+# by generating the .onnx files from https://github.com/ultralytics/ultralytics
+cp ../../android/app/src/main/assets/yolov8n-seg.onnx /tmp
 
 # Path to the pocl project (this directory), for example:
 POCL_DIR="${HOME}/pocl"
